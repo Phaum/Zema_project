@@ -1,0 +1,216 @@
+.auth-page {
+  min-height: 100vh;
+  background: 
+    url('/zema-project/zema-platform/src/images/zema_background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.auth-header {
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.company-title-auth {
+  color: white !important;
+  font-size: 48px !important;
+  font-weight: 800 !important;
+  margin-bottom: 0 !important;
+  letter-spacing: 1px;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.auth-card {
+  width: 100%;
+  border-radius: 0 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+  border: none !important;
+  overflow: hidden;
+  background: white;
+  border: 2px solid white !important;
+}
+
+.auth-tabs {
+  border-bottom: 2px solid #f0f0f0 !important;
+}
+
+.auth-tabs .ant-tabs-nav {
+  margin-bottom: 30px;
+}
+
+.auth-tabs .ant-tabs-tab {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  padding: 16px 0 !important;
+  margin: 0 30px !important;
+  color: #666 !important;
+  border-radius: 0 !important;
+}
+
+.auth-tabs .ant-tabs-tab-active {
+  font-weight: 700 !important;
+}
+
+.auth-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #1890ff !important;
+}
+
+.auth-tabs .ant-tabs-ink-bar {
+  background: #1890ff !important;
+  height: 3px !important;
+}
+
+.auth-form {
+  margin-top: 10px;
+}
+
+.auth-input {
+  border-radius: 0 !important;
+  padding: 12px 16px !important;
+  border: 2px solid #e8e8e8 !important;
+  font-size: 16px !important;
+  height: auto !important;
+}
+
+.auth-input:hover {
+  border-color: #1890ff !important;
+}
+
+.auth-input:focus {
+  border-color: #1890ff !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.form-options {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+
+.forgot-password {
+  padding: 0 !important;
+  height: auto !important;
+  color: #1890ff !important;
+  font-size: 14px !important;
+  border-radius: 0 !important;
+}
+
+.forgot-password:hover {
+  color: #096dd9 !important;
+}
+
+.auth-button {
+  border-radius: 0 !important;
+  font-weight: 600 !important;
+  height: 48px !important;
+  font-size: 16px !important;
+  background: #1890ff !important;
+  border: 2px solid #1890ff !important;
+  margin-top: 10px !important;
+  transition: all 0.2s ease !important;
+}
+
+.auth-button:hover {
+  background: #096dd9 !important;
+  border-color: #096dd9 !important;
+  transform: none;
+  box-shadow: none !important;
+}
+
+.auth-footer {
+  text-align: center;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 2px solid #f0f0f0;
+}
+
+.switch-auth {
+  padding: 0 4px !important;
+  height: auto !important;
+  color: #1890ff !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+}
+
+.switch-auth:hover {
+  color: #096dd9 !important;
+}
+
+.privacy-notice {
+  margin-top: 30px;
+  padding: 20px;
+  background-color: #fafafa;
+  text-align: center;
+  border-top: 2px solid #f0f0f0;
+}
+
+.privacy-notice .ant-typography {
+  color: #666 !important;
+  font-size: 14px !important;
+}
+
+.ant-checkbox-wrapper {
+  color: #666;
+  font-size: 14px;
+  border-radius: 0 !important;
+}
+
+.ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #1890ff !important;
+  border-color: #1890ff !important;
+  border-radius: 0 !important;
+}
+
+@media (max-width: 768px) {
+  .company-title-auth {
+    font-size: 36px !important;
+  }
+  
+  .auth-card {
+    margin: 0 20px;
+  }
+  
+  .auth-tabs .ant-tabs-tab {
+    font-size: 14px !important;
+    margin: 0 20px !important;
+    padding: 14px 0 !important;
+  }
+  
+  .auth-input {
+    padding: 10px 14px !important;
+  }
+  
+  .auth-button {
+    height: 44px !important;
+    font-size: 15px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .company-title-auth {
+    font-size: 32px !important;
+  }
+  
+  .auth-tabs .ant-tabs-tab {
+    font-size: 13px !important;
+    margin: 0 10px !important;
+  }
+  
+  .auth-page {
+    padding: 10px;
+  }
+}
