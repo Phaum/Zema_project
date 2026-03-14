@@ -7,6 +7,33 @@ from pynspd import Nspd
 MAX_RETRIES = 5
 INITIAL_DELAY = 2
 
+def extract_centroid(geometry):
+    if not geometry or not geometry.coordinates:
+        return None, None
+    
+    g_type = geometry.type.lower()
+    coords = geometry.coordinates
+
+    try:
+        if g_type == 'point':
+            return coords[0], coords[1]
+        
+        elif g_type == 'polygon':
+            # Берем среднее арифметическое всех точек внешнего кольца
+            external_ring = coords[0]
+            lng = sum(p[0] for p in external_ring) / len(external_ring)
+            lat = sum(p[1] for p in external_ring) / len(external_ring)
+            return lng, lat
+        
+        elif g_type == 'multipolygon':
+            # Берем первую точку первого полигона (для простоты)
+            first_point = coords[0][0][0]
+            return first_point[0], first_point[1]
+            
+    except Exception:
+        return None, None
+    return None, None
+
 def get_cadastral_info(num):
     delay = INITIAL_DELAY
     
@@ -23,9 +50,7 @@ def get_cadastral_info(num):
                 data = feat.properties.options.model_dump()
 
                 # 2. Получаем координаты из геометрии объекта
-                # feat.geometry.coordinates обычно содержит [longitude, latitude]
-                coords = feat.geometry.coordinates if feat.geometry else [None, None]
-                lng, lat = coords if len(coords) == 2 else (None, None)
+                lng, lat = extract_centroid(feat.geometry)
 
                 # 3. Сбор всех данных
                 year_built = data.get('year_built')
