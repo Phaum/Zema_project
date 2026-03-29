@@ -1,10 +1,49 @@
 import {
-    ValuationProject,
     ProjectQuestionnaire,
     ProjectResult,
     User,
+    ValuationProject,
 } from '../models/index.js';
+import { sequelize } from '../config/db.js';
 import { PAYMENT_STATUS, hasActiveSubscription } from '../constants/payment.js';
+import { AppError } from '../utils/errorHandler.js';
+import { asyncHandler, sendJson } from '../utils/http.js';
+
+const PROJECT_ATTRIBUTES = [
+    'id',
+    'user_id',
+    'name',
+    'object_type',
+    'status',
+    'payment_status',
+    'payment_tariff_code',
+    'payment_amount',
+    'payment_currency',
+    'paid_at',
+    'created_at',
+    'updated_at',
+];
+
+const PROJECT_QUESTIONNAIRE_ATTRIBUTES = [
+    'id',
+    'project_id',
+    'projectName',
+    'calculationMethod',
+    'objectType',
+    'buildingCadastralNumber',
+    'objectAddress',
+    'totalArea',
+    'created_at',
+    'updated_at',
+];
+
+const PROJECT_RESULT_ATTRIBUTES = [
+    'id',
+    'project_id',
+    'estimated_value',
+    'created_at',
+    'updated_at',
+];
 
 function attachProjectAccess(project, subscriptionActive) {
     const plain = typeof project?.toJSON === 'function' ? project.toJSON() : { ...(project || {}) };
@@ -22,203 +61,185 @@ function attachProjectAccess(project, subscriptionActive) {
     };
 }
 
-export const getProjects = async (req, res) => {
-    try {
-        const user = await User.findByPk(req.user.id, {
-            attributes: ['id', 'subscription_status', 'subscription_expires_at'],
-        });
-        const subscriptionActive = hasActiveSubscription(user);
+async function loadUserSubscriptionState(userId, transaction) {
+    const user = await User.findByPk(userId, {
+        attributes: ['id', 'subscription_status', 'subscription_expires_at'],
+        transaction,
+    });
 
-        const projects = await ValuationProject.findAll({
+    return hasActiveSubscription(user);
+}
+
+function buildProjectInclude({ includeDetails = false } = {}) {
+    return [
+        {
+            model: ProjectQuestionnaire,
+            as: 'questionnaire',
+            required: false,
+            attributes: includeDetails ? undefined : PROJECT_QUESTIONNAIRE_ATTRIBUTES,
+        },
+        {
+            model: ProjectResult,
+            as: 'result',
+            required: false,
+            attributes: includeDetails ? undefined : PROJECT_RESULT_ATTRIBUTES,
+        },
+    ];
+}
+
+async function findOwnedProject(projectId, userId, options = {}) {
+    const { transaction, includeDetails = false } = options;
+
+    return ValuationProject.findOne({
+        where: {
+            id: projectId,
+            user_id: userId,
+        },
+        attributes: PROJECT_ATTRIBUTES,
+        include: buildProjectInclude({ includeDetails }),
+        transaction,
+    });
+}
+
+async function getOwnedProjectOrThrow(projectId, userId, options = {}) {
+    const project = await findOwnedProject(projectId, userId, options);
+
+    if (!project) {
+        throw new AppError('Проект не найден', 404);
+    }
+
+    return project;
+}
+
+export const getProjects = asyncHandler(async (req, res) => {
+    const [subscriptionActive, projects] = await Promise.all([
+        loadUserSubscriptionState(req.user.id),
+        ValuationProject.findAll({
             where: { user_id: req.user.id },
-            attributes: [
-                'id',
-                'user_id',
-                'name',
-                'object_type',
-                'status',
-                'payment_status',
-                'payment_tariff_code',
-                'payment_amount',
-                'payment_currency',
-                'paid_at',
-                'created_at',
-                'updated_at',
-            ],
-            include: [
-                {
-                    model: ProjectQuestionnaire,
-                    as: 'questionnaire',
-                    required: false,
-                    attributes: [
-                        'id',
-                        'project_id',
-                        'projectName',
-                        'calculationMethod',
-                        'objectType',
-                        'buildingCadastralNumber',
-                        'objectAddress',
-                        'totalArea',
-                        'created_at',
-                        'updated_at',
-                    ],
-                },
-                {
-                    model: ProjectResult,
-                    as: 'result',
-                    required: false,
-                    attributes: [
-                        'id',
-                        'project_id',
-                        'estimated_value',
-                        'created_at',
-                        'updated_at',
-                    ],
-                },
-            ],
+            attributes: PROJECT_ATTRIBUTES,
+            include: buildProjectInclude(),
             order: [['updated_at', 'DESC']],
-        });
+        }),
+    ]);
 
-        res.json(projects.map((project) => attachProjectAccess(project, subscriptionActive)));
-    } catch (error) {
-        console.error('Ошибка получения проектов:', error);
-        res.status(500).json({
-            error: 'Не удалось получить проекты',
-            details: error.message,
-        });
+    return sendJson(
+        res,
+        projects.map((project) => attachProjectAccess(project, subscriptionActive))
+    );
+});
+
+export const createProject = asyncHandler(async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+
+    if (!name) {
+        throw new AppError('Название проекта обязательно', 400);
     }
-};
 
-export const createProject = async (req, res) => {
-    try {
-        const { name } = req.body;
-
-        if (!name) {
-            return res.status(400).json({ error: 'Название проекта обязательно' });
-        }
-
-        const project = await ValuationProject.create({
-            user_id: req.user.id,
-            name,
-            object_type: null,
-            status: 'questionnaire',
-        });
-
-        await ProjectQuestionnaire.create({
-            project_id: project.id,
-            projectName: name,
-            calculationMethod: 'market',
-            objectType: null,
-        });
-
-        const [fullProject, user] = await Promise.all([
-            ValuationProject.findByPk(project.id, {
-                include: [{ model: ProjectQuestionnaire, as: 'questionnaire', required: false }],
-            }),
-            User.findByPk(req.user.id, {
-                attributes: ['id', 'subscription_status', 'subscription_expires_at'],
-            }),
-        ]);
-
-        res.status(201).json(
-            attachProjectAccess(fullProject, hasActiveSubscription(user))
+    const payload = await sequelize.transaction(async (transaction) => {
+        const project = await ValuationProject.create(
+            {
+                user_id: req.user.id,
+                name,
+                object_type: null,
+                status: 'questionnaire',
+            },
+            { transaction }
         );
-    } catch (error) {
-        console.error('Ошибка создания проекта:', error);
-        res.status(500).json({ error: 'Не удалось создать проект' });
-    }
-};
 
-export const getProjectById = async (req, res) => {
-    try {
-        const [project, user] = await Promise.all([
-            ValuationProject.findOne({
-                where: {
-                    id: req.params.projectId,
-                    user_id: req.user.id,
-                },
-                include: [
-                    { model: ProjectQuestionnaire, as: 'questionnaire', required: false },
-                    { model: ProjectResult, as: 'result', required: false },
-                ],
-            }),
-            User.findByPk(req.user.id, {
-                attributes: ['id', 'subscription_status', 'subscription_expires_at'],
-            }),
+        await ProjectQuestionnaire.create(
+            {
+                project_id: project.id,
+                projectName: name,
+                calculationMethod: 'market',
+                objectType: null,
+            },
+            { transaction }
+        );
+
+        const [fullProject, subscriptionActive] = await Promise.all([
+            getOwnedProjectOrThrow(project.id, req.user.id, { transaction }),
+            loadUserSubscriptionState(req.user.id, transaction),
         ]);
 
-        if (!project) {
-            return res.status(404).json({ error: 'Проект не найден' });
-        }
+        return attachProjectAccess(fullProject, subscriptionActive);
+    });
 
-        res.json(attachProjectAccess(project, hasActiveSubscription(user)));
-    } catch (error) {
-        console.error('Ошибка получения проекта:', error);
-        res.status(500).json({ error: 'Не удалось получить проект' });
-    }
-};
+    return sendJson(res, payload, 201);
+});
 
-export const updateProject = async (req, res) => {
-    try {
+export const getProjectById = asyncHandler(async (req, res) => {
+    const [project, subscriptionActive] = await Promise.all([
+        getOwnedProjectOrThrow(req.params.projectId, req.user.id, { includeDetails: true }),
+        loadUserSubscriptionState(req.user.id),
+    ]);
+
+    return sendJson(res, attachProjectAccess(project, subscriptionActive));
+});
+
+export const updateProject = asyncHandler(async (req, res) => {
+    const payload = await sequelize.transaction(async (transaction) => {
         const project = await ValuationProject.findOne({
             where: {
                 id: req.params.projectId,
                 user_id: req.user.id,
             },
+            transaction,
         });
 
         if (!project) {
-            return res.status(404).json({ error: 'Проект не найден' });
+            throw new AppError('Проект не найден', 404);
         }
 
-        await project.update({
-            name: req.body.name ?? project.name,
-            object_type: req.body.object_type ?? project.object_type,
-            status: req.body.status ?? project.status,
-            payment_status: req.body.payment_status ?? project.payment_status,
-        });
+        await project.update(
+            {
+                name: req.body.name ?? project.name,
+                object_type: req.body.object_type ?? project.object_type,
+                status: req.body.status ?? project.status,
+                payment_status: req.body.payment_status ?? project.payment_status,
+            },
+            { transaction }
+        );
 
-        res.json(project);
-    } catch (error) {
-        console.error('Ошибка обновления проекта:', error);
-        res.status(500).json({ error: 'Не удалось обновить проект' });
-    }
-};
+        const [updatedProject, subscriptionActive] = await Promise.all([
+            getOwnedProjectOrThrow(project.id, req.user.id, { transaction }),
+            loadUserSubscriptionState(req.user.id, transaction),
+        ]);
 
-export const deleteProject = async (req, res) => {
-    try {
+        return attachProjectAccess(updatedProject, subscriptionActive);
+    });
+
+    return sendJson(res, payload);
+});
+
+export const deleteProject = asyncHandler(async (req, res) => {
+    await sequelize.transaction(async (transaction) => {
         const project = await ValuationProject.findOne({
             where: {
                 id: req.params.projectId,
                 user_id: req.user.id,
             },
+            transaction,
         });
 
         if (!project) {
-            return res.status(404).json({ error: 'Проект не найден' });
+            throw new AppError('Проект не найден', 404);
         }
 
-        // Delete related data first
         await ProjectQuestionnaire.destroy({
             where: { project_id: project.id },
+            transaction,
         });
 
         await ProjectResult.destroy({
             where: { project_id: project.id },
+            transaction,
         });
 
-        // Delete the project itself
-        await project.destroy();
+        await project.destroy({ transaction });
+    });
 
-        res.json({
-            success: true,
-            message: 'Проект успешно удалён',
-        });
-    } catch (error) {
-        console.error('Ошибка удаления проекта:', error);
-        res.status(500).json({
-            error: 'Не удалось удалить проект',
-            details: error.message,
-        });
-    }
-};
+    return sendJson(res, {
+        success: true,
+        message: 'Проект успешно удалён',
+    });
+});

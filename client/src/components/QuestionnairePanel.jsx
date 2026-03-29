@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import axios from 'axios';
 import dayjs from 'dayjs';
 import {
     Alert,
@@ -44,27 +43,13 @@ import {
     normalizeQuestionnaireFieldSourceHints,
 } from '../utils/projectQuestionnaire';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../shared/api';
 import { normalizeUserSettings } from '../shared/userSettings';
 
 const { Title, Paragraph, Text } = Typography;
 const { TextArea } = Input;
 
-const API = process.env.REACT_APP_API_PREFIX || '/api';
-
 const CADASTRAL_REGEX = /^\d{2}:\d{2}:\d{7}:\d{1,16}$/;
-
-const api = axios.create({
-    baseURL: API,
-});
-
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
 
 const CALCULATION_OPTIONS = [
     { value: 'market', label: 'По рыночным данным' },

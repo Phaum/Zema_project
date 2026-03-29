@@ -1,18 +1,7 @@
-import axios from 'axios';
+import { createApiClient } from '../../shared/api';
 
-const API = process.env.REACT_APP_API_PREFIX || '/api';
-
-const api = axios.create({
-    baseURL: API,
-});
-
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
+const api = createApiClient({
+    transportLabel: 'projects',
 });
 
 export default api;

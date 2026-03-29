@@ -2,12 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Button, Space, Typography, Alert, Spin, Segmented } from 'antd';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
+import { api } from '../../shared/api';
 
 const { Text } = Typography;
 
-const API = process.env.REACT_APP_API_PREFIX || '/api';
 const DEFAULT_PROVIDER = process.env.REACT_APP_MAP_PROVIDER || 'osm';
 const YANDEX_API_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
 const HAS_YANDEX = Boolean(YANDEX_API_KEY);
@@ -18,19 +17,6 @@ const markerIcon = new L.Icon({
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
     iconSize: [25, 41],
     iconAnchor: [12, 41],
-});
-
-const api = axios.create({
-    baseURL: API,
-});
-
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
 });
 
 function hasValidCoords(point) {

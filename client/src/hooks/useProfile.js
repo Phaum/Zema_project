@@ -1,21 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
 import { message } from 'antd';
-
-const API = process.env.REACT_APP_API_PREFIX || '/api';
-
-const api = axios.create({
-    baseURL: API,
-});
-
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
+import { api } from '../shared/api';
 
 export function useProfile() {
     const [profile, setProfile] = useState(null);

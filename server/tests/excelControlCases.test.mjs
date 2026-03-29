@@ -3,10 +3,13 @@ import path from 'node:path';
 import vm from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 
 import { calculateValuation } from '../services/calculationService.js';
 
-const TEST_FILE_PATH = path.resolve('server/tests/calculationService.test.mjs');
+const currentFilePath = fileURLToPath(import.meta.url);
+const currentDirPath = path.dirname(currentFilePath);
+const TEST_FILE_PATH = path.resolve(currentDirPath, 'calculationService.test.mjs');
 
 function extractBalanced(text, startIndex) {
     const openChar = text[startIndex];

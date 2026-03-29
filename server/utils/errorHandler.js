@@ -1,7 +1,8 @@
 export const errorHandler = (err, req, res, next) => {
   const isDevelopment = process.env.NODE_ENV !== 'production';
+  const requestLabel = `${req.method} ${req.originalUrl}`;
 
-  console.error('Error:', err);
+  console.error(`[${requestLabel}]`, err);
 
   const statusCode = err.status || err.statusCode || 500;
   const message = isDevelopment

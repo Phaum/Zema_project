@@ -1,25 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Form, message } from 'antd';
-import axios from 'axios';
 import dayjs from 'dayjs';
 import { defaultQuestionnaire } from '../utils/questionnaireDefaults';
 import { normalizeObjectTypeValue } from '../utils/projectQuestionnaire';
+import { api } from '../shared/api';
 
-const API = process.env.REACT_APP_API_PREFIX || '/api';
 const QUESTIONNAIRE_STORAGE_KEY = 'zema_questionnaire_draft';
-
-const api = axios.create({
-    baseURL: API,
-});
-
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
 
 function normalizeFromServer(data = {}) {
     return {

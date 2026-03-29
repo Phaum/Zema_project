@@ -27,23 +27,25 @@ import {
 
 const router = express.Router();
 
-router.get('/', authMiddleware, getProjects);
-router.post('/', authMiddleware, createProject);
-router.get('/:projectId', authMiddleware, getProjectById);
-router.patch('/:projectId', authMiddleware, updateProject);
-router.delete('/:projectId', authMiddleware, deleteProject);
+router.use(authMiddleware);
 
-router.get('/:projectId/questionnaire', authMiddleware, getProjectQuestionnaire);
-router.post('/:projectId/questionnaire', authMiddleware, saveProjectQuestionnaire);
-router.post('/:projectId/questionnaire/enrich', authMiddleware, enrichProjectQuestionnaire);
+router.get('/', getProjects);
+router.post('/', createProject);
+router.get('/:projectId', getProjectById);
+router.patch('/:projectId', updateProject);
+router.delete('/:projectId', deleteProject);
 
-router.post('/:projectId/calculate', authMiddleware, calculateProject);
-router.get('/:projectId/result', authMiddleware, getProjectResult);
-router.get('/:projectId/market-context', authMiddleware, getProjectMarketContext);
-router.get('/:projectId/payment', authMiddleware, getProjectPaymentInfo);
-router.post('/:projectId/payment/invoice', authMiddleware, createProjectInvoice);
-router.post('/:projectId/payment/confirm', authMiddleware, confirmProjectPayment);
-router.post('/:projectId/payment/subscription/invoice', authMiddleware, createSubscriptionInvoice);
-router.post('/:projectId/payment/subscription/confirm', authMiddleware, confirmSubscriptionPayment);
+router.get('/:projectId/questionnaire', getProjectQuestionnaire);
+router.post('/:projectId/questionnaire', saveProjectQuestionnaire);
+router.post('/:projectId/questionnaire/enrich', enrichProjectQuestionnaire);
+
+router.post('/:projectId/calculate', calculateProject);
+router.get('/:projectId/result', getProjectResult);
+router.get('/:projectId/market-context', getProjectMarketContext);
+router.get('/:projectId/payment', getProjectPaymentInfo);
+router.post('/:projectId/payment/invoice', createProjectInvoice);
+router.post('/:projectId/payment/confirm', confirmProjectPayment);
+router.post('/:projectId/payment/subscription/invoice', createSubscriptionInvoice);
+router.post('/:projectId/payment/subscription/confirm', confirmSubscriptionPayment);
 
 export default router;

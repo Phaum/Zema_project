@@ -11,11 +11,13 @@ import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
-router.get('/', authMiddleware, getProfile);
-router.get('/subscription', authMiddleware, getProfileSubscription);
-router.post('/subscription/invoice', authMiddleware, createProfileSubscriptionInvoice);
-router.post('/subscription/confirm', authMiddleware, confirmProfileSubscriptionPayment);
-router.put('/settings', authMiddleware, updateProfileSettings);
-router.put('/email', authMiddleware, updateUserEmail);
+router.use(authMiddleware);
+
+router.get('/', getProfile);
+router.get('/subscription', getProfileSubscription);
+router.post('/subscription/invoice', createProfileSubscriptionInvoice);
+router.post('/subscription/confirm', confirmProfileSubscriptionPayment);
+router.put('/settings', updateProfileSettings);
+router.put('/email', updateUserEmail);
 
 export default router;

@@ -2,9 +2,10 @@
   "name": "fullstack-project",
   "version": "1.0.0",
   "scripts": {
-    "server": "cd server && npm start",
-    "client": "cd client && npm start",
-    "dev": "concurrently \"npm run server\" \"npm run client\""
+    "server": "npm --prefix server start",
+    "client": "npm --prefix client start",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "test:server": "npm --prefix server run test"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
@@ -13,10 +14,5 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "child_process": "^1.0.2",
-    "uti": "^8.9.0",
-    "util": "^0.12.5"
-  }
+  "description": ""
 }

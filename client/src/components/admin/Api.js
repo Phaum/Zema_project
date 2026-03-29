@@ -1,42 +1,10 @@
-import axios from 'axios';
-import {
-    logClientError,
-    logClientRequest,
-    logClientResponse,
-} from '../../shared/debugTransport';
+import { createApiClient, unwrapDataEnvelope } from '../../shared/api';
 
-const API = process.env.REACT_APP_API_PREFIX || '/api';
-
-const adminApi = axios.create({
-    baseURL: `${API}/admin`,
+const adminApi = createApiClient({
+    scope: '/admin',
+    transportLabel: 'admin',
+    transformResponse: unwrapDataEnvelope,
 });
-
-adminApi.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    logClientRequest('admin', config);
-    return config;
-});
-
-adminApi.interceptors.response.use(
-    (response) => {
-        logClientResponse('admin', response);
-        if (response.data?.success !== undefined && response.data?.data !== undefined) {
-            return {
-                ...response,
-                data: response.data.data,
-            };
-        }
-        return response;
-    },
-    (error) => {
-        logClientError('admin', error);
-        return Promise.reject(error);
-    }
-);
 
 export async function fetchAdminOverview() {
     const { data } = await adminApi.get('/overview');
