@@ -325,7 +325,7 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
                     calculation.capRateBreakdown
                 ),
                 calculation: capitalizationRate > 0
-                    ? `${formatPlain(noi)} / ${formatPlain(capitalizationRate)} = ${formatPlain(valueTotal)}`
+                    ? `${formatPlain(noi)} / ${formatPercentPlain(capitalizationRate)} = ${formatPlain(valueTotal)}`
                     : 'Ставка капитализации не указана',
             },
             {
@@ -446,6 +446,10 @@ function formatNumber(value) {
 
 function formatMoney(value) {
     return round2(value).toLocaleString('ru-RU');
+}
+
+function formatPercentPlain(value) {
+    return `${formatPlain(toNumber(value, 0) * 100)}%`;
 }
 
 function resolveVacancyRate(calculation) {

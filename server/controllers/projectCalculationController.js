@@ -9,6 +9,10 @@ import { Op } from 'sequelize';
 import Analogue from '../models/Analogue.js';
 import { toNumber } from '../utils/dataValidation.js';
 import { buildCalculationBreakdown } from '../utils/calculationBreakdown.js';
+import {
+    shapeMarketSnapshotForViewer,
+    shapeProjectResultForViewer,
+} from '../utils/projectResultVisibility.js';
 import { PAYMENT_STATUS, hasActiveSubscription } from '../constants/payment.js';
 import { msk64ToWgs84 } from '../utils/coordsConverter.js';
 import {
@@ -863,12 +867,18 @@ export const calculateProject = async (req, res) => {
             return res.status(400).json({ error: 'Нет аналогов в базе analogues' });
         }
 
+        const hasManualRateInRequest = ['manualRate', 'averageRentalRate']
+            .some((key) => Object.prototype.hasOwnProperty.call(req.body || {}, key));
         const manualRateFromRequest = toNumber(
             req.body?.manualRate ?? req.body?.averageRentalRate,
             null
         );
-        const manualRate = Number.isFinite(manualRateFromRequest) && manualRateFromRequest > 0
+        const manualRateFromQuestionnaire = toNumber(questionnaire?.averageRentalRate, null);
+        const resolvedManualRate = hasManualRateInRequest
             ? manualRateFromRequest
+            : manualRateFromQuestionnaire;
+        const manualRate = Number.isFinite(resolvedManualRate) && resolvedManualRate > 0
+            ? resolvedManualRate
             : null;
 
         const valuation = await calculateValuation(
@@ -992,11 +1002,13 @@ export const calculateProject = async (req, res) => {
             where: { project_id: project.id },
         });
 
+        const occupancyRatePercent = Math.max(0, 100 - toNumber(valuation.vacancyRatePercent, 0));
+
         const payload = {
             project_id: project.id,
             rental_rate: valuation.marketRentMonth,
             leasable_area: valuation.leasableArea,
-            occupancy_rate: valuation.vacancyRatePercent,
+            occupancy_rate: occupancyRatePercent,
             gross_income: valuation.pgi,
             capitalization_rate: valuation.capitalizationRate,
             estimated_value: valuation.finalValue,
@@ -1020,7 +1032,9 @@ export const calculateProject = async (req, res) => {
 
         return res.json({
             success: true,
-            result,
+            result: shapeProjectResultForViewer(result, {
+                debugModeEnabled: Boolean(req.user?.debug_mode),
+            }),
         });
     } catch (error) {
         console.error('Ошибка расчёта проекта:', error);
@@ -1045,7 +1059,9 @@ export const getProjectResult = async (req, res) => {
             where: { project_id: project.id },
         });
 
-        return res.json(result);
+        return res.json(shapeProjectResultForViewer(result, {
+            debugModeEnabled: Boolean(req.user?.debug_mode),
+        }));
     } catch (error) {
         console.error('Ошибка получения результата проекта:', error);
         return res.status(500).json({ error: 'Не удалось получить результат проекта' });
@@ -1117,7 +1133,12 @@ export const getProjectMarketContext = async (req, res) => {
             }
         );
 
-        return res.json(snapshot);
+        return res.json({
+            ...shapeMarketSnapshotForViewer(snapshot, {
+                debugModeEnabled: Boolean(req.user?.debug_mode),
+            }),
+            debugModeEnabled: Boolean(req.user?.debug_mode),
+        });
     } catch (error) {
         console.error('Ошибка получения рыночного контекста:', error);
         return res.status(500).json({

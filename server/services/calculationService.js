@@ -1574,7 +1574,10 @@ export function adjustAnalogRate(analog, questionnaire, baseRate) {
     const scaleAdjustmentRecord = calculateScaleAdjustmentRecord(questionnaire, analog);
 
     const preScaleAdjustmentFactor = clampFactor(
-        baseAdjustmentRecords.reduce((product, item) => product * clampFactor(item?.factor, 1, Number.MAX_SAFE_INTEGER), 1),
+        baseAdjustmentRecords.reduce(
+            (product, item) => product * clampFactor(item?.factor, 1, Number.MAX_SAFE_INTEGER),
+            1
+        ),
         0.80,
         1.20
     );
@@ -2002,7 +2005,10 @@ export function calculateMarketRent(selectedAnalogs, questionnaire) {
                 scaleAreaRatio: adjustmentResult.scaleAreaRatio,
                 areaRatio: adjustmentResult.scaleAreaRatio,
                 scaleSimilarityScore: toNumber(relevanceResult.components?.scaleSimilarity, null),
-                scaleWeightPenalty: toNumber(weightResult.components?.scaleWeightPenalty ?? weightResult.components?.scalePenalty, null),
+                scaleWeightPenalty: toNumber(
+                    weightResult.components?.scaleWeightPenalty ?? weightResult.components?.scalePenalty,
+                    null
+                ),
                 weight: weightResult.weight,
                 preWeight: weightResult.preWeight,
                 baseWeight: weightResult.baseWeight,
@@ -2624,17 +2630,17 @@ function getSubjectDataCapAdjustment(subjectDataQualityScoreNormalized) {
 }
 
 export function calculateReliabilityScore({
-    selectedAnalogs = [],
-    excludedAnalogs = [],
-    subject = {},
-    landData = {},
-    assumptions = [],
-    dispersionStats = {},
-    rentDiagnostics = {},
-    vacancyResult = {},
-    rentalRateSource = null,
-    rentCalculationMode = DEFAULT_RENT_SELECTION_MODE,
-}) {
+                                              selectedAnalogs = [],
+                                              excludedAnalogs = [],
+                                              subject = {},
+                                              landData = {},
+                                              assumptions = [],
+                                              dispersionStats = {},
+                                              rentDiagnostics = {},
+                                              vacancyResult = {},
+                                              rentalRateSource = null,
+                                              rentCalculationMode = DEFAULT_RENT_SELECTION_MODE,
+                                          }) {
     const analogCount = selectedAnalogs.length;
     const averageCompleteness = average(selectedAnalogs.map((item) => toNumber(item.completenessScore, null))) || 0;
     const dispersionRatio = toNumber(dispersionStats?.dispersionRatio, null);
@@ -2766,12 +2772,12 @@ export function calculateReliabilityScore({
 }
 
 export function calculateCapitalizationRate({
-    subject = {},
-    questionnaire = {},
-    analogStats = {},
-    reliability = {},
-    vacancyResult = {},
-}) {
+                                                subject = {},
+                                                questionnaire = {},
+                                                analogStats = {},
+                                                reliability = {},
+                                                vacancyResult = {},
+                                            }) {
     const normalizedClass = normalizeBusinessCenterClass(
         questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
@@ -3107,13 +3113,13 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
     const floorLeasableTotal = areaFloor1 + areaFloor2 + areaFloor3Plus;
     const actualOccupiedArea = toNumber(questionnaire?.occupiedArea, null);
     const actualVacancyRateFromFloors = floorLeasableTotal > 0
-        && Number.isFinite(actualOccupiedArea)
+    && Number.isFinite(actualOccupiedArea)
         ? getVacancyRate(actualOccupiedArea, floorLeasableTotal)
         : null;
     const fallbackLeasableArea =
         toNumber(questionnaire?.leasableArea, 0) || toNumber(questionnaire?.totalArea, 0);
     const actualVacancyRateFallback = fallbackLeasableArea > 0
-        && Number.isFinite(actualOccupiedArea)
+    && Number.isFinite(actualOccupiedArea)
         ? getVacancyRate(actualOccupiedArea, fallbackLeasableArea)
         : null;
     const actualVacancyRate = actualVacancyRateFromFloors ?? actualVacancyRateFallback;
@@ -3374,6 +3380,3 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
         assumptions,
     };
 }
-
-
-

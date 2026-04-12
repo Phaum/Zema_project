@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
@@ -30,6 +30,7 @@ import {
   LinkOutlined,
 } from '@ant-design/icons';
 import api from '../../components/projects/api';
+import { useAuth } from '../../context/AuthContext';
 import { exportDetailedResultToPDF } from '../../utils/pdfExport';
 import { getFieldTooltip } from '../../utils/fieldTranslations';
 import {
@@ -46,6 +47,101 @@ import {
 import './ProjectResultDetailedPanel.css';
 
 const { Title, Text, Paragraph } = Typography;
+
+const RESULT_TEXT_REPLACEMENTS = [
+  [/reliability score/giu, 'индекс надёжности'],
+  [/scoring relevance/giu, 'оценки релевантности'],
+  [/advanced experimental/giu, 'экспериментальный режим'],
+  [/excel-compatible/giu, 'совместимый с Excel'],
+  [/trimmed mean/giu, 'усечённое среднее'],
+  [/stable default/giu, 'стабильный режим'],
+  [/fallback-профиля/giu, 'резервного профиля'],
+  [/fallback-профиль/giu, 'резервный профиль'],
+  [/fallback-логике/giu, 'резервной логике'],
+  [/fallback-логика/giu, 'резервная логика'],
+  [/\bVacancy\b/gu, 'Незаполняемость'],
+  [/\bvacancy\b/gu, 'незаполняемость'],
+  [/\bCap rate\b/giu, 'ставка капитализации'],
+  [/\barea ratio\b/giu, 'соотношение площадей'],
+  [/\bScale mismatch\b/giu, 'масштабное расхождение'],
+  [/\bstd dev\b/giu, 'стандартное отклонение'],
+  [/\bIQR\b/gu, 'межквартильный размах'],
+  [/\bPGI\b/gu, 'ПВД'],
+  [/\bEGI\b/gu, 'ДВД'],
+  [/\bNOI\b/gu, 'ЧОД'],
+  [/\bOPEX\b/gu, 'операционные расходы'],
+  [/\bN\/A\b/gu, '—'],
+  [/\bmanual_override\b/gu, 'ручной ввод'],
+  [/\bmarket_analogs\b/gu, 'рыночные аналоги'],
+  [/\brule_based_profile\b/gu, 'параметрический профиль'],
+  [/\bstable_trimmed_mean\b/gu, 'усечённое среднее'],
+  [/\badvanced_weighted_median\b/gu, 'взвешенная медиана'],
+  [/\bexcel_simple_median\b/gu, 'медиана, совместимая с Excel'],
+  [/\bexcel_simple_average\b/gu, 'среднее, совместимое с Excel'],
+  [/\bsmall_sample_median\b/gu, 'медиана по малой выборке'],
+  [/\bsingle_analogue\b/gu, 'один аналог'],
+  [/\bweighted_average\b/gu, 'взвешенное среднее'],
+  [/\badvanced_experimental\b/gu, 'экспериментальный режим'],
+  [/\bexcel_compatible\b/gu, 'совместимый с Excel'],
+  [/\bBase\b/gu, 'базовая ставка'],
+  [/\boverride\b/giu, 'переопределение'],
+  [/\bquestionnaire\b/gu, 'анкета'],
+  [/\bderived\b/gu, 'расчётное значение'],
+  [/\bfactual\b/gu, 'фактические данные'],
+  [/\bfixed\b/gu, 'фиксированное значение'],
+  [/\bstable_default\b/gu, 'стабильный режим'],
+  [/\bRelevance\b/gu, 'Релевантность'],
+  [/\bPenalty\b/gu, 'Штраф'],
+];
+
+function localizeResultText(value) {
+  if (value === null || value === undefined || value === '') {
+    return value;
+  }
+
+  let text = String(value);
+  for (const [pattern, replacement] of RESULT_TEXT_REPLACEMENTS) {
+    text = text.replace(pattern, replacement);
+  }
+  return text;
+}
+
+function humanizeResultKey(key) {
+  switch (String(key || '')) {
+    case 'first':
+      return '1-й этаж';
+    case 'second':
+      return '2-й этаж';
+    case 'thirdPlus':
+      return '3-й этаж и выше';
+    case 'analogCountScore':
+      return 'Количество аналогов';
+    case 'analogueCompletenessScore':
+      return 'Полнота аналогов';
+    case 'analogueDispersionScore':
+      return 'Однородность аналогов';
+    case 'subjectDataQualityScore':
+      return 'Качество данных объекта';
+    case 'scaleMismatchScore':
+      return 'Сопоставимость по масштабу';
+    case 'landDataScore':
+      return 'Полнота данных по земле';
+    case 'vacancySourceScore':
+      return 'Источник незаполняемости';
+    case 'rentalSourceScore':
+      return 'Источник ставки аренды';
+    case 'rentModeScore':
+      return 'Режим расчёта ставки';
+    case 'stabilityScore':
+      return 'Стабильность выборки';
+    case 'instabilityPenalty':
+      return 'Штраф за нестабильность';
+    case 'assumptionsPenalty':
+      return 'Штраф за допущения';
+    default:
+      return localizeResultText(key);
+  }
+}
 
 function formatNumber(value, digits = 2) {
   const number = Number(value || 0);
@@ -85,7 +181,8 @@ function formatValue(value, suffix = '') {
   if (typeof value === 'number') {
     return suffix ? `${formatNumber(value, 2)} ${suffix}` : formatNumber(value, 2);
   }
-  return suffix ? `${value} ${suffix}` : String(value);
+  const localizedValue = localizeResultText(String(value));
+  return suffix ? `${localizedValue} ${suffix}` : localizedValue;
 }
 
 function formatQuestionnaireEntryValue(entry) {
@@ -113,13 +210,19 @@ function renderMultilineText(value) {
     .map((line, index) => <div key={index}>{line}</div>);
 }
 
+function renderLocalizedMultilineText(value) {
+  return String(value || '')
+    .split('\n')
+    .map((line, index) => <div key={index}>{localizeResultText(line)}</div>);
+}
+
 function renderStepResult(step) {
   if (step?.result && typeof step.result === 'object' && !Array.isArray(step.result)) {
     return (
       <Space direction="vertical" size="small">
         {Object.entries(step.result).map(([key, value]) => (
           <Tag key={key} color="blue">
-            {key}: {formatNumber(value, 3)} {step.unit}
+            {humanizeResultKey(key)}: {formatNumber(value, 3)} {localizeResultText(step.unit)}
           </Tag>
         ))}
       </Space>
@@ -128,7 +231,7 @@ function renderStepResult(step) {
 
   return (
     <Tag color="blue">
-      Результат: {formatNumber(step?.result || 0, 3)} {step?.unit}
+      Результат: {formatNumber(step?.result || 0, 3)} {localizeResultText(step?.unit)}
     </Tag>
   );
 }
@@ -138,12 +241,12 @@ function formatStepSummary(step) {
     const items = Object.entries(step.result);
     if (!items.length) return 'См. детали';
     return items
-      .map(([key, value]) => `${key}: ${formatNumber(value, 2)} ${step.unit}`)
+      .map(([key, value]) => `${humanizeResultKey(key)}: ${formatNumber(value, 2)} ${localizeResultText(step.unit)}`)
       .join(' • ');
   }
 
   if (step?.result !== undefined && step?.result !== null) {
-    return `${formatNumber(step.result, 2)} ${step.unit || ''}`.trim();
+    return `${formatNumber(step.result, 2)} ${localizeResultText(step.unit || '')}`.trim();
   }
 
   return 'См. детали';
@@ -162,15 +265,15 @@ function IncomeMetricCard({ title, value, note, toneClass }) {
 function MethodologyBlock({ title, summary, facts = [] }) {
   return (
     <Card size="small" className="project-result-method-card">
-      <div className="project-result-method-title">{title}</div>
+      <div className="project-result-method-title">{localizeResultText(title)}</div>
       <Paragraph className="project-result-method-summary">
-        {summary}
+        {localizeResultText(summary)}
       </Paragraph>
       {facts.length > 0 && (
         <div className="project-result-method-facts">
           {facts.map((fact, index) => (
             <Tag key={`${title}_${index}`} className="project-result-method-fact">
-              {fact}
+              {localizeResultText(fact)}
             </Tag>
           ))}
         </div>
@@ -318,29 +421,85 @@ function ProjectComparablesMap({ objectPoint, comparables }) {
 }
 
 export default function ProjectResultDetailedPanel({ projectId, project, marketContext, onBack }) {
+  const { user, refreshProfile } = useAuth();
   const [result, setResult] = useState(null);
   const [breakdown, setBreakdown] = useState(null);
   const [loading, setLoading] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [expandedStepKeys, setExpandedStepKeys] = useState([]);
+  const [showExcludedComparables, setShowExcludedComparables] = useState(false);
   const questionnaire = project?.questionnaire || {};
 
-  useEffect(() => {
-    async function loadResult() {
-      try {
+  const loadResult = useCallback(async ({ showError = true, silent = false } = {}) => {
+    try {
+      if (!silent) {
         setLoading(true);
-        const { data } = await api.get(`/projects/${projectId}/result`);
-        setResult(data);
-        setBreakdown(data?.calculation_breakdown_json || null);
-      } catch (error) {
+      }
+
+      setShowExcludedComparables(false);
+      const { data } = await api.get(`/projects/${projectId}/result`);
+      setResult(data);
+      setBreakdown(data?.calculation_breakdown_json || null);
+      return data;
+    } catch (error) {
+      if (showError) {
         message.error(error?.response?.data?.error || 'Не удалось загрузить результат');
-      } finally {
+      }
+      return null;
+    } finally {
+      if (!silent) {
         setLoading(false);
       }
     }
-
-    loadResult();
   }, [projectId]);
+
+  useEffect(() => {
+    loadResult();
+  }, [loadResult]);
+
+  useEffect(() => {
+    if (user?.debugMode === undefined || result === null) {
+      return;
+    }
+
+    if (Boolean(user.debugMode) !== Boolean(result?.debugModeEnabled)) {
+      loadResult({ showError: false, silent: true });
+    }
+  }, [loadResult, result, user?.debugMode]);
+
+  useEffect(() => {
+    let active = true;
+
+    const syncDebugState = async () => {
+      if (!active || document.visibilityState === 'hidden') {
+        return;
+      }
+
+      try {
+        const profile = await refreshProfile();
+
+        if (!active) {
+          return;
+        }
+
+        const nextDebugMode = Boolean(profile?.debugMode);
+        if (nextDebugMode !== Boolean(result?.debugModeEnabled)) {
+          await loadResult({ showError: false, silent: true });
+        }
+      } catch (error) {
+        console.error('Не удалось синхронизировать debug mode:', error);
+      }
+    };
+
+    window.addEventListener('focus', syncDebugState);
+    document.addEventListener('visibilitychange', syncDebugState);
+
+    return () => {
+      active = false;
+      window.removeEventListener('focus', syncDebugState);
+      document.removeEventListener('visibilitychange', syncDebugState);
+    };
+  }, [loadResult, refreshProfile, result?.debugModeEnabled]);
 
   if (!result && !loading) {
     return <Empty description="Результат пока не рассчитан" />;
@@ -390,16 +549,31 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     (mapComparableSource?.length || 0) - comparableMapPoints.length,
     0
   );
+  const debugModeEnabled = Boolean(result?.debugModeEnabled);
+  const rentalRateSource = String(breakdown?.inputs?.rentalRate?.source || '').trim().toLowerCase();
+  const rentalRateIsManual = rentalRateSource.startsWith('manual');
 
   const handleExportPdf = async () => {
     const previousExpandedKeys = expandedStepKeys;
+    const previousShowExcludedComparables = showExcludedComparables;
     const shouldExpandAll = calculationStepKeys.some((key) => !expandedStepKeys.includes(key));
+    const shouldExpandExcludedComparables = (
+      !showExcludedComparables &&
+      (breakdown?.market?.excludedComparables?.length || 0) > 0
+    );
 
     try {
       setExportingPdf(true);
 
       if (shouldExpandAll) {
         setExpandedStepKeys(calculationStepKeys);
+      }
+
+      if (shouldExpandExcludedComparables) {
+        setShowExcludedComparables(true);
+      }
+
+      if (shouldExpandAll || shouldExpandExcludedComparables) {
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
 
@@ -410,6 +584,9 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     } finally {
       if (shouldExpandAll) {
         setExpandedStepKeys(previousExpandedKeys);
+      }
+      if (shouldExpandExcludedComparables) {
+        setShowExcludedComparables(previousShowExcludedComparables);
       }
       setExportingPdf(false);
     }
@@ -541,27 +718,27 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               </Title>
               <div className="project-result-metrics-grid">
                 <IncomeMetricCard
-                  title="PGI"
+                  title="ПВД"
                   value={formatCurrency(result?.gross_income || 0, 2)}
-                  note="Потенциальный доход"
+                  note="Потенциальный валовой доход"
                   toneClass="is-pgi"
                 />
                 <IncomeMetricCard
-                  title="EGI"
+                  title="ЭВД"
                   value={formatCurrency(result?.egi || 0, 2)}
-                  note="Эффективный доход"
+                  note="Эффективный валовой доход"
                   toneClass="is-egi"
                 />
                 <IncomeMetricCard
-                  title="OPEX"
+                  title="Операционные расходы"
                   value={formatCurrency(result?.opex || 0, 2)}
-                  note="Расходы"
+                  note="Эксплуатационные и управленческие расходы"
                   toneClass="is-opex"
                 />
                 <IncomeMetricCard
-                  title="NOI"
+                  title="ЧОД"
                   value={formatCurrency(result?.noi || 0, 2)}
-                  note="Чистый доход"
+                  note="Чистый операционный доход"
                   toneClass="is-noi"
                 />
                 <IncomeMetricCard
@@ -583,251 +760,258 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
 
         {breakdown && (
           <>
-            <Divider />
+            {debugModeEnabled && (
+              <>
+                <Divider />
 
-            <div>
-              <Title level={3}>
-                <CalculatorOutlined />
-                <Tooltip title="Анализ надежности и качества расчета">
-                  Качество расчёта <InfoCircleOutlined />
-                </Tooltip>
-              </Title>
-              <Row gutter={16}>
-                <Col xs={24} sm={12}>
-                  <Card className="project-result-section-card">
-                    <Tooltip title={getFieldTooltip('confidence')}>
-                      <div>
-                        <Statistic
-                          title="Уровень доверия"
-                          value={Math.round(breakdown?.summary?.confidence || 50)}
-                          suffix="%"
-                          prefix={
-                            (breakdown?.summary?.confidence || 0) >= 70 ? (
-                              <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                            ) : (
-                              <WarningOutlined style={{ color: '#faad14' }} />
-                            )
-                          }
-                        />
-                        {breakdown?.summary?.confidenceNote && (
-                          <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-                            {breakdown.summary.confidenceNote}
-                          </Paragraph>
-                        )}
-                      </div>
-                    </Tooltip>
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12}>
-                  <Card className="project-result-section-card">
-                    <Tooltip title={getFieldTooltip('comparableCount')}>
-                      <Statistic
-                        title="Использовано аналогов"
-                        value={breakdown?.market?.comparableCount || 0}
-                        suffix="объектов"
-                      />
-                    </Tooltip>
-                  </Card>
-                </Col>
-              </Row>
-
-              {breakdown?.summary?.confidenceComponents && (
-                <Card style={{ marginTop: 16 }} className="project-result-section-card">
-                  <Title level={4}>Из чего сложился reliability score</Title>
-                  <Row gutter={16}>
-                    {Object.entries(breakdown.summary.confidenceComponents).map(([key, value]) => (
-                      <Col xs={24} sm={12} md={8} key={key}>
-                        <Statistic
-                          title={key}
-                          value={Number(value || 0)}
-                        />
-                      </Col>
-                    ))}
-                  </Row>
-                </Card>
-              )}
-
-              {breakdown?.dataQuality?.fieldSources?.length > 0 && (
-                <Card style={{ marginTop: 16 }} className="project-result-section-card">
-                  <Title level={4}>Источники ключевых входных данных</Title>
-                  <Table
-                    dataSource={breakdown.dataQuality.fieldSources}
-                    pagination={false}
-                    size="small"
-                    rowKey={(record) => record.key}
-                    columns={[
-                      {
-                        title: 'Параметр',
-                        dataIndex: 'label',
-                        key: 'label',
-                      },
-                      {
-                        title: 'Значение',
-                        dataIndex: 'value',
-                        key: 'value',
-                        render: (value) => value ?? '—',
-                      },
-                      {
-                        title: 'Источник',
-                        dataIndex: 'sourceKindLabel',
-                        key: 'sourceKindLabel',
-                        render: (value, record) => (
-                          <Space direction="vertical" size={0}>
-                            <Text>{value}</Text>
-                            <Text type="secondary">{record.source}</Text>
-                          </Space>
-                        ),
-                      },
-                    ]}
-                  />
-                </Card>
-              )}
-            </div>
-
-            <Divider />
-
-            <div className="project-result-pdf-break-before">
-              {breakdown?.methodology?.blocks?.length > 0 && (
-                <>
+                <div>
                   <Title level={3}>
-                    <CalculatorOutlined /> Логика расчёта
+                    <CalculatorOutlined />
+                    <Tooltip title="Анализ надежности и качества расчета">
+                      Качество расчёта <InfoCircleOutlined />
+                    </Tooltip>
                   </Title>
-                  <Paragraph type="secondary" className="project-result-details-intro">
-                    {breakdown?.methodology?.overview || 'Ниже показано, по каким правилам модель выбирает ключевые параметры расчёта.'}
-                  </Paragraph>
-                  <div className="project-result-method-grid">
-                    {breakdown.methodology.blocks.map((block) => (
-                      <MethodologyBlock
-                        key={block.key || block.title}
-                        title={block.title}
-                        summary={block.summary}
-                        facts={Array.isArray(block.facts) ? block.facts : []}
+                  <Row gutter={16}>
+                    <Col xs={24} sm={12}>
+                      <Card className="project-result-section-card">
+                        <Tooltip title={getFieldTooltip('confidence')}>
+                          <div>
+                            <Statistic
+                              title="Уровень доверия"
+                              value={Math.round(breakdown?.summary?.confidence || 50)}
+                              suffix="%"
+                              prefix={
+                                (breakdown?.summary?.confidence || 0) >= 70 ? (
+                                  <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                                ) : (
+                                  <WarningOutlined style={{ color: '#faad14' }} />
+                                )
+                              }
+                            />
+                            {breakdown?.summary?.confidenceNote && (
+                              <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                                {localizeResultText(breakdown.summary.confidenceNote)}
+                              </Paragraph>
+                            )}
+                          </div>
+                        </Tooltip>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12}>
+                      <Card className="project-result-section-card">
+                        <Tooltip title={getFieldTooltip('comparableCount')}>
+                          <Statistic
+                            title="Использовано аналогов"
+                            value={breakdown?.market?.comparableCount || 0}
+                            suffix="объектов"
+                          />
+                        </Tooltip>
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  {breakdown?.summary?.confidenceComponents && (
+                    <Card style={{ marginTop: 16 }} className="project-result-section-card">
+                      <Title level={4}>Из чего сложился индекс надёжности</Title>
+                      <Row gutter={16}>
+                        {Object.entries(breakdown.summary.confidenceComponents).map(([key, value]) => (
+                          <Col xs={24} sm={12} md={8} key={key}>
+                            <Statistic
+                              title={humanizeResultKey(key)}
+                              value={Number(value || 0)}
+                            />
+                          </Col>
+                        ))}
+                      </Row>
+                    </Card>
+                  )}
+
+                  {breakdown?.dataQuality?.fieldSources?.length > 0 && (
+                    <Card style={{ marginTop: 16 }} className="project-result-section-card">
+                      <Title level={4}>Источники ключевых входных данных</Title>
+                      <Table
+                        dataSource={breakdown.dataQuality.fieldSources}
+                        pagination={false}
+                        size="small"
+                        rowKey={(record) => record.key}
+                        columns={[
+                          {
+                            title: 'Параметр',
+                            dataIndex: 'label',
+                            key: 'label',
+                            render: (value) => localizeResultText(value) || '—',
+                          },
+                          {
+                            title: 'Значение',
+                            dataIndex: 'value',
+                            key: 'value',
+                            render: (value) => value === null || value === undefined ? '—' : localizeResultText(value),
+                          },
+                          {
+                            title: 'Источник',
+                            dataIndex: 'sourceKindLabel',
+                            key: 'sourceKindLabel',
+                            render: (value, record) => (
+                              <Space direction="vertical" size={0}>
+                                <Text>{localizeResultText(value)}</Text>
+                                <Text type="secondary">{localizeResultText(record.source)}</Text>
+                              </Space>
+                            ),
+                          },
+                        ]}
                       />
-                    ))}
+                    </Card>
+                  )}
+                </div>
+
+                <Divider />
+
+                <div className="project-result-pdf-break-before">
+                  {breakdown?.methodology?.blocks?.length > 0 && (
+                    <>
+                      <Title level={3}>
+                        <CalculatorOutlined /> Логика расчёта
+                      </Title>
+                      <Paragraph type="secondary" className="project-result-details-intro">
+                        {localizeResultText(
+                          breakdown?.methodology?.overview || 'Ниже показано, по каким правилам модель выбирает ключевые параметры расчёта.'
+                        )}
+                      </Paragraph>
+                      <div className="project-result-method-grid">
+                        {breakdown.methodology.blocks.map((block) => (
+                          <MethodologyBlock
+                            key={block.key || block.title}
+                            title={block.title}
+                            summary={block.summary}
+                            facts={Array.isArray(block.facts) ? block.facts : []}
+                          />
+                        ))}
+                      </div>
+                      <Divider />
+                    </>
+                  )}
+
+                  <div>
+                    <Title level={3}>
+                      <BarChartOutlined /> Детали расчёта
+                    </Title>
+                    <Paragraph type="secondary" className="project-result-details-intro">
+                      {breakdown?.methodology?.overview
+                        ? `${localizeResultText(breakdown.methodology.overview)} Ниже расчёт разложен по шагам: что берётся на вход, какая формула применяется и какой промежуточный результат получается на каждом этапе.`
+                        : 'Ниже расчёт разложен по шагам: что берётся на вход, какая формула применяется и какой промежуточный результат получается на каждом этапе.'}
+                    </Paragraph>
+                    <Collapse
+                      ghost
+                      activeKey={expandedStepKeys}
+                      onChange={(keys) => setExpandedStepKeys(Array.isArray(keys) ? keys.map(String) : [])}
+                      items={(breakdown?.calculationSteps || []).map((step) => ({
+                        key: String(step.step),
+                        label: (
+                          <div className="project-result-step-header">
+                            <div>
+                              <Text type="secondary" className="project-result-step-eyebrow">
+                                Шаг {step.step}
+                              </Text>
+                              <div>{localizeResultText(step.title)}</div>
+                            </div>
+                            <Text strong className="project-result-step-result">
+                              {formatStepSummary(step)}
+                            </Text>
+                          </div>
+                        ),
+                        children: (
+                          <div>
+                            <div className="project-result-detail-block">
+                              <Text strong className="project-result-detail-label">
+                                Что посчитано
+                              </Text>
+                              <Paragraph style={{ marginBottom: 0 }}>
+                                {localizeResultText(step.formula)}
+                              </Paragraph>
+                            </div>
+
+                            {step.explanation && (
+                              <div className="project-result-detail-block">
+                                <Text strong className="project-result-detail-label">
+                                  Почему именно так
+                                </Text>
+                                <Paragraph style={{ marginBottom: 0 }}>
+                                  {renderLocalizedMultilineText(step.explanation)}
+                                </Paragraph>
+                              </div>
+                            )}
+
+                            {step.calculation && (
+                              <div className="project-result-detail-block">
+                                <Text strong className="project-result-detail-label">
+                                  Как посчитано
+                                </Text>
+                                <code className="project-result-formula">
+                                  {localizeResultText(step.calculation)}
+                                </code>
+                              </div>
+                            )}
+
+                            {Array.isArray(step.rows) && step.rows.length > 0 && (
+                              <Table
+                                className="project-result-step-table"
+                                size="small"
+                                pagination={false}
+                                scroll={{ x: 960 }}
+                                rowKey={(record, index) => record.label || index}
+                                dataSource={step.rows}
+                                columns={[
+                                  {
+                                    title: 'Показатель',
+                                    dataIndex: 'label',
+                                    key: 'label',
+                                    render: (value) => localizeResultText(value) || '-',
+                                  },
+                                  {
+                                    title: 'Площадь',
+                                    dataIndex: 'leasableArea',
+                                    key: 'leasableArea',
+                                    render: (value) => value !== undefined ? formatSqm(value, 2) : '-',
+                                  },
+                                  {
+                                    title: 'Ставка',
+                                    dataIndex: 'monthlyRate',
+                                    key: 'monthlyRate',
+                                    render: (value) => value !== undefined ? `${formatNumber(value, 3)} ₽/м²/мес` : '-',
+                                  },
+                                  {
+                                    title: 'Доход / Значение',
+                                    dataIndex: 'annualIncome',
+                                    key: 'annualIncome',
+                                    render: (_, record) => {
+                                      if (record.annualIncome !== undefined) {
+                                        return formatCurrency(record.annualIncome, 2);
+                                      }
+
+                                      if (record.value !== undefined) {
+                                        return `${formatNumber(record.value, 3)} ${localizeResultText(step.unit)}`;
+                                      }
+
+                                      return '-';
+                                    },
+                                  },
+                                ]}
+                              />
+                            )}
+
+                            {!(Array.isArray(step.rows) && step.rows.length > 0 && step?.result && typeof step.result === 'object') && (
+                              renderStepResult(step)
+                            )}
+                          </div>
+                        ),
+                      }))}
+                    />
                   </div>
-                  <Divider />
-                </>
-              )}
+                </div>
 
-              <div>
-              <Title level={3}>
-                <BarChartOutlined /> Детали расчёта
-              </Title>
-              <Paragraph type="secondary" className="project-result-details-intro">
-                {breakdown?.methodology?.overview
-                  ? `${breakdown.methodology.overview} Ниже расчёт разложен по шагам: что берётся на вход, какая формула применяется и какой промежуточный результат получается на каждом этапе.`
-                  : 'Ниже расчёт разложен по шагам: что берётся на вход, какая формула применяется и какой промежуточный результат получается на каждом этапе.'}
-              </Paragraph>
-              <Collapse
-                ghost
-                activeKey={expandedStepKeys}
-                onChange={(keys) => setExpandedStepKeys(Array.isArray(keys) ? keys.map(String) : [])}
-                items={(breakdown?.calculationSteps || []).map((step) => ({
-                  key: String(step.step),
-                  label: (
-                    <div className="project-result-step-header">
-                      <div>
-                        <Text type="secondary" className="project-result-step-eyebrow">
-                          Шаг {step.step}
-                        </Text>
-                        <div>{step.title}</div>
-                      </div>
-                      <Text strong className="project-result-step-result">
-                        {formatStepSummary(step)}
-                      </Text>
-                    </div>
-                  ),
-                  children: (
-                    <div>
-                      <div className="project-result-detail-block">
-                        <Text strong className="project-result-detail-label">
-                          Что посчитано
-                        </Text>
-                        <Paragraph style={{ marginBottom: 0 }}>
-                          {step.formula}
-                        </Paragraph>
-                      </div>
-
-                      {step.explanation && (
-                        <div className="project-result-detail-block">
-                          <Text strong className="project-result-detail-label">
-                            Почему именно так
-                          </Text>
-                          <Paragraph style={{ marginBottom: 0 }}>
-                            {renderMultilineText(step.explanation)}
-                          </Paragraph>
-                        </div>
-                      )}
-
-                      {step.calculation && (
-                        <div className="project-result-detail-block">
-                          <Text strong className="project-result-detail-label">
-                            Как посчитано
-                          </Text>
-                          <code className="project-result-formula">
-                            {step.calculation}
-                          </code>
-                        </div>
-                      )}
-
-                      {Array.isArray(step.rows) && step.rows.length > 0 && (
-                        <Table
-                          className="project-result-step-table"
-                          size="small"
-                          pagination={false}
-                          scroll={{ x: 960 }}
-                          rowKey={(record, index) => record.label || index}
-                          dataSource={step.rows}
-                          columns={[
-                            {
-                              title: 'Показатель',
-                              dataIndex: 'label',
-                              key: 'label',
-                              render: (value) => value || '-',
-                            },
-                            {
-                              title: 'Площадь',
-                              dataIndex: 'leasableArea',
-                              key: 'leasableArea',
-                              render: (value) => value !== undefined ? formatSqm(value, 2) : '-',
-                            },
-                            {
-                              title: 'Ставка',
-                              dataIndex: 'monthlyRate',
-                              key: 'monthlyRate',
-                              render: (value) => value !== undefined ? `${formatNumber(value, 3)} ₽/м²/мес` : '-',
-                            },
-                            {
-                              title: 'Доход / Значение',
-                              dataIndex: 'annualIncome',
-                              key: 'annualIncome',
-                              render: (_, record) => {
-                                if (record.annualIncome !== undefined) {
-                                  return formatCurrency(record.annualIncome, 2);
-                                }
-
-                                if (record.value !== undefined) {
-                                  return `${formatNumber(record.value, 3)} ${step.unit}`;
-                                }
-
-                                return '-';
-                              },
-                            },
-                          ]}
-                        />
-                      )}
-
-                      {!(Array.isArray(step.rows) && step.rows.length > 0 && step?.result && typeof step.result === 'object') && (
-                          renderStepResult(step)
-                      )}
-                    </div>
-                  ),
-                }))}
-              />
-              </div>
-            </div>
-
-            <Divider />
+                <Divider />
+              </>
+            )}
 
             {floorInputRows.length > 0 && (
               <div>
@@ -930,155 +1114,161 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               </>
             )}
 
-            <Divider />
+            {debugModeEnabled && (
+              <>
+                <Divider />
 
-            <div>
-              <Title level={3}>
-                <CalculatorOutlined />
-                <Tooltip title="Параметры, которые были использованы в расчетах">
-                  Используемые параметры <InfoCircleOutlined />
-                </Tooltip>
-              </Title>
+                <div>
+                  <Title level={3}>
+                    <CalculatorOutlined />
+                    <Tooltip title="Параметры, которые были использованы в расчетах">
+                      Используемые параметры <InfoCircleOutlined />
+                    </Tooltip>
+                  </Title>
 
-              <Row gutter={16}>
-                <Col xs={24} sm={12}>
-                  <Card className="project-result-section-card">
-                    <Statistic
-                      title="Ставка аренды"
-                      value={Number(breakdown?.inputs?.rentalRate?.value || 0)}
-                      suffix="₽/м²"
-                      prefix={
-                        breakdown?.inputs?.rentalRate?.source === 'manual' ? (
-                          <Tag color="orange">Вручную</Tag>
-                        ) : (
-                          <Tag color="cyan">Рынок</Tag>
-                        )
-                      }
-                    />
-                    {breakdown?.inputs?.rentalRate?.methodLabel && (
-                      <Text type="secondary">
-                        {breakdown.inputs.rentalRate.methodLabel}
-                      </Text>
-                    )}
-                    {breakdown?.inputs?.rentalRate?.note && (
-                      <Text type="secondary">
-                        {breakdown.inputs.rentalRate.note}
-                      </Text>
-                    )}
-                  </Card>
-                </Col>
-
-                <Col xs={24} sm={12}>
-                  <Card className="project-result-section-card">
-                    <Statistic
-                      title="Сдаваемая площадь"
-                      value={Number(breakdown?.inputs?.leasableArea?.value || 0)}
-                      suffix="м²"
-                    />
-                    {breakdown?.inputs?.actualOccupancy?.note && (
-                      <Text type="secondary">
-                        {breakdown.inputs.actualOccupancy.note}
-                      </Text>
-                    )}
-                  </Card>
-                </Col>
-              </Row>
-
-              <Row gutter={16} style={{ marginTop: 16 }}>
-                <Col xs={24} sm={8}>
-                  <Card className="project-result-section-card">
-                    <Statistic
-                      title="Незаполняемость"
-                      value={Number(breakdown?.inputs?.vacancyRate?.value || 0)}
-                      suffix="%"
-                    />
-                    {breakdown?.inputs?.vacancyRate?.methodLabel && (
-                      <Text type="secondary">
-                        {breakdown.inputs.vacancyRate.methodLabel}
-                      </Text>
-                    )}
-                    {breakdown?.inputs?.vacancyRate?.note && (
-                      <Text type="secondary">
-                        {breakdown.inputs.vacancyRate.note}
-                      </Text>
-                    )}
-                  </Card>
-                </Col>
-
-                <Col xs={24} sm={8}>
-                  <Card className="project-result-section-card">
-                    <Statistic
-                      title="OPEX"
-                      value={Number(breakdown?.inputs?.opexRate?.value || 0)}
-                      suffix="%"
-                    />
-                    {breakdown?.inputs?.opexRate?.methodLabel && (
-                      <Text type="secondary">
-                        {breakdown.inputs.opexRate.methodLabel}
-                      </Text>
-                    )}
-                    {breakdown?.inputs?.opexRate?.note && (
-                      <Text type="secondary">
-                        {breakdown.inputs.opexRate.note}
-                      </Text>
-                    )}
-                  </Card>
-                </Col>
-
-                <Col xs={24} sm={8}>
-                  <Card className="project-result-section-card">
-                    <Statistic
-                      title="Ставка капитализации"
-                      value={(Number(breakdown?.summary?.capitalizationRate || 0) * 100).toFixed(2)}
-                      suffix="%"
-                    />
-                    {breakdown?.inputs?.capitalizationRate?.methodLabel && (
-                      <Text type="secondary">
-                        {breakdown.inputs.capitalizationRate.methodLabel}
-                      </Text>
-                    )}
-                    {breakdown?.inputs?.capitalizationRate?.note && (
-                      <Text type="secondary">
-                        {breakdown.inputs.capitalizationRate.note}
-                      </Text>
-                    )}
-                  </Card>
-                </Col>
-              </Row>
-
-              {breakdown?.inputs?.rentalRate?.marketData && (
-                <Card style={{ marginTop: 16 }} className="project-result-section-card">
-                  <Title level={4}>Рыночный диапазон ставок аренды</Title>
-                  <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                    {breakdown?.inputs?.rentalRate?.methodLabel || 'Итоговая ставка выбирается по рыночной модели аналогов.'}
-                    {breakdown?.market?.selectedComparableCount ? ` Отобрано ${breakdown.market.selectedComparableCount}, в итог вошло ${breakdown.market.comparableCount}, исключено ${breakdown.market.excludedComparableCount || 0}.` : ''}
-                  </Paragraph>
                   <Row gutter={16}>
-                    <Col xs={24} sm={8}>
-                      <Statistic
-                        title="Минимум"
-                        value={formatNumber(breakdown?.inputs?.rentalRate?.marketData?.min || 0, 2)}
-                        suffix="₽/м²"
-                      />
+                    <Col xs={24} sm={12}>
+                      <Card className="project-result-section-card">
+                        <Statistic
+                          title="Ставка аренды"
+                          value={Number(breakdown?.inputs?.rentalRate?.value || 0)}
+                          suffix="₽/м²"
+                          prefix={
+                            rentalRateIsManual ? (
+                              <Tag color="orange">Вручную</Tag>
+                            ) : (
+                              <Tag color="cyan">Рынок</Tag>
+                            )
+                          }
+                        />
+                        {breakdown?.inputs?.rentalRate?.methodLabel && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.rentalRate.methodLabel)}
+                          </Text>
+                        )}
+                        {breakdown?.inputs?.rentalRate?.note && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.rentalRate.note)}
+                          </Text>
+                        )}
+                      </Card>
                     </Col>
-                    <Col xs={24} sm={8}>
-                      <Statistic
-                        title="Медиана"
-                        value={formatNumber(breakdown?.inputs?.rentalRate?.marketData?.median || 0, 2)}
-                        suffix="₽/м²"
-                      />
-                    </Col>
-                    <Col xs={24} sm={8}>
-                      <Statistic
-                        title="Максимум"
-                        value={formatNumber(breakdown?.inputs?.rentalRate?.marketData?.max || 0, 2)}
-                        suffix="₽/м²"
-                      />
+
+                    <Col xs={24} sm={12}>
+                      <Card className="project-result-section-card">
+                        <Statistic
+                          title="Сдаваемая площадь"
+                          value={Number(breakdown?.inputs?.leasableArea?.value || 0)}
+                          suffix="м²"
+                        />
+                        {breakdown?.inputs?.actualOccupancy?.note && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.actualOccupancy.note)}
+                          </Text>
+                        )}
+                      </Card>
                     </Col>
                   </Row>
-                </Card>
-              )}
-            </div>
+
+                  <Row gutter={16} style={{ marginTop: 16 }}>
+                    <Col xs={24} sm={8}>
+                      <Card className="project-result-section-card">
+                        <Statistic
+                          title="Незаполняемость"
+                          value={Number(breakdown?.inputs?.vacancyRate?.value || 0)}
+                          suffix="%"
+                        />
+                        {breakdown?.inputs?.vacancyRate?.methodLabel && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.vacancyRate.methodLabel)}
+                          </Text>
+                        )}
+                        {breakdown?.inputs?.vacancyRate?.note && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.vacancyRate.note)}
+                          </Text>
+                        )}
+                      </Card>
+                    </Col>
+
+                    <Col xs={24} sm={8}>
+                      <Card className="project-result-section-card">
+                        <Statistic
+                          title="Операционные расходы"
+                          value={Number(breakdown?.inputs?.opexRate?.value || 0)}
+                          suffix="%"
+                        />
+                        {breakdown?.inputs?.opexRate?.methodLabel && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.opexRate.methodLabel)}
+                          </Text>
+                        )}
+                        {breakdown?.inputs?.opexRate?.note && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.opexRate.note)}
+                          </Text>
+                        )}
+                      </Card>
+                    </Col>
+
+                    <Col xs={24} sm={8}>
+                      <Card className="project-result-section-card">
+                        <Statistic
+                          title="Ставка капитализации"
+                          value={(Number(breakdown?.summary?.capitalizationRate || 0) * 100).toFixed(2)}
+                          suffix="%"
+                        />
+                        {breakdown?.inputs?.capitalizationRate?.methodLabel && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.capitalizationRate.methodLabel)}
+                          </Text>
+                        )}
+                        {breakdown?.inputs?.capitalizationRate?.note && (
+                          <Text type="secondary">
+                            {localizeResultText(breakdown.inputs.capitalizationRate.note)}
+                          </Text>
+                        )}
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  {breakdown?.inputs?.rentalRate?.marketData && (
+                    <Card style={{ marginTop: 16 }} className="project-result-section-card">
+                      <Title level={4}>Рыночный диапазон ставок аренды</Title>
+                      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+                        {localizeResultText(
+                          breakdown?.inputs?.rentalRate?.methodLabel || 'Итоговая ставка выбирается по рыночной модели аналогов.'
+                        )}
+                        {breakdown?.market?.selectedComparableCount ? ` Отобрано ${breakdown.market.selectedComparableCount}, в итог вошло ${breakdown.market.comparableCount}, исключено ${breakdown.market.excludedComparableCount || 0}.` : ''}
+                      </Paragraph>
+                      <Row gutter={16}>
+                        <Col xs={24} sm={8}>
+                          <Statistic
+                            title="Минимум"
+                            value={formatNumber(breakdown?.inputs?.rentalRate?.marketData?.min || 0, 2)}
+                            suffix="₽/м²"
+                          />
+                        </Col>
+                        <Col xs={24} sm={8}>
+                          <Statistic
+                            title="Медиана"
+                            value={formatNumber(breakdown?.inputs?.rentalRate?.marketData?.median || 0, 2)}
+                            suffix="₽/м²"
+                          />
+                        </Col>
+                        <Col xs={24} sm={8}>
+                          <Statistic
+                            title="Максимум"
+                            value={formatNumber(breakdown?.inputs?.rentalRate?.marketData?.max || 0, 2)}
+                            suffix="₽/м²"
+                          />
+                        </Col>
+                      </Row>
+                    </Card>
+                  )}
+                </div>
+              </>
+            )}
 
             <Divider />
 
@@ -1106,7 +1296,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       dataIndex: 'address_offer',
                       key: 'address_offer',
                       width: '24%',
-                      render: (text) => <Text ellipsis>{text || 'N/A'}</Text>,
+                      render: (text) => <Text ellipsis>{localizeResultText(text) || '—'}</Text>,
                     },
                     {
                       title: <Tooltip title={getFieldTooltip('class_offer')}>Класс</Tooltip>,
@@ -1143,7 +1333,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       render: (value) => value ? <Text>{formatNumber(value, 2)} ₽/м²</Text> : '—',
                     },
                     {
-                      title: 'Relevance',
+                      title: 'Релевантность',
                       dataIndex: 'relevance_score',
                       key: 'relevance_score',
                       width: '8%',
@@ -1165,9 +1355,9 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       key: 'included_in_rent_calculation',
                       width: '10%',
                       render: (value, record) => (
-                        <Tooltip title={record.decision_reason || record.exclusion_reason || '—'}>
+                        <Tooltip title={localizeResultText(record.decision_reason || record.exclusion_reason || '—')}>
                           <Tag color={value === false ? 'default' : 'green'}>
-                            {value === false ? 'Исключен' : 'В расчете'}
+                            {value === false ? 'Исключён' : 'В расчёте'}
                           </Tag>
                         </Tooltip>
                       ),
@@ -1178,7 +1368,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       key: 'offer_date',
                       width: '10%',
                       render: (value) => {
-                        if (!value) return 'N/A';
+                        if (!value) return '—';
                         return new Date(value).toLocaleDateString('ru-RU');
                       },
                     },
@@ -1208,7 +1398,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               </div>
             )}
 
-            {breakdown?.market?.excludedComparables?.length > 0 && (
+            {debugModeEnabled && breakdown?.market?.excludedComparables?.length > 0 && (
               <>
                 <Divider />
                 <div className="project-result-pdf-break-before">
@@ -1218,62 +1408,72 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       Исключённые аналоги <InfoCircleOutlined />
                     </Tooltip>
                   </Title>
-                  <Table
-                    dataSource={breakdown.market.excludedComparables}
-                    scroll={{ x: 1280 }}
-                    pagination={false}
-                    size="small"
-                    rowKey={(record, index) => `${record.analogId || record.address_offer || 'excluded'}_${index}`}
-                    columns={[
-                      {
-                        title: 'Адрес',
-                        dataIndex: 'address_offer',
-                        key: 'address_offer',
-                        width: '28%',
-                        render: (value) => value || '—',
-                      },
-                      {
-                        title: 'Класс',
-                        dataIndex: 'class_offer',
-                        key: 'class_offer',
-                        width: '8%',
-                        render: (value) => value || '—',
-                      },
-                      {
-                        title: 'Ставка',
-                        dataIndex: 'raw_rate',
-                        key: 'raw_rate',
-                        width: '10%',
-                        render: (value) => value ? `${formatNumber(value, 2)} ₽/м²` : '—',
-                      },
-                      {
-                        title: 'Скорр. ставка',
-                        dataIndex: 'corrected_rate',
-                        key: 'corrected_rate',
-                        width: '12%',
-                        render: (value) => value ? `${formatNumber(value, 2)} ₽/м²` : '—',
-                      },
-                      {
-                        title: 'Relevance',
-                        dataIndex: 'relevance_score',
-                        key: 'relevance_score',
-                        width: '8%',
-                        render: (value) => value ? `${formatNumber(Number(value) * 100, 1)}%` : '—',
-                      },
-                      {
-                        title: 'Причина исключения',
-                        dataIndex: 'exclusion_reason',
-                        key: 'exclusion_reason',
-                        width: '34%',
-                        render: (value) => value || '—',
-                      },
-                    ]}
-                  />
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Text type="secondary">
+                      Исключено аналогов: {breakdown.market.excludedComparables.length}. По умолчанию список скрыт, чтобы не перегружать итоговый отчет.
+                    </Text>
+                    <Button onClick={() => setShowExcludedComparables((prev) => !prev)}>
+                      {showExcludedComparables ? 'Скрыть исключённые аналоги' : 'Показать исключённые аналоги'}
+                    </Button>
+                    {showExcludedComparables && (
+                      <Table
+                        dataSource={breakdown.market.excludedComparables}
+                        scroll={{ x: 1280 }}
+                        pagination={false}
+                        size="small"
+                        rowKey={(record, index) => `${record.analogId || record.address_offer || 'excluded'}_${index}`}
+                        columns={[
+                          {
+                            title: 'Адрес',
+                            dataIndex: 'address_offer',
+                            key: 'address_offer',
+                            width: '28%',
+                            render: (value) => value || '—',
+                          },
+                          {
+                            title: 'Класс',
+                            dataIndex: 'class_offer',
+                            key: 'class_offer',
+                            width: '8%',
+                            render: (value) => value || '—',
+                          },
+                          {
+                            title: 'Ставка',
+                            dataIndex: 'raw_rate',
+                            key: 'raw_rate',
+                            width: '10%',
+                            render: (value) => value ? `${formatNumber(value, 2)} ₽/м²` : '—',
+                          },
+                          {
+                            title: 'Скорр. ставка',
+                            dataIndex: 'corrected_rate',
+                            key: 'corrected_rate',
+                            width: '12%',
+                            render: (value) => value ? `${formatNumber(value, 2)} ₽/м²` : '—',
+                          },
+                          {
+                            title: 'Релевантность',
+                            dataIndex: 'relevance_score',
+                            key: 'relevance_score',
+                            width: '8%',
+                            render: (value) => value ? `${formatNumber(Number(value) * 100, 1)}%` : '—',
+                          },
+                          {
+                            title: 'Причина исключения',
+                            dataIndex: 'exclusion_reason',
+                            key: 'exclusion_reason',
+                            width: '34%',
+                            render: (value) => localizeResultText(value) || '—',
+                          },
+                        ]}
+                      />
+                    )}
+                  </Space>
                 </div>
               </>
             )}
 
-            {breakdown?.assumptions?.length > 0 && (
+            {debugModeEnabled && breakdown?.assumptions?.length > 0 && (
               <>
                 <Divider />
                 <div className="project-result-pdf-break-before">
@@ -1293,9 +1493,10 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                         title: 'Допущение',
                         dataIndex: 'label',
                         key: 'label',
+                        render: (value) => localizeResultText(value) || '—',
                       },
                       {
-                        title: 'Penalty',
+                        title: 'Штраф',
                         dataIndex: 'penalty',
                         key: 'penalty',
                         width: 140,
@@ -1339,100 +1540,103 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               </>
             )}
 
-            <Divider />
+            {debugModeEnabled && breakdown?.sensitivity && (
+              <>
+                <Divider />
+                <div className="project-result-pdf-break-before">
+                  <Title level={3}>
+                    <BarChartOutlined />
+                    <Tooltip title={getFieldTooltip('sensitivity')}>
+                      Анализ чувствительности <InfoCircleOutlined />
+                    </Tooltip>
+                  </Title>
+                  <Paragraph type="secondary">
+                    Показывает, как изменится стоимость объекта при изменении ключевых параметров:
+                  </Paragraph>
 
-            {breakdown?.sensitivity && (
-              <div className="project-result-pdf-break-before">
-                <Title level={3}>
-                  <BarChartOutlined />
-                  <Tooltip title={getFieldTooltip('sensitivity')}>
-                    Анализ чувствительности <InfoCircleOutlined />
-                  </Tooltip>
-                </Title>
-                <Paragraph type="secondary">
-                  Показывает, как изменится стоимость объекта при изменении ключевых параметров:
-                </Paragraph>
+                  <Title level={4}>При изменении ЧОД:</Title>
+                  <Table
+                    dataSource={sensitivityByNoi}
+                    scroll={{ x: 860 }}
+                    columns={[
+                      {
+                        title: 'Сценарий',
+                        dataIndex: 'label',
+                        key: 'label',
+                        render: (value) => localizeResultText(value) || '—',
+                      },
+                      {
+                        title: 'ЧОД',
+                        dataIndex: 'noi',
+                        key: 'noi',
+                        render: (value) => formatCurrency(value, 2),
+                      },
+                      {
+                        title: 'Стоимость объекта',
+                        dataIndex: 'estimatedValue',
+                        key: 'estimatedValue',
+                        render: (value) => <Text strong>{formatCurrency(value, 2)}</Text>,
+                      },
+                      {
+                        title: 'Изменение',
+                        dataIndex: 'change',
+                        key: 'change',
+                        render: (value) => (
+                          <Text type={value > 0 ? 'success' : 'danger'}>
+                            {value > 0 ? '+' : ''}
+                            {formatNumber(value, 2)}%
+                          </Text>
+                        ),
+                      },
+                    ]}
+                    pagination={false}
+                    size="small"
+                    rowKey={(record) => record.label}
+                  />
 
-                <Title level={4}>При изменении ЧОД:</Title>
-                <Table
-                  dataSource={sensitivityByNoi}
-                  scroll={{ x: 860 }}
-                  columns={[
-                    {
-                      title: 'Сценарий',
-                      dataIndex: 'label',
-                      key: 'label',
-                    },
-                    {
-                      title: 'ЧОД',
-                      dataIndex: 'noi',
-                      key: 'noi',
-                      render: (value) => formatCurrency(value, 2),
-                    },
-                    {
-                      title: 'Стоимость объекта',
-                      dataIndex: 'estimatedValue',
-                      key: 'estimatedValue',
-                      render: (value) => <Text strong>{formatCurrency(value, 2)}</Text>,
-                    },
-                    {
-                      title: 'Изменение',
-                      dataIndex: 'change',
-                      key: 'change',
-                      render: (value) => (
-                        <Text type={value > 0 ? 'success' : 'danger'}>
-                          {value > 0 ? '+' : ''}
-                          {formatNumber(value, 2)}%
-                        </Text>
-                      ),
-                    },
-                  ]}
-                  pagination={false}
-                  size="small"
-                  rowKey={(record) => record.label}
-                />
-
-                <Title level={4} style={{ marginTop: 24 }}>
-                  При изменении ставки капитализации:
-                </Title>
-                <Table
-                  dataSource={breakdown.sensitivity.byCapRate || []}
-                  scroll={{ x: 860 }}
-                  columns={[
-                    {
-                      title: 'Сценарий',
-                      dataIndex: 'label',
-                      key: 'label',
-                    },
-                    {
-                      title: 'Ставка капитализации',
-                      dataIndex: 'capitalizationRate',
-                      key: 'capitalizationRate',
-                      render: (value) => formatPercent(Number(value || 0) * 100, 2),
-                    },
-                    {
-                      title: 'Стоимость объекта',
-                      dataIndex: 'estimatedValue',
-                      key: 'estimatedValue',
-                      render: (value) => <Text strong>{formatCurrency(value, 2)}</Text>,
-                    },
-                    {
-                      title: 'Изменение',
-                      dataIndex: 'change',
-                      key: 'change',
-                      render: (value) => (
-                        <Text type={value > 0 ? 'success' : 'danger'}>
-                          {value > 0 ? '+' : ''}
-                          {formatNumber(value, 2)}%
-                        </Text>
-                      ),
-                    },
-                  ]}
-                  pagination={false}
-                  size="small"
-                  rowKey={(record) => record.label}
-                />
-              </div>
+                  <Title level={4} style={{ marginTop: 24 }}>
+                    При изменении ставки капитализации:
+                  </Title>
+                  <Table
+                    dataSource={breakdown.sensitivity.byCapRate || []}
+                    scroll={{ x: 860 }}
+                    columns={[
+                      {
+                        title: 'Сценарий',
+                        dataIndex: 'label',
+                        key: 'label',
+                        render: (value) => localizeResultText(value) || '—',
+                      },
+                      {
+                        title: 'Ставка капитализации',
+                        dataIndex: 'capitalizationRate',
+                        key: 'capitalizationRate',
+                        render: (value) => formatPercent(Number(value || 0) * 100, 2),
+                      },
+                      {
+                        title: 'Стоимость объекта',
+                        dataIndex: 'estimatedValue',
+                        key: 'estimatedValue',
+                        render: (value) => <Text strong>{formatCurrency(value, 2)}</Text>,
+                      },
+                      {
+                        title: 'Изменение',
+                        dataIndex: 'change',
+                        key: 'change',
+                        render: (value) => (
+                          <Text type={value > 0 ? 'success' : 'danger'}>
+                            {value > 0 ? '+' : ''}
+                            {formatNumber(value, 2)}%
+                          </Text>
+                        ),
+                      },
+                    ]}
+                    pagination={false}
+                    size="small"
+                    rowKey={(record) => record.label}
+                  />
+                </div>
+              </>
             )}
 
             <Divider />

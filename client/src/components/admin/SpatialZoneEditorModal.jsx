@@ -201,7 +201,7 @@ export default function SpatialZoneEditorModal({ open, initialValue, onCancel, o
                         </Form.Item>
 
                         <Form.Item label="Активна" name="isActive" valuePropName="checked">
-                            <Switch />
+                            <Switch className="admin-rounded-switch" />
                         </Form.Item>
 
                         <Alert

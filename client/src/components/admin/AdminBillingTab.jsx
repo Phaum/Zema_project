@@ -492,7 +492,7 @@ export default function AdminBillingTab() {
                     </Form.Item>
 
                     <Form.Item name="isActive" label="Активен" valuePropName="checked">
-                        <Switch />
+                        <Switch className="admin-rounded-switch" />
                     </Form.Item>
                 </Form>
             </Drawer>

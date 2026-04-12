@@ -90,6 +90,18 @@ body {
   border-radius: 0 !important;
 }
 
+.admin-debug-switch.ant-switch,
+.admin-debug-switch.ant-switch.ant-switch-checked,
+.admin-rounded-switch.ant-switch,
+.admin-rounded-switch.ant-switch.ant-switch-checked {
+  border-radius: 999px !important;
+}
+
+.admin-debug-switch.ant-switch .ant-switch-handle,
+.admin-rounded-switch.ant-switch .ant-switch-handle {
+  border-radius: 50% !important;
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;

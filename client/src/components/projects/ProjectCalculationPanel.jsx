@@ -16,9 +16,10 @@ export default function ProjectCalculationPanel({
     const q = project?.questionnaire || {};
 
     const manualRate = Number(q.averageRentalRate || 0);
-    const derivedRate = Number(marketContext?.medianRentalRate || 0);
+    const derivedRate = Number(marketContext?.marketRentMonth ?? marketContext?.medianRentalRate ?? 0);
     const rentalRate = manualRate > 0 ? manualRate : derivedRate;
-    const rentalRateSource = manualRate > 0 ? 'Ручной ввод' : 'По базе analogues';
+    const rentalRateSource = manualRate > 0 ? 'Ручной ввод' : 'По базе аналогов';
+    const calculationPayload = manualRate > 0 ? { averageRentalRate: manualRate } : {};
 
     let leasableArea = 0;
     let occupiedArea = 0;
@@ -57,7 +58,7 @@ export default function ProjectCalculationPanel({
     const handleCalculate = async () => {
         try {
             setLoading(true);
-            await api.post(`/projects/${projectId}/calculate`);
+            await api.post(`/projects/${projectId}/calculate`, calculationPayload);
             message.success('Расчёт выполнен');
             onCalculated?.();
         } catch (error) {
@@ -82,7 +83,7 @@ export default function ProjectCalculationPanel({
                             suffix="₽/м²"
                             prefix={
                                 <Tag color={manualRate > 0 ? 'orange' : 'cyan'}>
-                                    {manualRate > 0 ? 'Вручную' : 'Analogues'}
+                                    {manualRate > 0 ? 'Вручную' : 'Аналоги'}
                                 </Tag>
                             }
                         />
@@ -97,7 +98,7 @@ export default function ProjectCalculationPanel({
 
                 {derivedRate > 0 && manualRate === 0 && (
                     <Text type="secondary" style={{ marginTop: 8 }}>
-                        Медианная ставка по базе analogues: {Math.round(derivedRate)} ₽/м²
+                        Медианная ставка по базе аналогов: {Math.round(derivedRate)} ₽/м²
                         {' '}({marketContext?.comparableCount || 0} аналогов)
                     </Text>
                 )}
@@ -151,7 +152,7 @@ export default function ProjectCalculationPanel({
                     <Col xs={24} sm={12} md={6}>
                         <Card size="small" style={{ background: '#f0f5ff' }}>
                             <Statistic
-                                title="PGI"
+                                title="ПВД"
                                 value={Math.round(pgi)}
                                 suffix="₽"
                                 valueStyle={{ fontSize: '16px' }}
@@ -164,7 +165,7 @@ export default function ProjectCalculationPanel({
                     <Col xs={24} sm={12} md={6}>
                         <Card size="small" style={{ background: '#e6f7ff' }}>
                             <Statistic
-                                title="EGI"
+                                title="ЭВД"
                                 value={Math.round(egi)}
                                 suffix="₽"
                                 valueStyle={{ fontSize: '16px' }}
@@ -177,7 +178,7 @@ export default function ProjectCalculationPanel({
                     <Col xs={24} sm={12} md={6}>
                         <Card size="small" style={{ background: '#fff7e6' }}>
                             <Statistic
-                                title="OPEX"
+                                title="Операционные расходы"
                                 value={Math.round(opex)}
                                 suffix="₽"
                                 valueStyle={{ fontSize: '16px' }}
@@ -190,7 +191,7 @@ export default function ProjectCalculationPanel({
                     <Col xs={24} sm={12} md={6}>
                         <Card size="small" style={{ background: '#f6ffed' }}>
                             <Statistic
-                                title="NOI"
+                                title="ЧОД"
                                 value={Math.round(noi)}
                                 suffix="₽"
                                 valueStyle={{ fontSize: '16px' }}
@@ -214,7 +215,7 @@ export default function ProjectCalculationPanel({
                     </Col>
                     <Col xs={24} sm={12}>
                         <Text type="secondary">
-                            NOI / 10% = ориентировочная стоимость до вычета доли земли
+                            ЧОД / 10% = ориентировочная стоимость до вычета доли земли
                         </Text>
                     </Col>
                 </Row>
