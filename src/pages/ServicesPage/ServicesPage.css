@@ -1,44 +1,50 @@
-.services-container {
+.services-page-container {
   min-height: calc(100vh - 70px);
   margin-top: 70px;
   background: #ffffff;
 }
 
-.services-hero {
-  min-height: 300px;
-  background: 
-    url('/zema-project/zema-platform/src/images/zema_background.jpg');
+.services-page-hero {
+  min-height: 360px;
+  background:
+          linear-gradient(90deg, rgba(24, 144, 255, 0.78) 0%, rgba(24, 144, 255, 0.52) 100%),
+          url('../../images/zema_background.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   display: flex;
   align-items: center;
   padding: 0 50px;
-  text-align: left;
 }
 
-.services-hero-content {
+.services-page-hero-content {
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
 }
 
-.page-title {
-  color: rgb(52, 50, 67) !important;
-  font-size: 48px !important;
-  font-weight: 800 !important;
-  margin-bottom: 10px !important;
+.services-page-badge {
+  display: inline-block;
+  color: #ffffff !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  padding: 6px 12px;
+  margin-bottom: 20px;
 }
 
-.page-subtitle {
-  color: rgb(70, 70, 84) !important;
-  font-size: 32px !important;
-  font-weight: 600 !important;
+.services-page-title {
+  color: #ffffff !important;
+  font-size: 50px !important;
+  line-height: 1.12 !important;
+  font-weight: 800 !important;
   margin-bottom: 0 !important;
 }
 
 .services-main {
-  padding: 80px 50px;
+  padding: 70px 50px;
   background: #ffffff;
 }
 
@@ -47,22 +53,30 @@
   margin: 0 auto;
 }
 
+.service-card {
+  height: 100%;
+}
+
 .sharp-card {
-  border: 2px solid #f0f0f0 !important;
   border-radius: 0 !important;
+  border: 2px solid #f0f0f0 !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
   background: #ffffff !important;
   height: 100%;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
 }
 
 .sharp-card:hover {
-  border-color: #d9d9d9 !important; 
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12) !important;
+  border-color: #1890ff !important;
+  transform: translateY(-2px);
+}
+
+.sharp-card .ant-card-body {
+  padding: 30px !important;
+  height: 100%;
 }
 
 .service-card-inner {
-  padding: 30px 20px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -71,54 +85,54 @@
 }
 
 .service-icon-wrapper {
-  width: 70px;
-  height: 70px;
+  width: 72px;
+  height: 72px;
   background: #1890ff;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 25px;
+  margin: 0 auto 22px;
   border-radius: 0 !important;
 }
 
 .service-icon {
   font-size: 32px !important;
-  color: white !important;
+  color: #ffffff !important;
 }
 
 .service-title {
   color: #1890ff !important;
   font-size: 20px !important;
-  font-weight: 600 !important;
-  margin-bottom: 15px !important;
+  font-weight: 700 !important;
+  margin-bottom: 14px !important;
   text-align: center;
 }
 
 .service-description {
   color: #595959 !important;
-  font-size: 16px !important;
-  margin-bottom: 25px !important;
-  line-height: 1.6 !important;
+  font-size: 15px !important;
+  line-height: 1.7 !important;
+  margin-bottom: 22px !important;
   flex-grow: 1;
 }
 
 .sharp-btn {
+  height: 50px !important;
   border-radius: 0 !important;
-  border: 2px solid #1890ff !important;
-  background: #1890ff !important;
-  color: white !important;
+  padding: 0 28px !important;
+  font-size: 16px !important;
   font-weight: 600 !important;
-  height: 42px !important;
-  padding: 0 24px !important;
-  transition: all 0.2s ease !important;
+  background: #1890ff !important;
+  border: 2px solid #1890ff !important;
+  box-shadow: none !important;
   min-width: 180px;
 }
 
 .sharp-btn:hover {
   background: #096dd9 !important;
   border-color: #096dd9 !important;
-  transform: none !important;
   box-shadow: none !important;
+  transform: none !important;
 }
 
 .service-btn {
@@ -126,77 +140,58 @@
 }
 
 @media (max-width: 1200px) {
-  .services-hero {
-    padding: 0 30px;
-  }
-  
+  .services-page-hero,
   .services-main {
-    padding: 60px 30px;
+    padding-left: 30px;
+    padding-right: 30px;
+  }
+
+  .services-page-title {
+    font-size: 42px !important;
   }
 }
 
 @media (max-width: 992px) {
-  .services-hero {
-    min-height: 250px;
-  }
-  
-  .page-title {
+  .services-page-title {
     font-size: 36px !important;
-  }
-  
-  .page-subtitle {
-    font-size: 24px !important;
-  }
-  
-  .services-main {
-    padding: 50px 30px;
   }
 }
 
 @media (max-width: 768px) {
-  .services-hero {
-    min-height: 200px;
-    padding: 0 20px;
+  .services-page-container {
+    margin-top: 60px;
+    min-height: calc(100vh - 60px);
   }
-  
-  .page-title {
-    font-size: 28px !important;
-  }
-  
-  .page-subtitle {
-    font-size: 20px !important;
-  }
-  
+
+  .services-page-hero,
   .services-main {
-    padding: 40px 20px;
+    padding-left: 20px;
+    padding-right: 20px;
   }
-  
-  .service-card-inner {
-    padding: 25px 15px;
+
+  .services-page-hero {
+    min-height: 320px;
   }
-  
+
+  .services-page-title {
+    font-size: 30px !important;
+  }
+
+  .sharp-card .ant-card-body {
+    padding: 22px !important;
+  }
+
   .sharp-btn {
-    min-width: 160px;
-    height: 38px !important;
-    padding: 0 20px !important;
+    width: 100%;
   }
 }
 
 @media (max-width: 480px) {
-  .services-hero {
-    min-height: 180px;
-    padding: 0 15px;
+  .services-page-title {
+    font-size: 26px !important;
   }
-  
-  .page-title {
-    font-size: 24px !important;
-  }
-  
-  .page-subtitle {
+
+  .service-title {
     font-size: 18px !important;
-  }
-  
-  .services-main {
-    padding: 30px 15px;
   }
 }

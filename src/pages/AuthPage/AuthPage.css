@@ -1,7 +1,7 @@
 .auth-page {
   min-height: 100vh;
   background: 
-    url('/zema-project/zema-platform/src/images/zema_background.jpg');
+    url('../../images/zema_background.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -212,5 +212,88 @@
   
   .auth-page {
     padding: 10px;
+  }
+}
+
+.auth-policy-checkbox-text {
+  color: #666;
+  line-height: 1.5;
+
+}
+
+.auth-policy-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #1890ff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-align: left;
+}
+
+.auth-policy-link:hover {
+  color: #096dd9;
+}
+
+.auth-policy-link:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.auth-policy-modal .ant-modal-content {
+  border-radius: 0 !important;
+  border: 2px solid #f0f0f0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.auth-policy-modal .ant-modal-header {
+  border-bottom: 2px solid #f0f0f0 !important;
+  padding: 20px 24px !important;
+  margin-bottom: 0 !important;
+}
+
+.auth-policy-modal .ant-modal-title {
+  font-weight: 700 !important;
+}
+
+.auth-policy-modal .ant-modal-body {
+  padding: 24px !important;
+}
+
+.auth-policy-modal .ant-modal-footer {
+  border-top: 2px solid #f0f0f0 !important;
+  padding: 16px 24px !important;
+}
+
+.auth-policy-content {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.auth-policy-content .ant-typography {
+  color: #595959;
+  line-height: 1.7;
+}
+
+.auth-modal-btn {
+  min-width: 140px;
+  margin-top: 0 !important;
+}
+
+@media (max-width: 768px) {
+  .auth-policy-modal .ant-modal-body {
+    padding: 18px !important;
+  }
+
+  .auth-policy-modal .ant-modal-header,
+  .auth-policy-modal .ant-modal-footer {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
   }
 }

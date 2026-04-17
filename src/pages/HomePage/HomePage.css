@@ -7,8 +7,9 @@
 
 .hero-section {
   min-height: 600px;
-  background: 
-    url('/zema-project/zema-platform/src/images/zema_background.jpg');
+  background:
+    linear-gradient(90deg, rgba(24, 144, 255, 0.78) 0%, rgba(24, 144, 255, 0.52) 100%),
+    url('../../images/zema_background.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;

@@ -143,3 +143,45 @@
     padding: 0 16px !important;
   }
 }
+
+.profile-button {
+  height: 40px !important;
+  border-radius: 0 !important;
+  border: 2px solid #1890ff !important;
+  background: #ffffff !important;
+  color: #1890ff !important;
+  font-weight: 600 !important;
+  padding: 0 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.profile-button:hover,
+.profile-button:focus {
+  color: #096dd9 !important;
+  border-color: #096dd9 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.profile-avatar {
+  background: #1890ff !important;
+  color: #ffffff !important;
+}
+
+.profile-button-text {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .profile-button-text {
+    display: none;
+  }
+
+  .profile-button {
+    padding: 0 10px !important;
+  }
+}

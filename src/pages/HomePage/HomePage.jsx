@@ -38,16 +38,12 @@ const HomePage = () => {
       <section className="hero-section">
         <div className="hero-content">
           <div className="hero-text">
-            <Title level={1} className="hero-subtitle">ЗЕМА — ОЦЕНКА БИЗНЕС-ЦЕНТРОВ СПБ</Title>
-            <Paragraph className="hero-description">
-              Быстрая рыночная оценка коммерческих зданий
-            </Paragraph>
-            <Link to="/questionary">
+            <Title level={1} className="hero-subtitle">ЗЕМА — ПЛАТФОРМА РЫНОЧНОЙ ЭКСПРЕСС ОЦЕНКИ КОММЕРЧЕСКОЙ НЕДВИЖИМОСТИ</Title>
+            <Link to="/login">
               <Button type="primary" size="large" className="cta-button">
                 Рассчитать стоимость
               </Button>
             </Link>
-
           </div>
         </div>
       </section>
@@ -70,42 +66,7 @@ const HomePage = () => {
           </Row>
         </div>
       </section>
-
-      <div className="divider"></div>
-
-      <section className="analytics-section">
-        <div className="section-container">
-          <Title level={2} className="section-title">Примеры аналитики</Title>
-          <div className="analytics-list">
-            {analyticsExamples.map((item, index) => (
-              <div key={index} className="analytics-item">
-                <blockquote className="analytics-quote">
-                  <Text strong className="quote-marker">&gt; </Text>
-                  <Text className="quote-text">{item}</Text>
-                </blockquote>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <div className="divider"></div>
-
-      <section className="cta-section">
-        <div className="section-container">
-          <div className="cta-content">
-            <Paragraph className="cta-text">
-              Заполните анкету — получите расчет стоимости за 5 минут.
-            </Paragraph>
-
-<Link to="/questionary">
-  <Button type="primary" size="large" className="cta-button-bottom">
-    Начать оценку
-  </Button>
-</Link>
-          </div>
-        </div>
-      </section>
+          
     </div>
   );
 };
