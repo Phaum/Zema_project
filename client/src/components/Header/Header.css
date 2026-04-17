@@ -1,0 +1,187 @@
+.app-header {
+  background: white !important;
+  height: 70px !important;
+  line-height: 70px !important;
+  padding: 0 50px !important;
+  position: fixed !important; 
+  top: 0 !important;
+  width: 100% !important;
+  z-index: 1000 !important;
+  border-bottom: 2px solid #1890ff !important;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1) !important;
+}
+
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 100%;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.logo-link {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+}
+
+.company-logo {
+  color: #1890ff !important;
+  margin: 0 !important;
+  font-weight: 700 !important;
+  font-size: 26px !important;
+  letter-spacing: 1px;
+}
+
+.nav-center {
+  flex: 2;
+  display: flex;
+  justify-content: center;
+}
+
+.nav-menu {
+  background: transparent !important;
+  border: none !important;
+  height: 70px !important;
+  line-height: 70px !important;
+}
+
+.nav-menu .ant-menu-item {
+  color: #1890ff !important;
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  padding: 0 25px !important;
+  margin: 0 2px !important;
+  height: 70px !important;
+  line-height: 70px !important;
+  transition: all 0.2s ease !important;
+  border-radius: 0 !important;
+  border: 2px solid transparent !important;
+}
+
+.nav-menu .ant-menu-item:hover {
+  color: #096dd9 !important;
+  background: transparent !important;
+  border-bottom: 2px solid #096dd9 !important;
+}
+
+.nav-menu .ant-menu-item-selected {
+  color: #1890ff !important;
+  background: transparent !important;
+  border-bottom: 2px solid #1890ff !important;
+}
+
+.auth-section {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.login-button {
+  height: 38px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+  background: #1890ff !important;
+  color: white !important;
+  border: 2px solid #1890ff !important;
+  padding: 0 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px;
+  transition: all 0.2s ease !important;
+}
+
+.login-button:hover {
+  background: #096dd9 !important;
+  border-color: #096dd9 !important;
+  transform: none;
+  box-shadow: none !important;
+}
+
+.login-button .anticon {
+  font-size: 16px;
+}
+
+@media (max-width: 1200px) {
+  .app-header {
+    padding: 0 30px !important;
+  }
+}
+
+@media (max-width: 992px) {
+  .nav-center {
+    display: none !important;
+  }
+  
+  .company-logo {
+    font-size: 22px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0 20px !important;
+    height: 60px !important;
+    line-height: 60px !important;
+  }
+  
+  .company-logo {
+    font-size: 20px !important;
+  }
+  
+  .login-button {
+    height: 34px !important;
+    padding: 0 16px !important;
+  }
+}
+
+.profile-button {
+  height: 40px !important;
+  border-radius: 0 !important;
+  border: 2px solid #1890ff !important;
+  background: #ffffff !important;
+  color: #1890ff !important;
+  font-weight: 600 !important;
+  padding: 0 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.profile-button:hover,
+.profile-button:focus {
+  color: #096dd9 !important;
+  border-color: #096dd9 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.profile-avatar {
+  background: #1890ff !important;
+  color: #ffffff !important;
+}
+
+.profile-button-text {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .profile-button-text {
+    display: none;
+  }
+
+  .profile-button {
+    padding: 0 10px !important;
+  }
+}

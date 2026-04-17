@@ -1,0 +1,63 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+body.compact-ui .ant-card .ant-card-body {
+  padding: 16px;
+}
+
+body.compact-ui .ant-form-item {
+  margin-bottom: 12px;
+}
+
+body.compact-ui .ant-table-wrapper .ant-table-thead > tr > th,
+body.compact-ui .ant-table-wrapper .ant-table-tbody > tr > td {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+body.compact-ui .ant-btn {
+  height: 34px;
+}
+
+body.compact-ui .ant-input,
+body.compact-ui .ant-input-number,
+body.compact-ui .ant-select-selector,
+body.compact-ui .ant-picker {
+  min-height: 34px !important;
+}
+
+body.compact-ui .ant-input {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+body.compact-ui .ant-form-item-label {
+  padding-bottom: 4px !important;
+}
+
+body.compact-ui .ant-form-item-explain,
+body.compact-ui .ant-form-item-extra {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+body.compact-ui .ant-statistic {
+  line-height: 1.15;
+}
+
+body.compact-ui .ant-card-head {
+  min-height: 44px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
