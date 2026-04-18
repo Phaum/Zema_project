@@ -32,6 +32,7 @@ import {
 import api from '../../components/projects/api';
 import { useAuth } from '../../context/AuthContext';
 import { exportDetailedResultToPDF } from '../../utils/pdfExport';
+import { exportZemaReportToPDF } from './ZemaReportPDF';
 import { getFieldTooltip } from '../../utils/fieldTranslations';
 import {
   formatQuestionnaireFieldSourceLabel,
@@ -420,6 +421,174 @@ function ProjectComparablesMap({ objectPoint, comparables }) {
   );
 }
 
+const OBJECT_TYPE_LABELS = {
+  'здание': 'Здание',
+  'помещение': 'Помещение',
+};
+
+const PROPERTY_TYPE_LABELS = {
+  'business_center': 'Бизнес-центр',
+  'administrative_building': 'Административное здание',
+  'shopping_center': 'Торговый центр',
+  'shopping_entertainment_complex': 'Торгово-развлекательный комплекс',
+};
+
+const ENV_CATEGORY_LABELS = {
+  mixed_urban: 'смешанная городская застройка',
+  prime_business: 'деловой центр',
+  urban_business: 'городская деловая застройка',
+  residential: 'жилая застройка',
+  industrial: 'промзона',
+};
+
+const translateEnvCategory = (value) => {
+  if (!value) return '';
+  const key = String(value).trim().toLowerCase();
+  return ENV_CATEGORY_LABELS[key] || value;
+};
+
+function prepareReportData(projectId, project, breakdown, result) {
+  const questionnaire = project?.questionnaire || {};
+
+  const floorRows = (breakdown?.inputs?.floorInputRows || []).map(floor => ({
+    floorLocation: floor.floorLocation || floor.name || '—',
+    area: floor.area,
+    leasableArea: floor.leasableArea,
+    avgRoomArea: floor.avgLeasableRoomArea,
+  }));
+
+  const rawComparables = breakdown?.market?.topComparables || [];
+
+  const includedRates = rawComparables
+    .filter(c => c.included_in_rent_calculation !== false)
+    .map(c => c.price_per_sqm_cleaned)
+    .filter(v => v != null && v > 0);
+
+  let calculatedAverageRate = breakdown?.market?.averageRate;
+  if (includedRates.length > 0) {
+    const avgFromIncluded = includedRates.reduce((a, b) => a + b, 0) / includedRates.length;
+    if (!calculatedAverageRate || Math.abs(calculatedAverageRate - avgFromIncluded) / avgFromIncluded > 0.2) {
+      calculatedAverageRate = avgFromIncluded;
+    }
+  }
+
+  const marketRateMin = includedRates.length ? Math.min(...includedRates) : 0;
+  const marketRateMax = includedRates.length ? Math.max(...includedRates) : 0;
+
+  const comparables = rawComparables.map(comp => {
+    const metro = comp.metro || comp.nearestMetro || '—';
+    const distance = comp.distance_to_metro ?? comp.distanceToMetro ?? comp.metro_distance ?? null;
+    const terZone = comp.ter_zone || comp.territorialZone || '—';
+    const env = [
+      comp.environment_category_1,
+      comp.environment_category_2,
+      comp.environment_category_3
+    ].filter(Boolean).join(', ') || '—';
+
+    return {
+      ...comp,
+      buildingName: comp.building_name || comp.complex_name || '—',
+      class_offer: comp.class_offer || '—',
+      address_offer: comp.address_offer || '—',
+      area_total: comp.area_total || 0,
+      floor: comp.floor || comp.floor_location || '—',
+      price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
+      district: comp.district || '—',
+      nearestMetro: metro,
+      distanceToMetro: distance,
+      isHistoricalCenter: comp.is_historical_center ?? comp.isHistoricalCenter ?? false,
+      territorialZone: terZone === null || terZone === 'null' ? '—' : terZone,
+      nearbyEnvironment: env,
+    };
+  });
+
+  const totalArea = questionnaire.totalArea || 0;
+  const landArea = questionnaire.landArea || 0;
+  const landAreaUsed = breakdown?.inputs?.landArea?.value ?? questionnaire.landAreaUsed ?? 0;
+  const landAreaUsedPercent = landArea > 0 ? (landAreaUsed / landArea) * 100 : 0;
+
+  const leasableAreaValue = breakdown?.inputs?.leasableArea?.value ?? questionnaire.leasableArea ?? 0;
+  const leasablePercent = totalArea > 0 ? (leasableAreaValue / totalArea) * 100 : 0;
+
+  const estimatedValueWithLand = result?.estimated_value_with_land
+    ?? (result?.estimated_value || 0) + (result?.land_share || 0);
+
+  const cadastralValue = project?.cadastralValue
+    ?? questionnaire.cadCost
+    ?? breakdown?.summary?.cadastralValue
+    ?? 0;
+
+  const nearbyEnvRaw = [
+    questionnaire.environmentCategory1,
+    questionnaire.environmentCategory2,
+    questionnaire.environmentCategory3
+  ].filter(Boolean).join(', ');
+  const nearbyEnvironment = nearbyEnvRaw
+    ? nearbyEnvRaw.split(', ').map(translateEnvCategory).join(', ')
+    : '—';
+
+  return {
+    assessmentDate: questionnaire.valuationDate,
+    objectAddress: questionnaire.objectAddress || '—',
+    cadastralNumber: questionnaire.buildingCadastralNumber || '—',
+    totalArea,
+    constructionYear: questionnaire.constructionYear,
+    reconstructionYear: questionnaire.reconstructionYear,   
+    hasReconstruction: questionnaire.hasReconstruction || false,
+
+    objectType: OBJECT_TYPE_LABELS[questionnaire.objectType] || questionnaire.objectType || '—',
+    propertyType: PROPERTY_TYPE_LABELS[questionnaire.actualUse] || questionnaire.actualUse || '—',
+
+    businessClass: questionnaire.businessCenterClass || '—',
+    classConfirmedByRGUD: true,
+
+    district: questionnaire.district || '—',
+    nearestMetro: questionnaire.nearestMetro || '—',
+    distanceToMetro: questionnaire.metroDistance,
+    isHistoricalCenter: questionnaire.isHistoricalCenter || false,
+    territorialZone: questionnaire.terZone || '—',
+    objectLocationDescription: questionnaire.locationDescription || '—',
+    nearbyEnvironment,   
+
+    floors: floorRows,
+    landCadastralNumber: questionnaire.landCadastralNumber || '—',
+    landArea,
+    landAreaUsed,
+    landAreaUsedPercent,   
+
+    leasableArea: leasableAreaValue,
+    leasableAreaPercent: leasablePercent,
+    marketAverageRate: calculatedAverageRate || 0,
+    marketRateMin,   
+    marketRateMax,  
+
+    cadastralValue,
+
+    estimatedValue: result?.estimated_value || 0,
+    estimatedValueMin: (result?.estimated_value || 0) * 0.9,
+    estimatedValueMax: (result?.estimated_value || 0) * 1.1,
+    pricePerM2: result?.price_per_m2 || 0,
+    pricePerM2Min: (result?.price_per_m2 || 0) * 0.9,
+    pricePerM2Max: (result?.price_per_m2 || 0) * 1.1,
+    grossIncome: result?.gross_income || 0,
+    egi: result?.egi || 0,
+    noi: result?.noi || 0,
+    estimatedValueWithLand,
+
+    comparables,
+
+    quarterlyDistribution: breakdown?.analytics?.quarterlyDistribution || [],
+    marketDynamics: breakdown?.analytics?.marketDynamics || [],
+
+    photoUrls: project?.photos || [],
+    mapImageUrl: null,
+    comparablesMapImageUrl: null,
+    quarterlyChartUrl: null,
+    dynamicsChartUrl: null,
+  };
+}
+
+// ========== ОСНОВНОЙ КОМПОНЕНТ ==========
 export default function ProjectResultDetailedPanel({ projectId, project, marketContext, onBack }) {
   const { user, refreshProfile } = useAuth();
   const [result, setResult] = useState(null);
@@ -432,24 +601,17 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
 
   const loadResult = useCallback(async ({ showError = true, silent = false } = {}) => {
     try {
-      if (!silent) {
-        setLoading(true);
-      }
-
+      if (!silent) setLoading(true);
       setShowExcludedComparables(false);
       const { data } = await api.get(`/projects/${projectId}/result`);
       setResult(data);
       setBreakdown(data?.calculation_breakdown_json || null);
       return data;
     } catch (error) {
-      if (showError) {
-        message.error(error?.response?.data?.error || 'Не удалось загрузить результат');
-      }
+      if (showError) message.error(error?.response?.data?.error || 'Не удалось загрузить результат');
       return null;
     } finally {
-      if (!silent) {
-        setLoading(false);
-      }
+      if (!silent) setLoading(false);
     }
   }, [projectId]);
 
@@ -458,10 +620,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
   }, [loadResult]);
 
   useEffect(() => {
-    if (user?.debugMode === undefined || result === null) {
-      return;
-    }
-
+    if (user?.debugMode === undefined || result === null) return;
     if (Boolean(user.debugMode) !== Boolean(result?.debugModeEnabled)) {
       loadResult({ showError: false, silent: true });
     }
@@ -469,19 +628,11 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
 
   useEffect(() => {
     let active = true;
-
     const syncDebugState = async () => {
-      if (!active || document.visibilityState === 'hidden') {
-        return;
-      }
-
+      if (!active || document.visibilityState === 'hidden') return;
       try {
         const profile = await refreshProfile();
-
-        if (!active) {
-          return;
-        }
-
+        if (!active) return;
         const nextDebugMode = Boolean(profile?.debugMode);
         if (nextDebugMode !== Boolean(result?.debugModeEnabled)) {
           await loadResult({ showError: false, silent: true });
@@ -490,10 +641,8 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
         console.error('Не удалось синхронизировать debug mode:', error);
       }
     };
-
     window.addEventListener('focus', syncDebugState);
     document.addEventListener('visibilitychange', syncDebugState);
-
     return () => {
       active = false;
       window.removeEventListener('focus', syncDebugState);
@@ -588,6 +737,20 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
       if (shouldExpandExcludedComparables) {
         setShowExcludedComparables(previousShowExcludedComparables);
       }
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportZemaReport = async () => {
+    try {
+      setExportingPdf(true);
+      const reportData = prepareReportData(projectId, project, breakdown, result);
+      await exportZemaReportToPDF(projectId, reportData);
+      message.success('Справка ЗЕМА успешно экспортирована');
+    } catch (error) {
+      console.error('Ошибка экспорта справки:', error);
+      message.error('Не удалось экспортировать справку ЗЕМА');
+    } finally {
       setExportingPdf(false);
     }
   };
@@ -1697,9 +1860,9 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
           <Button
             icon={<FilePdfOutlined />}
             loading={exportingPdf}
-            onClick={handleExportPdf}
+            onClick={handleExportZemaReport}
           >
-            Экспортировать в PDF
+            Справка ЗЕМА
           </Button>
         </Space>
       </div>

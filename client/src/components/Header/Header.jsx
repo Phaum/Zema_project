@@ -19,11 +19,7 @@ const AppHeader = () => {
   const { user, isAuthenticated, logout } = useAuth();
 
   const menuItems = [
-    {
-      key: 'analytics',
-      label: 'Аналитика',
-      onClick: () => navigate('/analytics'),
-    },
+
     {
       key: 'services',
       label: 'Услуги',

@@ -85,8 +85,6 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
     const paymentStepRequired = !subscriptionActive;
     const stepItems = buildWorkspaceSteps(subscriptionActive);
     const resultStepIndex = subscriptionActive ? 2 : 3;
-    const manualRate = Number(project?.questionnaire?.averageRentalRate || 0);
-    const calculationPayload = manualRate > 0 ? { averageRentalRate: manualRate } : {};
 
     const handleQuestionnaireSaved = async () => {
         await loadProject();
@@ -142,7 +140,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                                     await api.patch(`/projects/${projectId}`, { status: 'calculation' });
 
                                     if (subscriptionActive) {
-                                        await api.post(`/projects/${projectId}/calculate`, calculationPayload);
+                                        await api.post(`/projects/${projectId}/calculate`);
                                         await handleCalculated();
                                         return;
                                     }

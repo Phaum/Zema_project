@@ -1,4 +1,5 @@
 import html2pdf from 'html2pdf.js';
+import { exportZemaReportToPDF } from '../components/projects/ZemaReportPDF';
 
 const BASE_OPTIONS = {
   margin: [8, 8, 10, 8],
@@ -31,158 +32,6 @@ const BASE_OPTIONS = {
   },
 };
 
-const DETAILED_EXPORT_CSS = `
-  .pdf-export-host {
-    position: fixed !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 1280px !important;
-    padding: 0 !important;
-    background: #ffffff !important;
-    opacity: 0.01 !important;
-    pointer-events: none !important;
-    z-index: -1 !important;
-    overflow: hidden !important;
-  }
-
-  .pdf-export-mode {
-    width: 1280px !important;
-    background: #ffffff !important;
-    color: #101828 !important;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: geometricPrecision;
-  }
-
-  .pdf-export-mode,
-  .pdf-export-mode * {
-    box-sizing: border-box;
-  }
-
-  .pdf-export-mode .project-result-card,
-  .pdf-export-mode .project-result-card .ant-card-body {
-    padding-bottom: 0 !important;
-    overflow: visible !important;
-  }
-
-  .pdf-export-mode .project-result-actions,
-  .pdf-export-mode [data-html2canvas-ignore="true"] {
-    display: none !important;
-  }
-
-  .pdf-export-mode .project-result-hero,
-  .pdf-export-mode .project-result-metric-card,
-  .pdf-export-mode .project-result-section-card,
-  .pdf-export-mode .project-result-method-card,
-  .pdf-export-mode .project-result-detail-block,
-  .pdf-export-mode .ant-collapse-item {
-    box-shadow: none !important;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  .pdf-export-mode .project-result-hero {
-    background: #0f4c81 !important;
-  }
-
-  .pdf-export-mode .project-result-metrics-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 10px !important;
-  }
-
-  .pdf-export-mode .project-result-method-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 10px !important;
-  }
-
-  .pdf-export-mode .project-result-step-header {
-    display: block !important;
-  }
-
-  .pdf-export-mode .project-result-step-result {
-    display: block !important;
-    max-width: none !important;
-    margin-top: 6px !important;
-    text-align: left !important;
-  }
-
-  .pdf-export-mode .project-result-method-summary.ant-typography {
-    min-height: auto !important;
-  }
-
-  .pdf-export-mode .project-result-formula {
-    white-space: pre-wrap !important;
-    word-break: break-word !important;
-  }
-
-  .pdf-export-mode .project-result-method-facts,
-  .pdf-export-mode .project-result-map-meta {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-  }
-
-  .pdf-export-mode .ant-tag,
-  .pdf-export-mode .project-result-method-fact {
-    white-space: normal !important;
-    word-break: break-word !important;
-    line-height: 1.35 !important;
-  }
-
-  .pdf-export-mode .ant-table-wrapper,
-  .pdf-export-mode .project-result-step-table,
-  .pdf-export-mode .ant-descriptions {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  .pdf-export-mode .ant-table-content,
-  .pdf-export-mode .ant-table-body {
-    overflow: visible !important;
-  }
-
-  .pdf-export-mode .ant-table {
-    font-size: 11px !important;
-    line-height: 1.35 !important;
-  }
-
-  .pdf-export-mode .ant-table table {
-    width: 100% !important;
-    table-layout: fixed !important;
-  }
-
-  .pdf-export-mode .ant-table-cell {
-    white-space: normal !important;
-    word-break: break-word !important;
-    vertical-align: top !important;
-  }
-
-  .pdf-export-mode thead,
-  .pdf-export-mode tr {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-`;
-
-function buildPdfOptions(filename, overrides = {}) {
-  return {
-    ...BASE_OPTIONS,
-    ...overrides,
-    filename,
-    html2canvas: {
-      ...BASE_OPTIONS.html2canvas,
-      ...(overrides.html2canvas || {}),
-    },
-    jsPDF: {
-      ...BASE_OPTIONS.jsPDF,
-      ...(overrides.jsPDF || {}),
-    },
-    pagebreak: {
-      ...BASE_OPTIONS.pagebreak,
-      ...(overrides.pagebreak || {}),
-    },
-  };
-}
-
 function sanitizeFilenamePart(value, fallback = 'проект') {
   const normalized = String(value || '')
     .trim()
@@ -205,10 +54,32 @@ function buildResultPdfFilename(projectId, projectName) {
 }
 
 export const exportToPDF = (element, filename, overrides = {}) => {
-  const opt = buildPdfOptions(filename, overrides);
+  const opt = {
+    ...BASE_OPTIONS,
+    ...overrides,
+    filename,
+    html2canvas: {
+      ...BASE_OPTIONS.html2canvas,
+      ...(overrides.html2canvas || {}),
+    },
+    jsPDF: {
+      ...BASE_OPTIONS.jsPDF,
+      ...(overrides.jsPDF || {}),
+    },
+    pagebreak: {
+      ...BASE_OPTIONS.pagebreak,
+      ...(overrides.pagebreak || {}),
+    },
+  };
   return html2pdf().set(opt).from(element).save();
 };
 
+// НОВАЯ ФУНКЦИЯ - экспорт в формате справки ЗЕМА
+export const exportAsZemaReport = async (projectId, projectData) => {
+  return exportZemaReportToPDF(projectId, projectData);
+};
+
+// Старая функция для обычного экспорта (оставляем на всякий случай)
 function prepareResultExportClone(element) {
   const host = document.createElement('div');
   host.className = 'pdf-export-host';
@@ -234,11 +105,38 @@ function prepareResultExportClone(element) {
   return { host, clone, style };
 }
 
+const DETAILED_EXPORT_CSS = `
+  .pdf-export-host {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 1280px !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    opacity: 0.01 !important;
+    pointer-events: none !important;
+    z-index: -1 !important;
+    overflow: hidden !important;
+  }
+
+  .pdf-export-mode {
+    width: 1280px !important;
+    background: #ffffff !important;
+    color: #101828 !important;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+
+  .pdf-export-mode .project-result-actions,
+  .pdf-export-mode [data-html2canvas-ignore="true"] {
+    display: none !important;
+  }
+`;
+
 function cleanupResultExportClone({ host, style }) {
   if (host?.parentNode) {
     host.parentNode.removeChild(host);
   }
-
   if (style?.parentNode) {
     style.parentNode.removeChild(style);
   }
@@ -261,24 +159,6 @@ export const exportDetailedResultToPDF = async (projectId, projectName = '') => 
       jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4' },
       html2canvas: { scale: 2.4, windowWidth: 1440 },
     });
-  } finally {
-    cleanupResultExportClone(exportContext);
-  }
-};
-
-export const exportResultToPDF = async (projectId, projectName = '') => {
-  const element = document.getElementById('result-content');
-  if (!element) {
-    console.error('Result content element not found');
-    return;
-  }
-
-  const filename = buildResultPdfFilename(projectId, projectName);
-  const exportContext = prepareResultExportClone(element);
-
-  try {
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    await exportToPDF(exportContext.clone, filename);
   } finally {
     cleanupResultExportClone(exportContext);
   }

@@ -87,8 +87,8 @@ const ContactsPage = () => {
                                 </Title>
 
                                 <Paragraph className="contacts-page-form-description">
-                                    Оставьте сообщение, и мы свяжемся с вами по вопросам оценки,
-                                    аналитики, доступа к платформе или демонстрации сервиса.
+                                    Оставьте сообщение, и мы свяжемся с вами по вопросам оценки, 
+                                    доступа к платформе или демонстрации сервиса.
                                 </Paragraph>
 
                                 <Form layout="vertical" className="contacts-page-form">
@@ -177,17 +177,6 @@ const ContactsPage = () => {
                                 </Title>
                                 <Paragraph className="contacts-page-small-text">
                                     Вопросы по интерфейсу, доступу, разделам проекта и регистрации пользователей.
-                                </Paragraph>
-                            </Card>
-                        </Col>
-
-                        <Col xs={24} md={8}>
-                            <Card className="contacts-page-card contacts-page-small-card">
-                                <Title level={3} className="contacts-page-small-title">
-                                    По аналитике
-                                </Title>
-                                <Paragraph className="contacts-page-small-text">
-                                    Вопросы по выборкам, аналогам, картам, рыночным данным и формированию выводов.
                                 </Paragraph>
                             </Card>
                         </Col>

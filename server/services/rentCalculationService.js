@@ -1018,7 +1018,10 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
                 })),
         ],
 
+        adjustedRates: finalRows,
+        analogCount: preparedRows.length,
         selectedCount: includedRows.length,
+        excludedCount: finalRows.filter((row) => row.includedInRentCalculation === false).length,
         totalCount: preparedRows.length,
 
         outlierRangeCheck: {

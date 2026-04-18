@@ -1,6 +1,7 @@
 import { mahalanobisDistance } from '../utils/mahalanobis.js';
 import { toNumber } from '../utils/dataValidation.js';
 import { CadastralData } from '../models/index.js';
+import { calculateMarketRentByNewAlgorithm } from './rentCalculationService.js';
 
 const EXCEL_PARITY_CONFIG = {
     selector: {
@@ -1561,60 +1562,70 @@ function calculateScaleAdjustmentRecord(questionnaire, analog) {
 }
 
 export function adjustAnalogRate(analog, questionnaire, baseRate) {
-    const rawRate = toNumber(baseRate, 0);
-    const baseAdjustmentRecords = [
-        calculateTimeAdjustmentRecord(analog, questionnaire),
-        calculateSizeAdjustmentRecord(questionnaire, analog),
-        calculateMetroAdjustmentRecord(questionnaire, analog),
-        calculateClassAdjustmentRecord(questionnaire, analog),
-        calculateLocationAdjustmentRecord(questionnaire, analog),
-        calculateYearConditionAdjustmentRecord(questionnaire, analog),
-        calculateFloorAdjustmentRecord(questionnaire, analog),
-    ];
-    const scaleAdjustmentRecord = calculateScaleAdjustmentRecord(questionnaire, analog);
+    const effectiveBaseRate = toNumber(
+        baseRate,
+        toNumber(analog?.price_per_sqm_cleaned, null)
+    );
 
-    const preScaleAdjustmentFactor = clampFactor(
-        baseAdjustmentRecords.reduce(
-            (product, item) => product * clampFactor(item?.factor, 1, Number.MAX_SAFE_INTEGER),
-            1
-        ),
-        0.80,
-        1.20
+    const preparedAnalog = {
+        ...analog,
+        price_per_sqm_cleaned: effectiveBaseRate,
+    };
+
+    const marketRentAnalysis = calculateMarketRentByNewAlgorithm(
+        [preparedAnalog],
+        questionnaire
     );
-    const scaleFactor = clampFactor(scaleAdjustmentRecord?.factor, 0, Number.MAX_SAFE_INTEGER);
-    const rawTotalAdjustmentFactor = preScaleAdjustmentFactor * scaleFactor;
-    const totalAdjustmentFactor = clampFactor(
-        rawTotalAdjustmentFactor,
-        1 - MAX_ABSOLUTE_RENT_ADJUSTMENT,
-        1 + MAX_ABSOLUTE_RENT_ADJUSTMENT
-    );
-    const correctedRate = round2(rawRate * totalAdjustmentFactor);
-    const adjustmentRecords = [...baseAdjustmentRecords, scaleAdjustmentRecord];
-    const factorsByKey = Object.fromEntries(adjustmentRecords.map((item) => [item.key, item.factor]));
-    const scaleAreaRatio = getAreaRatio(questionnaire?.totalArea, analog?.area_total);
-    const adjustmentClampApplied = Math.abs(rawTotalAdjustmentFactor - totalAdjustmentFactor) > 0.0001;
+
+    const row = Array.isArray(marketRentAnalysis?.adjustedRates)
+        ? marketRentAnalysis.adjustedRates[0]
+        : null;
+
+    if (!row) {
+        return {
+            rawRate: null,
+            baseRate: null,
+            correctedRate: null,
+            adjustedRate: null,
+            totalAdjustmentFactor: 1,
+            dateAdjustment: 1,
+            bargainAdjustment: 1,
+            metroAdjustment: 1,
+            areaAdjustment: 1,
+            floorAdjustment: 1,
+            environmentAdjustment: 1,
+            includedInCalculation: false,
+            exclusionReason: 'Не удалось рассчитать корректировки по новому алгоритму аренды',
+            adjustments: [],
+            adjustmentSummary: null,
+        };
+    }
 
     return {
-        rawRate,
-        baseRate: rawRate,
-        correctedRate,
-        adjustedRate: correctedRate,
-        totalAdjustmentFactor: round2(totalAdjustmentFactor),
-        unclampedTotalAdjustmentFactor: round2(rawTotalAdjustmentFactor),
-        adjustmentClampApplied,
-        maxAbsoluteAdjustment: MAX_ABSOLUTE_RENT_ADJUSTMENT,
-        preScaleAdjustmentFactor: round2(preScaleAdjustmentFactor),
-        scaleFactor: round2(scaleFactor),
-        scaleAreaRatio: Number.isFinite(scaleAreaRatio) ? round2(scaleAreaRatio) : null,
-        adjustments: adjustmentRecords,
-        dateAdjustment: factorsByKey.time ?? 1,
-        metroAdjustment: factorsByKey.metro ?? 1,
-        areaAdjustment: factorsByKey.size ?? 1,
-        scaleAdjustment: factorsByKey.scale ?? 1,
-        classAdjustment: factorsByKey.class ?? 1,
-        locationAdjustment: factorsByKey.location ?? 1,
-        conditionAdjustment: factorsByKey.condition_year ?? 1,
-        floorAdjustment: factorsByKey.floor ?? 1,
+        rawRate: row.rawRate,
+        baseRate: row.baseRate,
+        afterDate: row.afterDate ?? null,
+        afterBargain: row.afterBargain ?? null,
+        correctedRate: row.correctedRate,
+        adjustedRate: row.adjustedRate ?? row.correctedRate,
+
+        totalAdjustmentFactor: row.totalAdjustmentFactor ?? 1,
+        firstGroupFactor: row.firstGroupFactor ?? 1,
+        secondGroupMultiFactor: row.secondGroupMultiFactor ?? 1,
+
+        dateAdjustment: row.dateAdjustment ?? 1,
+        bargainAdjustment: row.bargainAdjustment ?? 1,
+        metroAdjustment: row.metroAdjustment ?? 1,
+        areaAdjustment: row.areaAdjustment ?? 1,
+        floorAdjustment: row.floorAdjustment ?? 1,
+        environmentAdjustment: row.environmentAdjustment ?? 1,
+
+        includedInCalculation: row.includedInCalculation !== false,
+        includedInRentCalculation: row.includedInRentCalculation !== false,
+        exclusionReason: row.exclusionReason ?? null,
+
+        adjustments: row.adjustments ?? [],
+        adjustmentSummary: row.adjustmentSummary ?? null,
     };
 }
 
@@ -1955,337 +1966,6 @@ function buildComparableDecisionReason(row) {
     }
 
     return `Оставлен в расчете: ${majorSignals.join(', ')}`;
-}
-
-export function calculateMarketRent(selectedAnalogs, questionnaire) {
-    const rentCalculationMode = resolveRentCalculationMode(questionnaire);
-    const preparedRows = (selectedAnalogs || [])
-        .map((rawAnalog) => {
-            const analog = toPlainComparable(rawAnalog);
-
-            const baseRate = toNumber(analog?.price_per_sqm_cleaned, 0);
-            if (!baseRate || baseRate <= 0) {
-                return null;
-            }
-
-            const adjustmentResult = adjustAnalogRate(analog, questionnaire, baseRate);
-            const relevanceResult = scoreAnalogueRelevance(questionnaire, analog);
-            const weightResult = calculateAnalogWeight(analog, questionnaire);
-            let includedInRentCalculation = true;
-            let exclusionReason = null;
-
-            if (relevanceResult.score < MIN_RELEVANCE_SCORE) {
-                includedInRentCalculation = false;
-                exclusionReason = `Исключен: низкая релевантность аналога (${round2(relevanceResult.score)} < ${MIN_RELEVANCE_SCORE})`;
-            } else if (weightResult.completenessScore < MIN_COMPLETENESS_SCORE) {
-                includedInRentCalculation = false;
-                exclusionReason = `Исключен: недостаточная полнота данных (${round2(weightResult.completenessScore)} < ${MIN_COMPLETENESS_SCORE})`;
-            }
-
-            return {
-                analogId: analog.id,
-                externalId: analog.external_id || null,
-                address_offer: analog.address_offer || null,
-                building_cadastral_number: analog.building_cadastral_number || null,
-                building_name: analog.building_name || null,
-                district: analog.district || null,
-                class_offer: analog.class_offer || null,
-                mahalanobisDistance: toNumber(analog.mahalanobisDistance, null),
-                offer_date: analog.offer_date || null,
-                floor_location: analog.floor_location || null,
-                area_total: toNumber(analog.area_total, null),
-                distance_to_metro: toNumber(analog.distance_to_metro, null),
-                rawRate: baseRate,
-                baseRate,
-                correctedRate: adjustmentResult.correctedRate,
-                adjustedRate: adjustmentResult.correctedRate,
-                totalAdjustmentFactor: adjustmentResult.totalAdjustmentFactor,
-                preScaleAdjustmentFactor: adjustmentResult.preScaleAdjustmentFactor,
-                scaleFactor: adjustmentResult.scaleFactor,
-                scaleAreaRatio: adjustmentResult.scaleAreaRatio,
-                areaRatio: adjustmentResult.scaleAreaRatio,
-                scaleSimilarityScore: toNumber(relevanceResult.components?.scaleSimilarity, null),
-                scaleWeightPenalty: toNumber(
-                    weightResult.components?.scaleWeightPenalty ?? weightResult.components?.scalePenalty,
-                    null
-                ),
-                weight: weightResult.weight,
-                preWeight: weightResult.preWeight,
-                baseWeight: weightResult.baseWeight,
-                completenessScore: weightResult.completenessScore,
-                relevanceScore: weightResult.relevanceScore,
-                keyFieldCoverage: weightResult.keyFieldCoverage,
-                weightComponents: weightResult.components,
-                relevanceComponents: weightResult.relevanceComponents,
-                adjustmentSummary: buildAdjustmentSummary(adjustmentResult),
-                adjustments: adjustmentResult,
-                includedInRentCalculation,
-                exclusionReason,
-                decisionReason: null,
-            };
-        })
-        .filter(Boolean)
-        .sort((a, b) => {
-            const aDistance = Number.isFinite(a.mahalanobisDistance) ? a.mahalanobisDistance : Number.MAX_SAFE_INTEGER;
-            const bDistance = Number.isFinite(b.mahalanobisDistance) ? b.mahalanobisDistance : Number.MAX_SAFE_INTEGER;
-            return aDistance - bDistance;
-        });
-
-    let adjustedRates = preparedRows.map((row) => ({ ...row }));
-    const primaryRows = adjustedRates.filter((row) => row.includedInRentCalculation !== false);
-    let outlierBounds = null;
-
-    if (rentCalculationMode === 'advanced_experimental') {
-        outlierBounds = detectAnalogOutlierBounds(primaryRows.map((row) => ({
-            ...row,
-            adjustedRate: row.correctedRate,
-        })));
-
-        adjustedRates = adjustedRates.map((row) => {
-            if (row.includedInRentCalculation === false || !outlierBounds) {
-                return row;
-            }
-
-            const isOutlier = row.correctedRate < outlierBounds.lower || row.correctedRate > outlierBounds.upper;
-            if (!isOutlier) {
-                return row;
-            }
-
-            return {
-                ...row,
-                includedInRentCalculation: false,
-                exclusionReason: `Исключен как выброс: скорректированная ставка ${round2(row.correctedRate)} ₽/м² выходит за диапазон ${round2(outlierBounds.lower)}-${round2(outlierBounds.upper)} ₽/м²`,
-            };
-        });
-    }
-
-    let qualifiedRows = adjustedRates.filter((row) => row.includedInRentCalculation);
-    if (!qualifiedRows.length && adjustedRates.length) {
-        const fallbackRows = adjustedRates
-            .slice()
-            .sort((left, right) => {
-                if (right.relevanceScore !== left.relevanceScore) {
-                    return right.relevanceScore - left.relevanceScore;
-                }
-
-                return (left.mahalanobisDistance ?? Number.MAX_SAFE_INTEGER) - (right.mahalanobisDistance ?? Number.MAX_SAFE_INTEGER);
-            })
-            .slice(0, Math.min(2, adjustedRates.length))
-            .map((row) => ({
-                ...row,
-                includedInRentCalculation: true,
-                exclusionReason: null,
-                decisionReason: 'Fallback: использован как лучший доступный аналог после строгой фильтрации',
-            }));
-
-        const fallbackIds = new Set(fallbackRows.map((row) => row.analogId));
-        adjustedRates = adjustedRates.map((row) => (
-            fallbackIds.has(row.analogId)
-                ? fallbackRows.find((item) => item.analogId === row.analogId) || row
-                : row
-        ));
-        qualifiedRows = adjustedRates.filter((row) => row.includedInRentCalculation);
-    }
-
-    const qualifiedCountBeforeSelection = qualifiedRows.length;
-    let selectionMethod = 'small_sample_median';
-    let trimCountPerSide = 0;
-
-    if (rentCalculationMode === 'advanced_experimental') {
-        selectionMethod = 'advanced_weighted_median';
-    } else if (rentCalculationMode === 'excel_compatible') {
-        selectionMethod = qualifiedCountBeforeSelection < SMALL_SAMPLE_THRESHOLD
-            ? 'excel_simple_median'
-            : 'excel_simple_average';
-    } else {
-        selectionMethod = qualifiedCountBeforeSelection < SMALL_SAMPLE_THRESHOLD
-            ? 'small_sample_median'
-            : 'stable_trimmed_mean';
-    }
-
-    let finalSelectionRows = qualifiedRows;
-    if (rentCalculationMode === 'stable_default' && qualifiedCountBeforeSelection >= SMALL_SAMPLE_THRESHOLD) {
-        const trimmedSelection = trimComparableRows(qualifiedRows, STABLE_TRIM_RATIO);
-        trimCountPerSide = trimmedSelection.trimCountPerSide;
-        const selectedIds = new Set(trimmedSelection.rows.map((row) => row.analogId));
-        adjustedRates = adjustedRates.map((row) => {
-            if (row.includedInRentCalculation !== true || selectedIds.has(row.analogId)) {
-                return row;
-            }
-
-            return {
-                ...row,
-                includedInRentCalculation: false,
-                exclusionReason: `Исключен на этапе stable trimmed mean: удалены крайние 10% скорректированных ставок с каждой стороны (trimCount=${trimCountPerSide})`,
-            };
-        });
-        finalSelectionRows = adjustedRates.filter((row) => row.includedInRentCalculation);
-    }
-
-    const totalIncludedWeight = finalSelectionRows.reduce((sum, row) => sum + toNumber(row.weight, 0), 0);
-    adjustedRates = adjustedRates.map((row) => {
-        if (!row.includedInRentCalculation) {
-            const nextRow = {
-                ...row,
-                normalizedWeight: 0,
-                finalWeight: 0,
-            };
-
-            return {
-                ...nextRow,
-                decisionReason: nextRow.decisionReason || buildComparableDecisionReason(nextRow),
-            };
-        }
-
-        const normalizedWeight = rentCalculationMode === 'advanced_experimental'
-            ? safeDivide(row.weight, totalIncludedWeight, 0)
-            : safeDivide(1, Math.max(finalSelectionRows.length, 1), 0);
-
-        const nextRow = {
-            ...row,
-            normalizedWeight,
-            finalWeight: normalizedWeight,
-        };
-
-        return {
-            ...nextRow,
-            decisionReason: nextRow.decisionReason || buildComparableDecisionReason(nextRow),
-        };
-    });
-
-    const includedRows = adjustedRates.filter((row) => row.includedInRentCalculation);
-    const adjustedRateValues = includedRows
-        .map((item) => item.correctedRate)
-        .filter((value) => Number.isFinite(value) && value > 0);
-
-    const marketRentAverage = weightedAverage(includedRows, 'correctedRate', 'normalizedWeight') ?? 0;
-    const simpleAverageRate = average(adjustedRateValues) || 0;
-    const simpleMedianRent = median(adjustedRateValues) ?? 0;
-    const weightedMedianRate = weightedMedian(includedRows, 'correctedRate', 'normalizedWeight')
-        ?? simpleMedianRent
-        ?? 0;
-    const trimmedMeanRate = trimmedMean(adjustedRateValues, STABLE_TRIM_RATIO) ?? simpleAverageRate;
-    let marketRentFirstRaw = simpleMedianRent;
-
-    if (includedRows.length === 1) {
-        marketRentFirstRaw = toNumber(includedRows[0]?.correctedRate, simpleMedianRent);
-        selectionMethod = 'single_analogue';
-    } else if (rentCalculationMode === 'advanced_experimental') {
-        marketRentFirstRaw = weightedMedianRate;
-        selectionMethod = 'advanced_weighted_median';
-    } else if (rentCalculationMode === 'excel_compatible') {
-        marketRentFirstRaw = qualifiedCountBeforeSelection < SMALL_SAMPLE_THRESHOLD
-            ? simpleMedianRent
-            : simpleAverageRate;
-    } else {
-        marketRentFirstRaw = qualifiedCountBeforeSelection < SMALL_SAMPLE_THRESHOLD
-            ? simpleMedianRent
-            : trimmedMeanRate;
-    }
-
-    const guardrailUpperLimit = simpleMedianRent > 0 ? (simpleMedianRent * RENT_GUARDRAIL_MULTIPLIER) : null;
-    const guardrailApplied = Number.isFinite(guardrailUpperLimit) && marketRentFirstRaw > guardrailUpperLimit;
-    if (guardrailApplied) {
-        marketRentFirstRaw = guardrailUpperLimit;
-    }
-
-    const marketRentFirst = round2(marketRentFirstRaw);
-    const marketRentSecond = round2(marketRentFirst * EXCEL_PARITY_CONFIG.valuation.floor2Multiplier);
-    const marketRentThirdPlus = round2(marketRentFirst * EXCEL_PARITY_CONFIG.valuation.floor3PlusMultiplier);
-    const excludedCount = adjustedRates.filter((row) => !row.includedInRentCalculation).length;
-    const correctedRateStdDev = standardDeviation(adjustedRateValues);
-    const correctedRateMad = medianAbsoluteDeviation(adjustedRateValues);
-    const correctedRateIQR = (() => {
-        const q1 = percentile(adjustedRateValues, 0.25);
-        const q3 = percentile(adjustedRateValues, 0.75);
-        if (!Number.isFinite(q1) || !Number.isFinite(q3)) {
-            return null;
-        }
-        return Math.max(0, q3 - q1);
-    })();
-    const dispersionRatio = simpleMedianRent > 0 ? correctedRateStdDev / simpleMedianRent : 1;
-    const scaleFactors = includedRows
-        .map((row) => toNumber(row.scaleFactor, null))
-        .filter((value) => Number.isFinite(value) && value > 0);
-    const areaRatios = includedRows
-        .map((row) => toNumber(row.areaRatio ?? row.scaleAreaRatio, null))
-        .filter((value) => Number.isFinite(value) && value > 0);
-    const averageAreaRatio = areaRatios.length ? average(areaRatios) : null;
-    const qualityScore = average([
-        safeDivide(includedRows.length, Math.max(adjustedRates.length, 1), 0),
-        average(includedRows.map((row) => row.completenessScore)) || 0,
-        average(includedRows.map((row) => row.weight)) || 0,
-        average(includedRows.map((row) => row.relevanceScore)) || 0,
-        clamp(1 - dispersionRatio, 0.2, 1),
-    ]) || 0;
-    const stabilityMetrics = buildRentStabilityMetrics(includedRows, qualifiedCountBeforeSelection);
-
-    return {
-        marketRentMonth: marketRentFirst,
-        marketRentYear: marketRentFirst * 12,
-        marketRentFirst,
-        marketRentSecond,
-        marketRentThirdPlus,
-        rentCalculationMode,
-        adjustedRates,
-        analogCount: includedRows.length,
-        selectedCount: adjustedRates.length,
-        excludedCount,
-        analogsInitialCount: preparedRows.length,
-        analogsUsedCount: includedRows.length,
-        analogsExcludedCount: excludedCount,
-        weightedAverageRate: round2(marketRentAverage),
-        weightedMedianRate: round2(weightedMedianRate),
-        simpleAverageRate: round2(simpleAverageRate),
-        simpleMedianRate: round2(simpleMedianRent),
-        trimmedMeanRate: round2(trimmedMeanRate),
-        minAdjustedRate: adjustedRateValues.length ? round2(Math.min(...adjustedRateValues)) : 0,
-        maxAdjustedRate: adjustedRateValues.length ? round2(Math.max(...adjustedRateValues)) : 0,
-        qualityScore: round2(qualityScore),
-        outlierBounds,
-        selectionMethod,
-        trimCountPerSide,
-        scaleAdjustmentApplied: scaleFactors.some((value) => Math.abs(value - 1) > 0.0001),
-        averageScaleFactor: scaleFactors.length ? round2(average(scaleFactors)) : 1,
-        averageAreaRatio: Number.isFinite(averageAreaRatio) ? round2(averageAreaRatio) : null,
-        maxAreaRatio: areaRatios.length ? round2(Math.max(...areaRatios)) : null,
-        scaleGuardrailApplied: guardrailApplied,
-        scaleGuardrailUpperLimit: Number.isFinite(guardrailUpperLimit) ? round2(guardrailUpperLimit) : null,
-        correctedRateMin: stabilityMetrics.correctedRateMin,
-        correctedRateMedian: stabilityMetrics.correctedRateMedian,
-        correctedRateMax: stabilityMetrics.correctedRateMax,
-        correctedRateStdDev: stabilityMetrics.correctedRateStdDev,
-        correctedRateIQR: stabilityMetrics.correctedRateIQR,
-        dispersionLevel: stabilityMetrics.dispersionLevel,
-        sampleSizeLevel: getSampleSizeLevel(qualifiedCountBeforeSelection),
-        stabilityFlag: stabilityMetrics.stabilityFlag,
-        stats: {
-            includedCount: includedRows.length,
-            excludedCount,
-            totalCount: adjustedRates.length,
-            weightedAverage: round2(marketRentAverage),
-            weightedMedian: round2(weightedMedianRate),
-            simpleAverage: round2(simpleAverageRate),
-            simpleMedian: round2(simpleMedianRent),
-            trimmedMean: round2(trimmedMeanRate),
-            standardDeviation: round2(correctedRateStdDev),
-            mad: round2(correctedRateMad),
-            dispersionRatio: round2(dispersionRatio),
-            correctedRateIQR: Number.isFinite(correctedRateIQR) ? round2(correctedRateIQR) : null,
-            sampleSizeLevel: getSampleSizeLevel(qualifiedCountBeforeSelection),
-            dispersionLevel: stabilityMetrics.dispersionLevel,
-            stabilityFlag: stabilityMetrics.stabilityFlag,
-            averageRelevance: round2(average(includedRows.map((row) => row.relevanceScore)) || 0),
-            averageCompleteness: round2(average(includedRows.map((row) => row.completenessScore)) || 0),
-            averageScaleFactor: scaleFactors.length ? round2(average(scaleFactors)) : 1,
-            averageAreaRatio: Number.isFinite(averageAreaRatio) ? round2(averageAreaRatio) : null,
-            maxAreaRatio: areaRatios.length ? round2(Math.max(...areaRatios)) : null,
-            scaleGuardrailApplied: guardrailApplied,
-            scaleGuardrailUpperLimit: Number.isFinite(guardrailUpperLimit) ? round2(guardrailUpperLimit) : null,
-            rentCalculationMode,
-            trimCountPerSide,
-        },
-    };
 }
 
 export function getRentableRatio(rentableArea, totalArea) {
@@ -2630,17 +2310,17 @@ function getSubjectDataCapAdjustment(subjectDataQualityScoreNormalized) {
 }
 
 export function calculateReliabilityScore({
-                                              selectedAnalogs = [],
-                                              excludedAnalogs = [],
-                                              subject = {},
-                                              landData = {},
-                                              assumptions = [],
-                                              dispersionStats = {},
-                                              rentDiagnostics = {},
-                                              vacancyResult = {},
-                                              rentalRateSource = null,
-                                              rentCalculationMode = DEFAULT_RENT_SELECTION_MODE,
-                                          }) {
+    selectedAnalogs = [],
+    excludedAnalogs = [],
+    subject = {},
+    landData = {},
+    assumptions = [],
+    dispersionStats = {},
+    rentDiagnostics = {},
+    vacancyResult = {},
+    rentalRateSource = null,
+    rentCalculationMode = DEFAULT_RENT_SELECTION_MODE,
+}) {
     const analogCount = selectedAnalogs.length;
     const averageCompleteness = average(selectedAnalogs.map((item) => toNumber(item.completenessScore, null))) || 0;
     const dispersionRatio = toNumber(dispersionStats?.dispersionRatio, null);
@@ -2772,12 +2452,12 @@ export function calculateReliabilityScore({
 }
 
 export function calculateCapitalizationRate({
-                                                subject = {},
-                                                questionnaire = {},
-                                                analogStats = {},
-                                                reliability = {},
-                                                vacancyResult = {},
-                                            }) {
+    subject = {},
+    questionnaire = {},
+    analogStats = {},
+    reliability = {},
+    vacancyResult = {},
+}) {
     const normalizedClass = normalizeBusinessCenterClass(
         questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
@@ -3100,7 +2780,7 @@ function sumLeasableByCategory(floors, category) {
 }
 
 export async function calculateValuation(questionnaire, selectedAnalogs, userManualRate = 0) {
-    const marketRentAnalysis = calculateMarketRent(selectedAnalogs, questionnaire);
+    const marketRentAnalysis = calculateMarketRentByNewAlgorithm(selectedAnalogs, questionnaire);
     const manualOverrideRate = toNumber(userManualRate, 0);
     const manualOverrideApplied = manualOverrideRate > 0;
     const rentalRateSource = manualOverrideApplied ? 'manual_override' : 'market_analogs';
@@ -3113,13 +2793,13 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
     const floorLeasableTotal = areaFloor1 + areaFloor2 + areaFloor3Plus;
     const actualOccupiedArea = toNumber(questionnaire?.occupiedArea, null);
     const actualVacancyRateFromFloors = floorLeasableTotal > 0
-    && Number.isFinite(actualOccupiedArea)
+        && Number.isFinite(actualOccupiedArea)
         ? getVacancyRate(actualOccupiedArea, floorLeasableTotal)
         : null;
     const fallbackLeasableArea =
         toNumber(questionnaire?.leasableArea, 0) || toNumber(questionnaire?.totalArea, 0);
     const actualVacancyRateFallback = fallbackLeasableArea > 0
-    && Number.isFinite(actualOccupiedArea)
+        && Number.isFinite(actualOccupiedArea)
         ? getVacancyRate(actualOccupiedArea, fallbackLeasableArea)
         : null;
     const actualVacancyRate = actualVacancyRateFromFloors ?? actualVacancyRateFallback;

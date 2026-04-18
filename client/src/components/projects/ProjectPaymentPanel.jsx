@@ -193,8 +193,6 @@ export default function ProjectPaymentPanel({
     const accessGranted = Boolean(payment?.accessGranted);
     const accessSource = payment?.accessSource || null;
     const canCalculate = accessGranted;
-    const manualRate = Number(project?.questionnaire?.averageRentalRate || 0);
-    const calculationPayload = manualRate > 0 ? { averageRentalRate: manualRate } : {};
 
     const handleIssueOneTimeInvoice = async () => {
         try {
@@ -252,7 +250,7 @@ export default function ProjectPaymentPanel({
             message.success('Подписка активирована');
 
             try {
-                await api.post(`/projects/${projectId}/calculate`, calculationPayload);
+                await api.post(`/projects/${projectId}/calculate`);
                 message.success('Результат сформирован');
                 onCalculated?.();
             } catch (calculationError) {
@@ -271,7 +269,7 @@ export default function ProjectPaymentPanel({
     const handleCalculate = async () => {
         try {
             setLoading(true);
-            await api.post(`/projects/${projectId}/calculate`, calculationPayload);
+            await api.post(`/projects/${projectId}/calculate`);
             message.success('Результат сформирован');
             onCalculated?.();
         } catch (error) {

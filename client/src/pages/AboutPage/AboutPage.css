@@ -266,6 +266,45 @@
     background: #ffffff !important;
 }
 
+.about-audience-hover-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.about-audience-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;         
+    cursor: default;
+    transition: all 0.2s ease;
+}
+
+.about-audience-item:hover span {
+    color: #1890ff;
+    font-size: 16px;         
+    font-weight: 500;
+}
+
+.about-audience-item:hover .about-list-icon {
+    color: #1890ff;
+    transform: scale(1.05);
+}
+
+.about-audience-item .about-list-icon {
+    font-size: 20px;
+    color: #8c8c8c;
+    transition: all 0.2s ease;
+}
+
+.about-audience-item span {
+    font-size: 16px;
+    color: #1f2f3a;
+    transition: all 0.2s ease;
+}
+
 @media (max-width: 1200px) {
     .about-hero,
     .about-section {

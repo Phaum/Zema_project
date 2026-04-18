@@ -20,7 +20,6 @@ import {
     unblockAdminUser,
     updateAdminUser,
 } from './Api';
-import { useAuth } from '../../context/AuthContext';
 
 const ROLE_OPTIONS = [
     { value: 'GUEST', label: 'Гость' },
@@ -29,7 +28,6 @@ const ROLE_OPTIONS = [
 ];
 
 export default function AdminUsersTable() {
-    const { user: currentUser, refreshProfile } = useAuth();
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
@@ -103,10 +101,6 @@ export default function AdminUsersTable() {
             });
 
             await setAdminUserRoles(selectedUser.id, values.roles);
-
-            if (Number(selectedUser.id) === Number(currentUser?.id)) {
-                await refreshProfile();
-            }
 
             message.success('Пользователь обновлён');
             setDrawerOpen(false);
@@ -244,14 +238,8 @@ export default function AdminUsersTable() {
                         label="Режим отладки"
                         valuePropName="checked"
                         extra="При включении будут логироваться входящие и исходящие данные пользователя."
-                        style={{
-                            border: '1px solid #f0f0f0',
-                            borderRadius: 14,
-                            padding: '12px 16px',
-                            background: '#fafafa',
-                        }}
                     >
-                        <Switch className="admin-debug-switch" />
+                        <Switch />
                     </Form.Item>
 
                     <Form.Item
