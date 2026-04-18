@@ -518,6 +518,194 @@ function replaceResolvedValue(target, key, value, source, autoFilledFields, sour
     sourceHints[key] = source;
 }
 
+function resolveEffectiveFieldSource(target, key, sourceHints = {}) {
+    return normalizeText(
+        sourceHints?.[key] ||
+        target?.fieldSourceHints?.[key]
+    );
+}
+
+function removeResolvedValue(target, key, autoFilledFields, sourceHints) {
+    target[key] = null;
+
+    const autoFilledIndex = autoFilledFields.indexOf(key);
+    if (autoFilledIndex !== -1) {
+        autoFilledFields.splice(autoFilledIndex, 1);
+    }
+
+    delete sourceHints[key];
+
+    if (target.fieldSourceHints && typeof target.fieldSourceHints === 'object') {
+        const nextHints = { ...target.fieldSourceHints };
+        delete nextHints[key];
+        target.fieldSourceHints = nextHints;
+    }
+}
+
+function formatAreaValue(value) {
+    const numeric = toNumberOrNull(value);
+
+    if (!Number.isFinite(numeric)) {
+        return null;
+    }
+
+    return Number(numeric.toFixed(2));
+}
+
+export function validateTotalOksAreaOnLandCandidate(value, questionnaire = {}) {
+    const candidate = toNumberOrNull(value);
+
+    if (!Number.isFinite(candidate) || candidate <= 0) {
+        return {
+            isValid: false,
+            violations: [
+                {
+                    field: 'value',
+                    label: 'значение не задано или не является положительным числом',
+                    referenceValue: null,
+                },
+            ],
+        };
+    }
+
+    const comparisons = [
+        {
+            field: 'totalArea',
+            label: 'общей площади объекта',
+            referenceValue: toNumberOrNull(questionnaire?.totalArea),
+        },
+        {
+            field: 'leasableArea',
+            label: 'арендопригодной площади',
+            referenceValue: toNumberOrNull(questionnaire?.leasableArea),
+        },
+        {
+            field: 'occupiedArea',
+            label: 'занятой площади',
+            referenceValue: toNumberOrNull(questionnaire?.occupiedArea),
+        },
+    ];
+
+    const violations = comparisons.filter(({ referenceValue }) => (
+        Number.isFinite(referenceValue) && (candidate + 0.01) < referenceValue
+    ));
+
+    return {
+        isValid: violations.length === 0,
+        violations,
+    };
+}
+
+function buildTotalOksAreaOnLandValidationWarning(value, validation, source) {
+    const sourceLabel = source === 'historical_project_questionnaire'
+        ? 'Историческое значение'
+        : (source.includes('nspd') || source.includes('reestrnet'))
+            ? 'Кадастровое значение'
+            : 'Автозаполненное значение';
+    const candidate = formatAreaValue(value);
+    const details = validation.violations
+        .filter((item) => item?.field !== 'value')
+        .map((item) => `${item.label} ${formatAreaValue(item.referenceValue)} м²`)
+        .join(', ');
+
+    if (!details) {
+        return `${sourceLabel} общей площади ОКС на участке отброшено: значение некорректно.`;
+    }
+
+    return `${sourceLabel} общей площади ОКС на участке ${candidate} м² отброшено: оно меньше ${details}.`;
+}
+
+export function sanitizeAutoFilledTotalOksAreaOnLand(questionnaire = {}, { sourceHints = {} } = {}) {
+    const nextQuestionnaire = {
+        ...questionnaire,
+        fieldSourceHints: normalizeFieldSourceHints(questionnaire?.fieldSourceHints),
+    };
+    const source = resolveEffectiveFieldSource(nextQuestionnaire, 'totalOksAreaOnLand', sourceHints);
+
+    if (!hasMeaningfulValue(nextQuestionnaire.totalOksAreaOnLand) || !source || isManualFieldSource(source)) {
+        return {
+            questionnaire: nextQuestionnaire,
+            removed: false,
+            source: source || null,
+            validation: validateTotalOksAreaOnLandCandidate(nextQuestionnaire.totalOksAreaOnLand, nextQuestionnaire),
+        };
+    }
+
+    const validation = validateTotalOksAreaOnLandCandidate(
+        nextQuestionnaire.totalOksAreaOnLand,
+        nextQuestionnaire
+    );
+
+    if (validation.isValid) {
+        return {
+            questionnaire: nextQuestionnaire,
+            removed: false,
+            source,
+            validation,
+        };
+    }
+
+    const nextHints = { ...nextQuestionnaire.fieldSourceHints };
+    delete nextHints.totalOksAreaOnLand;
+
+    return {
+        questionnaire: {
+            ...nextQuestionnaire,
+            totalOksAreaOnLand: null,
+            fieldSourceHints: nextHints,
+        },
+        removed: true,
+        source,
+        validation,
+    };
+}
+
+export function shouldPreferCadastralTotalOksAreaOnLand({
+    currentValue,
+    currentSource = null,
+    cadastralValue,
+}) {
+    const cadastral = toNumberOrNull(cadastralValue);
+
+    if (!Number.isFinite(cadastral) || cadastral <= 0) {
+        return false;
+    }
+
+    if (!hasMeaningfulValue(currentValue)) {
+        return true;
+    }
+
+    return !isManualFieldSource(currentSource);
+}
+
+function clearInvalidAutoFilledTotalOksAreaOnLand(target, autoFilledFields, sourceHints, warnings) {
+    const source = resolveEffectiveFieldSource(target, 'totalOksAreaOnLand', sourceHints);
+
+    if (!hasMeaningfulValue(target.totalOksAreaOnLand) || !source || isManualFieldSource(source)) {
+        return false;
+    }
+
+    const validation = validateTotalOksAreaOnLandCandidate(target.totalOksAreaOnLand, target);
+    if (validation.isValid) {
+        return false;
+    }
+
+    if (Array.isArray(warnings)) {
+        const warning = buildTotalOksAreaOnLandValidationWarning(
+            target.totalOksAreaOnLand,
+            validation,
+            source
+        );
+
+        if (!warnings.includes(warning)) {
+            warnings.push(warning);
+        }
+    }
+
+    removeResolvedValue(target, 'totalOksAreaOnLand', autoFilledFields, sourceHints);
+    return true;
+}
+
 function buildBuildingMissingFields(questionnaire = {}) {
     return [
         'objectType',
@@ -553,6 +741,8 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
     const referenceArea = resolveReferenceUnitArea(enriched);
     let buildingRecord = null;
     let landRecord = null;
+
+    clearInvalidAutoFilledTotalOksAreaOnLand(enriched, autoFilledFields, sourceHints, warnings);
 
     if (hasMeaningfulValue(enriched.buildingCadastralNumber) && isValidCadastralNumber(enriched.buildingCadastralNumber)) {
         try {
@@ -664,15 +854,31 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                 buildingCadastralNumber: enriched.buildingCadastralNumber,
                 landCadastralNumber: enriched.landCadastralNumber,
             });
-
-            pickMissing(
-                enriched,
-                'totalOksAreaOnLand',
+            const historicalValidation = validateTotalOksAreaOnLandCandidate(
                 historicalTotalOksArea,
-                'historical_project_questionnaire',
-                autoFilledFields,
-                sourceHints
+                enriched
             );
+
+            if (historicalValidation.isValid) {
+                pickMissing(
+                    enriched,
+                    'totalOksAreaOnLand',
+                    historicalTotalOksArea,
+                    'historical_project_questionnaire',
+                    autoFilledFields,
+                    sourceHints
+                );
+            } else if (hasMeaningfulValue(historicalTotalOksArea)) {
+                const warning = buildTotalOksAreaOnLandValidationWarning(
+                    historicalTotalOksArea,
+                    historicalValidation,
+                    'historical_project_questionnaire'
+                );
+
+                if (!warnings.includes(warning)) {
+                    warnings.push(warning);
+                }
+            }
         } catch (error) {
             warnings.push(`Не удалось подтянуть общую площадь ОКС на участке из истории проектов: ${error.message}`);
         }
@@ -696,20 +902,53 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
 
             pickMissing(enriched, 'landArea', record.land_area !== null ? Number(record.land_area) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'landCadCost', record.cad_cost !== null ? Number(record.cad_cost) : null, recordSource, autoFilledFields, sourceHints);
-            pickMissing(
+            const cadastralTotalOksArea = record.total_oks_area_on_land !== null
+                ? Number(record.total_oks_area_on_land)
+                : null;
+            const cadastralValidation = validateTotalOksAreaOnLandCandidate(
+                cadastralTotalOksArea,
+                enriched
+            );
+            const currentTotalOksSource = resolveEffectiveFieldSource(
                 enriched,
                 'totalOksAreaOnLand',
-                record.total_oks_area_on_land !== null ? Number(record.total_oks_area_on_land) : null,
-                recordSource,
-                autoFilledFields,
                 sourceHints
             );
+
+            if (
+                cadastralValidation.isValid &&
+                shouldPreferCadastralTotalOksAreaOnLand({
+                    currentValue: enriched.totalOksAreaOnLand,
+                    currentSource: currentTotalOksSource,
+                    cadastralValue: cadastralTotalOksArea,
+                })
+            ) {
+                replaceResolvedValue(
+                    enriched,
+                    'totalOksAreaOnLand',
+                    cadastralTotalOksArea,
+                    recordSource,
+                    autoFilledFields,
+                    sourceHints
+                );
+            } else if (hasMeaningfulValue(cadastralTotalOksArea) && !cadastralValidation.isValid) {
+                const warning = buildTotalOksAreaOnLandValidationWarning(
+                    cadastralTotalOksArea,
+                    cadastralValidation,
+                    recordSource
+                );
+
+                if (!warnings.includes(warning)) {
+                    warnings.push(warning);
+                }
+            }
             pickMissing(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'district', normalizedDistrict, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'permittedUse', record.permitted_use, recordSource, autoFilledFields, sourceHints);
 
             enriched.nspdLandLoaded = true;
+            clearInvalidAutoFilledTotalOksAreaOnLand(enriched, autoFilledFields, sourceHints, warnings);
         } catch (error) {
             warnings.push(`Не удалось подтянуть данные участка: ${error.message}`);
         }

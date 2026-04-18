@@ -109,3 +109,145 @@ test('buildCalculationBreakdown shows capitalization formula with exact percent 
 
     assert.equal(capStep?.calculation, '11646180 / 10.85% = 107338986.18');
 });
+
+test('buildCalculationBreakdown does not mark auto-filled questionnaire rental rate as manual override by numeric value alone', () => {
+    const breakdown = buildCalculationBreakdown(
+        {
+            totalArea: 1000,
+            district: 'Московский',
+            calculationMethod: 'market',
+            fieldSourceHints: {
+                averageRentalRate: 'market_offers_district_class',
+            },
+        },
+        {},
+        {
+            manualRentalRate: 772.22,
+            manualOverrideApplied: false,
+            rentalRateSource: 'market_analogs',
+            marketRentMonth: 1502.72,
+            marketRentYear: 18032.64,
+            marketRentFirst: 1502.72,
+            marketRentSecond: 1547.8,
+            marketRentThirdPlus: 1472.67,
+            leasableArea: 900,
+            occupiedArea: 900,
+            vacancyRate: 0.09,
+            vacancyRatePercent: 9,
+            pgi: 16200000,
+            egi: 14742000,
+            opex: 3095820,
+            opexRate: 0.21,
+            noi: 11646180,
+            capitalizationRate: 0.1085,
+            valueTotal: 107338986.18,
+            landShare: 1000000,
+            finalValue: 106338986.18,
+            pricePerM2: 106338.99,
+            analogsCount: 8,
+            selectedAnalogsCount: 10,
+            excludedAnalogsCount: 2,
+            capitalizationRateSource: 'rule_based_profile',
+            baseCapitalizationRate: 0.1,
+            capitalizationAdjustments: [],
+            vacancyRateSource: 'market',
+            vacancyRateSourceLabel: 'Рыночный профиль vacancy',
+            baseVacancyRate: 0.09,
+            vacancyAdjustments: [],
+            reliabilityDetails: {
+                score: 80,
+                note: 'Тестовая уверенность',
+                factors: [],
+                components: {},
+            },
+            assumptions: [],
+        }
+    );
+
+    assert.equal(breakdown.inputs.rentalRate.source, 'market_analogs');
+    assert.match(String(breakdown.inputs.rentalRate.note || ''), /рыночн/i);
+    assert.doesNotMatch(String(breakdown.inputs.rentalRate.note || ''), /ручн/i);
+});
+
+test('buildCalculationBreakdown keeps rent diagnostics and source labels human-readable', () => {
+    const breakdown = buildCalculationBreakdown(
+        {
+            totalArea: 18023.4,
+            district: 'Приморский',
+            calculationMethod: 'actual_market',
+            landCadCost: 52878166.88,
+            landCadastralNumber: '78:34:0413901:8',
+            totalOksAreaOnLand: 18023.4,
+            fieldSourceHints: {
+                totalOksAreaOnLand: 'historical_project_questionnaire',
+            },
+        },
+        {
+            comparableCount: 4,
+            selectedComparableCount: 10,
+            excludedComparableCount: 6,
+            averageRentalRate: 1500.19,
+            medianRentalRate: 1502.92,
+            minRentalRate: 1430.12,
+            maxRentalRate: 1564.81,
+        },
+        {
+            marketRentMonth: 1500.19,
+            marketRentYear: 18002.28,
+            marketRentFirst: 1500.19,
+            marketRentSecond: 1545.2,
+            marketRentThirdPlus: 1470.19,
+            marketRentAverage: 0,
+            marketRentMedian: 0,
+            marketRentMin: 0,
+            marketRentMax: 0,
+            leasableArea: 12757.2,
+            occupiedArea: 9697.3,
+            vacancyRate: 0.09,
+            vacancyRatePercent: 9,
+            pgi: 227178692.32,
+            egi: 206732610.01,
+            opex: 43413848.1,
+            opexRate: 0.21,
+            noi: 163318761.91,
+            capitalizationRate: 0.118,
+            valueTotal: 1384057304.33,
+            landShare: 52878166.88,
+            finalValue: 1331179137.45,
+            pricePerM2: 73858.38,
+            analogsCount: 10,
+            selectedAnalogsCount: 4,
+            excludedAnalogsCount: 6,
+            capitalizationRateSource: 'rule_based_profile',
+            baseCapitalizationRate: 0.1,
+            capitalizationAdjustments: [],
+            vacancyRateSource: 'market',
+            vacancyRateSourceLabel: 'Рыночный профиль vacancy',
+            baseVacancyRate: 0.09,
+            vacancyAdjustments: [],
+            reliabilityDetails: {
+                score: 36,
+                note: 'Тестовая уверенность',
+                factors: [],
+                components: {},
+            },
+            assumptions: [],
+        }
+    );
+
+    const rentStep = breakdown.calculationSteps.find((step) => step.step === 1);
+    const rentMethodology = breakdown.methodology.blocks.find((block) => block.key === 'rent');
+    const landSource = breakdown.dataQuality.fieldSources.find((item) => item.key === 'totalOksAreaOnLand');
+
+    assert.equal(breakdown.market.comparableCount, 4);
+    assert.equal(breakdown.market.selectedComparableCount, 10);
+    assert.equal(breakdown.inputs.rentalRate.marketData.simpleAverage, 1500.19);
+    assert.equal(breakdown.inputs.rentalRate.marketData.simpleMedian, 1502.92);
+    assert.match(String(rentStep?.calculation || ''), /1430\.12/);
+    assert.match(String(rentStep?.calculation || ''), /1502\.92/);
+    assert.match(String(rentStep?.calculation || ''), /1564\.81/);
+    assert.ok(rentMethodology?.facts?.includes('Аналогов до стабилизации: 10'));
+    assert.ok(rentMethodology?.facts?.includes('В итоговой ставке использовано: 4'));
+    assert.ok(rentMethodology?.facts?.includes('Исключено из итоговой ставки: 6'));
+    assert.equal(landSource?.sourceLabel, 'История анкет по объекту');
+});

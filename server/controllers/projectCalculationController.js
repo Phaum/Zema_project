@@ -61,6 +61,59 @@ function firstFinite(...values) {
     return null;
 }
 
+function normalizeFieldSourceHints(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return {};
+    }
+
+    return Object.entries(value).reduce((accumulator, [fieldName, source]) => {
+        const normalizedFieldName = String(fieldName || '').trim();
+        const normalizedSource = String(source || '').trim();
+
+        if (!normalizedFieldName || !normalizedSource) {
+            return accumulator;
+        }
+
+        accumulator[normalizedFieldName] = normalizedSource;
+        return accumulator;
+    }, {});
+}
+
+function isManualSource(source) {
+    return String(source || '').trim().toLowerCase().startsWith('manual');
+}
+
+export function resolveManualRentalOverrideRate({ requestBody = {}, questionnaire = {} } = {}) {
+    const hasManualRateInRequest = ['manualRate', 'averageRentalRate']
+        .some((key) => Object.prototype.hasOwnProperty.call(requestBody || {}, key));
+    const manualRateFromRequest = toNumber(
+        requestBody?.manualRate ?? requestBody?.averageRentalRate,
+        null
+    );
+
+    if (hasManualRateInRequest) {
+        return Number.isFinite(manualRateFromRequest) && manualRateFromRequest > 0
+            ? manualRateFromRequest
+            : null;
+    }
+
+    const manualRateFromQuestionnaire = toNumber(questionnaire?.averageRentalRate, null);
+    if (!Number.isFinite(manualRateFromQuestionnaire) || manualRateFromQuestionnaire <= 0) {
+        return null;
+    }
+
+    const fieldSourceHints = normalizeFieldSourceHints(questionnaire?.fieldSourceHints);
+    const averageRentalRateSource = String(fieldSourceHints?.averageRentalRate || '').trim();
+
+    if (!averageRentalRateSource) {
+        return manualRateFromQuestionnaire;
+    }
+
+    return isManualSource(averageRentalRateSource)
+        ? manualRateFromQuestionnaire
+        : null;
+}
+
 function resolveComparableCoordinates(row) {
     const lat = firstFinite(row?.lat);
     const lon = firstFinite(row?.lon);
@@ -708,6 +761,7 @@ function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketM
     const adjustmentMap = buildComparableAdjustmentMap(adjustedRateRows);
 
     const includedAdjustedRows = adjustedRateRows.filter((item) => item?.includedInRentCalculation !== false);
+    const excludedAdjustedRows = adjustedRateRows.filter((item) => item?.includedInRentCalculation === false);
     const selectedRates = includedAdjustedRows.length
         ? includedAdjustedRows
             .map((item) => toNumber(item.adjustedRate, null))
@@ -715,6 +769,20 @@ function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketM
         : (selectedAnalogs || [])
             .map((item) => toNumber(toComparablePlain(item).price_per_sqm_cleaned, null))
             .filter((value) => Number.isFinite(value));
+    const correctedRates = includedAdjustedRows
+        .map((item) => toNumber(item.correctedRate ?? item.adjustedRate, null))
+        .filter((value) => Number.isFinite(value) && value > 0);
+    const comparableCount = includedAdjustedRows.length
+        || toNumber(marketMeta.selectedComparableCount, null)
+        || toNumber(marketMeta.includedComparableCount, null)
+        || (selectedAnalogs?.length ?? 0);
+    const selectedComparableCount = adjustedRateRows.length
+        || toNumber(marketMeta.includedComparableCount, null)
+        || toNumber(marketMeta.selectedComparableCount, null)
+        || (selectedAnalogs?.length ?? 0);
+    const excludedComparableCount = excludedAdjustedRows.length
+        || toNumber(marketMeta.excludedComparableCount, null)
+        || 0;
 
     const allRates = (allAnalogs || [])
         .map((item) => toNumber(toComparablePlain(item).price_per_sqm_cleaned, null))
@@ -773,13 +841,13 @@ function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketM
     });
 
     return {
-        comparableCount: marketMeta.includedComparableCount ?? selectedAnalogs?.length ?? 0,
-        includedComparableCount: marketMeta.includedComparableCount ?? selectedAnalogs?.length ?? 0,
-        selectedComparableCount: marketMeta.selectedComparableCount ?? selectedAnalogs?.length ?? 0,
-        excludedComparableCount: marketMeta.excludedComparableCount ?? 0,
+        comparableCount,
+        includedComparableCount: comparableCount,
+        selectedComparableCount,
+        excludedComparableCount,
         totalAvailable: allAnalogs?.length || 0,
 
-        objectComparableCount: marketMeta.includedComparableCount ?? selectedAnalogs?.length ?? 0,
+        objectComparableCount: comparableCount,
         objectTotalAvailable: allAnalogs?.length || 0,
 
         district: marketMeta.district || questionnaire.district || null,
@@ -801,12 +869,12 @@ function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketM
         analogsQualityScore: marketMeta.analogsQualityScore ?? null,
         excludedDuplicates: Array.isArray(marketMeta.excludedDuplicates) ? marketMeta.excludedDuplicates : [],
         reliabilityScore: marketMeta.reliabilityScore ?? null,
-        analogsInitialCount: marketMeta.analogsInitialCount ?? null,
-        analogsUsedCount: marketMeta.analogsUsedCount ?? null,
-        analogsExcludedCount: marketMeta.analogsExcludedCount ?? null,
-        correctedRateMin: marketMeta.correctedRateMin ?? null,
-        correctedRateMedian: marketMeta.correctedRateMedian ?? null,
-        correctedRateMax: marketMeta.correctedRateMax ?? null,
+        analogsInitialCount: marketMeta.analogsInitialCount ?? selectedComparableCount,
+        analogsUsedCount: marketMeta.analogsUsedCount ?? comparableCount,
+        analogsExcludedCount: marketMeta.analogsExcludedCount ?? excludedComparableCount,
+        correctedRateMin: marketMeta.correctedRateMin ?? (correctedRates.length ? Math.min(...correctedRates) : null),
+        correctedRateMedian: marketMeta.correctedRateMedian ?? (correctedRates.length ? median(correctedRates) : null),
+        correctedRateMax: marketMeta.correctedRateMax ?? (correctedRates.length ? Math.max(...correctedRates) : null),
         correctedRateStdDev: marketMeta.correctedRateStdDev ?? null,
         correctedRateIQR: marketMeta.correctedRateIQR ?? null,
         dispersionLevel: marketMeta.dispersionLevel ?? null,
@@ -867,19 +935,10 @@ export const calculateProject = async (req, res) => {
             return res.status(400).json({ error: 'Нет аналогов в базе analogues' });
         }
 
-        const hasManualRateInRequest = ['manualRate', 'averageRentalRate']
-            .some((key) => Object.prototype.hasOwnProperty.call(req.body || {}, key));
-        const manualRateFromRequest = toNumber(
-            req.body?.manualRate ?? req.body?.averageRentalRate,
-            null
-        );
-        const manualRateFromQuestionnaire = toNumber(questionnaire?.averageRentalRate, null);
-        const resolvedManualRate = hasManualRateInRequest
-            ? manualRateFromRequest
-            : manualRateFromQuestionnaire;
-        const manualRate = Number.isFinite(resolvedManualRate) && resolvedManualRate > 0
-            ? resolvedManualRate
-            : null;
+        const manualRate = resolveManualRentalOverrideRate({
+            requestBody: req.body,
+            questionnaire,
+        });
 
         const valuation = await calculateValuation(
             questionnaire,
@@ -1147,5 +1206,3 @@ export const getProjectMarketContext = async (req, res) => {
         });
     }
 };
-
-

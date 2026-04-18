@@ -104,6 +104,8 @@ const RENT_CONFIG = {
     },
 };
 
+const SMALL_SAMPLE_THRESHOLD = 7;
+
 function round2(value) {
     return Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
 }
@@ -153,6 +155,49 @@ function standardDeviation(values = []) {
     const mean = average(arr);
     const variance = average(arr.map((value) => ((value - mean) ** 2)));
     return Math.sqrt(Math.max(variance, 0));
+}
+
+function percentile(values = [], quantile = 0.5) {
+    const arr = values
+        .map(Number)
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+
+    if (!arr.length) return null;
+    if (arr.length === 1) return arr[0];
+
+    const q = clamp(toNumber(quantile, 0.5), 0, 1);
+    const index = (arr.length - 1) * q;
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+
+    if (lower === upper) {
+        return arr[lower];
+    }
+
+    const weight = index - lower;
+    return arr[lower] + (arr[upper] - arr[lower]) * weight;
+}
+
+function getSampleSizeLevel(count) {
+    if (count >= 10) return 'good';
+    if (count >= SMALL_SAMPLE_THRESHOLD) return 'medium';
+    return 'small';
+}
+
+function getDispersionLevel({ medianValue, stdDev, iqr }) {
+    const medianSafe = toNumber(medianValue, null);
+    const stdRatio = Number.isFinite(medianSafe) && medianSafe > 0
+        ? safeDivide(stdDev, medianSafe, 0)
+        : null;
+    const iqrRatio = Number.isFinite(medianSafe) && medianSafe > 0
+        ? safeDivide(iqr, medianSafe, 0)
+        : null;
+    const severity = Math.max(toNumber(stdRatio, 0), toNumber(iqrRatio, 0));
+
+    if (severity >= 0.30) return 'high';
+    if (severity >= 0.16) return 'medium';
+    return 'low';
 }
 
 function normalizeComparableText(value) {
@@ -307,7 +352,14 @@ function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
         return 1;
     }
 
-    return Math.pow(subject / analog, exponent);
+    const subjectCoefficient = Math.pow(subject / subject, exponent);
+    const analogCoefficient = Math.pow(subject / analog, exponent);
+
+    if (!Number.isFinite(subjectCoefficient) || !Number.isFinite(analogCoefficient) || analogCoefficient === 0) {
+        return 1;
+    }
+
+    return subjectCoefficient / analogCoefficient;
 }
 
 function getFloorCoefficient(floorCategory, valuationQuarter) {
@@ -326,7 +378,42 @@ function getFloorAdjustment(subjectFloorCategory, analogFloorCategory, valuation
         return 1;
     }
 
-    return analogCoeff / subjectCoeff;
+    return subjectCoeff / analogCoeff;
+}
+
+function getComparableSubjectArea(questionnaire = {}) {
+    const floors = Array.isArray(questionnaire?.floors) ? questionnaire.floors : [];
+
+    const firstFloor = floors.find((floor) => {
+        const category = parseFloorCategory(floor?.floorCategory || floor?.floorLocation || floor?.label);
+        return category === 'first';
+    });
+
+    const firstFloorComparableArea = toNumber(
+        firstFloor?.avgLeasableRoomArea ?? firstFloor?.leasableArea ?? firstFloor?.area,
+        null
+    );
+
+    if (Number.isFinite(firstFloorComparableArea) && firstFloorComparableArea > 0) {
+        return firstFloorComparableArea;
+    }
+
+    const roomAreas = floors
+        .map((floor) => toNumber(floor?.avgLeasableRoomArea, null))
+        .filter((value) => Number.isFinite(value) && value > 0);
+
+    if (roomAreas.length) {
+        return average(roomAreas);
+    }
+
+    const leasableArea = toNumber(questionnaire?.leasableArea, 0);
+    const aboveGroundFloors = Number(questionnaire?.aboveGroundFloors) || 0;
+
+    if (leasableArea > 0 && aboveGroundFloors > 0) {
+        return leasableArea / aboveGroundFloors;
+    }
+
+    return toNumber(questionnaire?.totalArea, 0);
 }
 
 function getEnvironmentCoefficientSingle(value) {
@@ -521,10 +608,7 @@ function calculateMetroAdjustmentRecord(questionnaire, analog) {
 
 function calculateAreaAdjustmentRecord(questionnaire, analog) {
     const valuationQuarter = resolveValuationQuarterForAreaAndFloor(questionnaire);
-    const subjectArea = toNumber(
-        questionnaire?.totalArea ?? questionnaire?.buildingArea ?? questionnaire?.leasableArea,
-        null
-    );
+    const subjectArea = getComparableSubjectArea(questionnaire);
     const analogArea = toNumber(analog?.area_total, null);
 
     const factor = getAreaAdjustment(subjectArea, analogArea, valuationQuarter);
@@ -981,9 +1065,28 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
     const minIncludedRate = includedRates.length ? round2(Math.min(...includedRates)) : 0;
     const maxIncludedRate = includedRates.length ? round2(Math.max(...includedRates)) : 0;
     const stdDev = includedRates.length ? round2(standardDeviation(includedRates)) : 0;
+    const q1 = includedRates.length ? percentile(includedRates, 0.25) : null;
+    const q3 = includedRates.length ? percentile(includedRates, 0.75) : null;
+    const correctedRateIQR = Number.isFinite(q1) && Number.isFinite(q3)
+        ? round2(Math.max(0, q3 - q1))
+        : null;
+    const sampleSizeLevel = getSampleSizeLevel(preparedRows.length);
+    const dispersionLevel = includedRates.length
+        ? getDispersionLevel({
+            medianValue: marketRentMedian,
+            stdDev,
+            iqr: correctedRateIQR,
+        })
+        : null;
+    const stabilityFlag = includedRates.length
+        ? (sampleSizeLevel === 'small' || dispersionLevel === 'high' ? 'unstable' : 'stable')
+        : null;
 
     const outlierRangeCheck = buildOutlierRangeCheck(includedRows);
     const qualityScore = buildQualityScore(includedRows, preparedRows);
+    const analogsInitialCount = preparedRows.length;
+    const analogsUsedCount = includedRows.length;
+    const analogsExcludedCount = finalRows.filter((row) => row.includedInRentCalculation === false).length;
 
     return {
         algorithm: 'market_rent_word_strict_v1',
@@ -993,8 +1096,13 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
         marketRentThirdPlus: round2(marketRentFirst * 0.98),
 
         marketRentMedian,
+        simpleAverageRate: marketRentFirst,
+        simpleMedianRate: marketRentMedian,
+        trimmedMeanRate: marketRentFirst,
         averageAdjustedRate: marketRentFirst,
         selectedAverageRate: marketRentFirst,
+        minAdjustedRate: includedRates.length ? minIncludedRate : null,
+        maxAdjustedRate: includedRates.length ? maxIncludedRate : null,
 
         rows: finalRows,
         analogsProcessed: finalRows,
@@ -1021,8 +1129,19 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
         adjustedRates: finalRows,
         analogCount: preparedRows.length,
         selectedCount: includedRows.length,
-        excludedCount: finalRows.filter((row) => row.includedInRentCalculation === false).length,
+        excludedCount: analogsExcludedCount,
         totalCount: preparedRows.length,
+        analogsInitialCount,
+        analogsUsedCount,
+        analogsExcludedCount,
+        correctedRateMin: includedRates.length ? minIncludedRate : null,
+        correctedRateMedian: includedRates.length ? marketRentMedian : null,
+        correctedRateMax: includedRates.length ? maxIncludedRate : null,
+        correctedRateStdDev: includedRates.length ? stdDev : null,
+        correctedRateIQR,
+        dispersionLevel,
+        sampleSizeLevel,
+        stabilityFlag,
 
         outlierRangeCheck: {
             ...outlierRangeCheck,

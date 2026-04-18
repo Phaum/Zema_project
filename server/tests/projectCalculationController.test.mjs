@@ -10,6 +10,7 @@ import {
     deduplicateAnaloguesByClosestDatePerQuarter,
     deduplicateAnaloguesForSelection,
     deduplicateRankedAnalogsByObject,
+    resolveManualRentalOverrideRate,
     resolveAnalogueQuarterKey,
 } from '../controllers/projectCalculationController.js';
 
@@ -57,6 +58,48 @@ test('resolveAnalogueQuarterKey prefers explicit quarter and normalizes it', () 
     assert.equal(resolveAnalogueQuarterKey({ quarter: '1 кв. 2025' }), '2025-Q1');
     assert.equal(resolveAnalogueQuarterKey({ quarter: 'Q3 2024' }), '2024-Q3');
     assert.equal(resolveAnalogueQuarterKey({ date_offer: '2025-05-17' }), '2025-Q2');
+});
+
+test('resolveManualRentalOverrideRate ignores auto-filled questionnaire rental rate', () => {
+    const manualRate = resolveManualRentalOverrideRate({
+        questionnaire: {
+            averageRentalRate: 772.22,
+            fieldSourceHints: {
+                averageRentalRate: 'market_offers_district_class',
+            },
+        },
+    });
+
+    assert.equal(manualRate, null);
+});
+
+test('resolveManualRentalOverrideRate keeps manual questionnaire rental rate', () => {
+    const manualRate = resolveManualRentalOverrideRate({
+        questionnaire: {
+            averageRentalRate: 772.22,
+            fieldSourceHints: {
+                averageRentalRate: 'manual_input',
+            },
+        },
+    });
+
+    assert.equal(manualRate, 772.22);
+});
+
+test('resolveManualRentalOverrideRate prioritizes explicit request manual rate', () => {
+    const manualRate = resolveManualRentalOverrideRate({
+        requestBody: {
+            manualRate: 1500,
+        },
+        questionnaire: {
+            averageRentalRate: 772.22,
+            fieldSourceHints: {
+                averageRentalRate: 'market_offers_district_class',
+            },
+        },
+    });
+
+    assert.equal(manualRate, 1500);
 });
 
 test('deduplicateAnaloguesByClosestDatePerQuarter keeps nearest analogue within each quarter', () => {

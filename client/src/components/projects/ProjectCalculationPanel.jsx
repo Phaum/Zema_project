@@ -16,9 +16,20 @@ export default function ProjectCalculationPanel({
     const q = project?.questionnaire || {};
 
     const manualRate = Number(q.averageRentalRate || 0);
+    const averageRentalRateSource = String(q?.fieldSourceHints?.averageRentalRate || '').trim().toLowerCase();
+    const hasManualRate = manualRate > 0 && (
+        !averageRentalRateSource || averageRentalRateSource.startsWith('manual')
+    );
+    const hasAutoFilledRate = manualRate > 0 && !hasManualRate;
     const derivedRate = Number(marketContext?.medianRentalRate || 0);
-    const rentalRate = manualRate > 0 ? manualRate : derivedRate;
-    const rentalRateSource = manualRate > 0 ? 'Ручной ввод' : 'По базе analogues';
+    const rentalRate = hasManualRate
+        ? manualRate
+        : (derivedRate > 0 ? derivedRate : manualRate);
+    const rentalRateSource = hasManualRate
+        ? 'Ручной ввод'
+        : hasAutoFilledRate && derivedRate <= 0
+            ? 'Автозаполнение платформы'
+            : 'По базе analogues';
 
     let leasableArea = 0;
     let occupiedArea = 0;
@@ -81,8 +92,8 @@ export default function ProjectCalculationPanel({
                             value={rentalRate > 0 ? Math.round(rentalRate) : 0}
                             suffix="₽/м²"
                             prefix={
-                                <Tag color={manualRate > 0 ? 'orange' : 'cyan'}>
-                                    {manualRate > 0 ? 'Вручную' : 'Analogues'}
+                                <Tag color={hasManualRate ? 'orange' : hasAutoFilledRate && derivedRate <= 0 ? 'blue' : 'cyan'}>
+                                    {hasManualRate ? 'Вручную' : hasAutoFilledRate && derivedRate <= 0 ? 'Авто' : 'Analogues'}
                                 </Tag>
                             }
                         />
@@ -95,7 +106,7 @@ export default function ProjectCalculationPanel({
                     </Col>
                 </Row>
 
-                {derivedRate > 0 && manualRate === 0 && (
+                {derivedRate > 0 && !hasManualRate && (
                     <Text type="secondary" style={{ marginTop: 8 }}>
                         Медианная ставка по базе analogues: {Math.round(derivedRate)} ₽/м²
                         {' '}({marketContext?.comparableCount || 0} аналогов)

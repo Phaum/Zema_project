@@ -1,6 +1,7 @@
 export function buildCalculationBreakdown(questionnaire, marketSnapshot, calculation) {
     const manualRentalRate = toNumber(calculation.manualRentalRate, 0);
-    const manualOverrideApplied = Boolean(calculation.manualOverrideApplied) || manualRentalRate > 0;
+    const manualOverrideApplied = Boolean(calculation.manualOverrideApplied)
+        || String(calculation.rentalRateSource || '').trim().toLowerCase() === 'manual_override';
     const marketRentMonth = toNumber(calculation.marketRentMonth, 0);
     const marketRentYear = toNumber(calculation.marketRentYear, marketRentMonth * 12);
     const marketRentFirst = toNumber(calculation.marketRentFirst, marketRentMonth);
@@ -33,26 +34,60 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
         marketRentThirdPlus,
     });
 
-    const comparableCount =
-        toNumber(calculation.analogsCount, 0) ||
-        toNumber(marketSnapshot?.comparableCount, 0);
+    const rawCalculationComparableCount = toNumber(calculation.analogsCount, null);
+    const rawCalculationSelectedComparableCount = toNumber(calculation.selectedAnalogsCount, null);
+    const normalizedCalculationComparableCount =
+        Number.isFinite(rawCalculationComparableCount) && Number.isFinite(rawCalculationSelectedComparableCount)
+            ? Math.min(rawCalculationComparableCount, rawCalculationSelectedComparableCount)
+            : (Number.isFinite(rawCalculationSelectedComparableCount)
+                ? rawCalculationSelectedComparableCount
+                : rawCalculationComparableCount);
+    const normalizedCalculationSelectedComparableCount =
+        Number.isFinite(rawCalculationComparableCount) && Number.isFinite(rawCalculationSelectedComparableCount)
+            ? Math.max(rawCalculationComparableCount, rawCalculationSelectedComparableCount)
+            : (Number.isFinite(rawCalculationComparableCount)
+                ? rawCalculationComparableCount
+                : rawCalculationSelectedComparableCount);
+
+    const comparableCount = toNumber(
+        marketSnapshot?.comparableCount,
+        toNumber(normalizedCalculationComparableCount, 0)
+    );
     const selectedComparableCount = toNumber(
-        calculation.selectedAnalogsCount,
-        toNumber(marketSnapshot?.selectedComparableCount, comparableCount)
+        marketSnapshot?.selectedComparableCount,
+        toNumber(normalizedCalculationSelectedComparableCount, comparableCount)
     );
     const excludedComparableCount = toNumber(
-        calculation.excludedAnalogsCount,
-        toNumber(marketSnapshot?.excludedComparableCount, 0)
+        marketSnapshot?.excludedComparableCount,
+        toNumber(
+            calculation.excludedAnalogsCount,
+            Math.max(selectedComparableCount - comparableCount, 0)
+        )
     );
     const rentDiagnostics = {
         rentCalculationMode: calculation.rentCalculationMode || marketSnapshot?.rentCalculationMode || 'stable_default',
         rentSelectionMethod: calculation.rentalRateSelectionMethod || marketSnapshot?.marketRentSelectionMethod || 'stable_trimmed_mean',
-        analogsInitialCount: toNumber(calculation.analogsInitialCount, marketSnapshot?.analogsInitialCount),
+        analogsInitialCount: toNumber(calculation.analogsInitialCount, marketSnapshot?.analogsInitialCount ?? selectedComparableCount),
         analogsUsedCount: toNumber(calculation.analogsUsedCount, marketSnapshot?.analogsUsedCount ?? comparableCount),
         analogsExcludedCount: toNumber(calculation.analogsExcludedCount, marketSnapshot?.analogsExcludedCount ?? excludedComparableCount),
-        correctedRateMin: toNumber(calculation.correctedRateMin, marketSnapshot?.correctedRateMin),
-        correctedRateMedian: toNumber(calculation.correctedRateMedian, marketSnapshot?.correctedRateMedian ?? calculation.marketRentMedian),
-        correctedRateMax: toNumber(calculation.correctedRateMax, marketSnapshot?.correctedRateMax),
+        correctedRateMin: firstPositiveNumber(
+            calculation.correctedRateMin,
+            marketSnapshot?.correctedRateMin,
+            calculation.marketRentMin,
+            marketSnapshot?.minRentalRate
+        ),
+        correctedRateMedian: firstPositiveNumber(
+            calculation.correctedRateMedian,
+            marketSnapshot?.correctedRateMedian,
+            calculation.marketRentMedian,
+            marketSnapshot?.medianRentalRate
+        ),
+        correctedRateMax: firstPositiveNumber(
+            calculation.correctedRateMax,
+            marketSnapshot?.correctedRateMax,
+            calculation.marketRentMax,
+            marketSnapshot?.maxRentalRate
+        ),
         correctedRateStdDev: toNumber(calculation.correctedRateStdDev, marketSnapshot?.correctedRateStdDev),
         correctedRateIQR: toNumber(calculation.correctedRateIQR, marketSnapshot?.correctedRateIQR),
         dispersionLevel: calculation.dispersionLevel || marketSnapshot?.dispersionLevel || null,
@@ -134,20 +169,32 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
                     thirdPlus: round2(marketRentThirdPlus),
                 },
                 marketData: {
-                    average: round2(toNumber(calculation.marketRentAverage, marketSnapshot?.averageRentalRate)),
-                    median: round2(toNumber(calculation.marketRentMedian, marketSnapshot?.medianRentalRate)),
-                    min: round2(toNumber(calculation.marketRentMin, marketSnapshot?.minRentalRate)),
-                    max: round2(toNumber(calculation.marketRentMax, marketSnapshot?.maxRentalRate)),
-                    simpleMedian: round2(toNumber(calculation.marketRentSimpleMedian, calculation.marketRentMedian)),
-                    simpleAverage: round2(toNumber(calculation.marketRentSimpleAverage, calculation.marketRentAverage)),
-                    trimmedMean: round2(toNumber(calculation.marketRentTrimmedMean, calculation.marketRentAverage)),
+                    average: round2(firstPositiveNumber(calculation.marketRentAverage, marketSnapshot?.averageRentalRate)),
+                    median: round2(firstPositiveNumber(calculation.marketRentMedian, marketSnapshot?.medianRentalRate)),
+                    min: round2(firstPositiveNumber(calculation.marketRentMin, marketSnapshot?.minRentalRate)),
+                    max: round2(firstPositiveNumber(calculation.marketRentMax, marketSnapshot?.maxRentalRate)),
+                    simpleMedian: round2(firstPositiveNumber(
+                        calculation.marketRentSimpleMedian,
+                        calculation.marketRentMedian,
+                        marketSnapshot?.medianRentalRate
+                    )),
+                    simpleAverage: round2(firstPositiveNumber(
+                        calculation.marketRentSimpleAverage,
+                        calculation.marketRentAverage,
+                        marketSnapshot?.averageRentalRate
+                    )),
+                    trimmedMean: round2(firstPositiveNumber(
+                        calculation.marketRentTrimmedMean,
+                        calculation.marketRentAverage,
+                        marketSnapshot?.averageRentalRate
+                    )),
                     comparableCount,
                     selectedComparableCount,
                     excludedComparableCount,
                     selectionMethod: rentDiagnostics.rentSelectionMethod,
                     calculationMode: rentDiagnostics.rentCalculationMode,
                     overrideApplied: manualOverrideApplied,
-                    marketDerivedRentFirst: round2(toNumber(calculation.marketDerivedRentFirst, marketRentFirst)),
+                    marketDerivedRentFirst: round2(firstPositiveNumber(calculation.marketDerivedRentFirst, marketRentFirst)),
                     diagnostics: rentDiagnostics,
                 },
             },
@@ -354,10 +401,10 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
             selectedComparableCount,
             excludedComparableCount,
             district: marketSnapshot?.district || questionnaire.district || 'Не определён',
-            averageRentalRate: round2(toNumber(calculation.marketRentAverage, marketSnapshot?.averageRentalRate)),
-            medianRentalRate: round2(toNumber(calculation.marketRentMedian, marketSnapshot?.medianRentalRate)),
-            minRentalRate: round2(toNumber(calculation.marketRentMin, marketSnapshot?.minRentalRate)),
-            maxRentalRate: round2(toNumber(calculation.marketRentMax, marketSnapshot?.maxRentalRate)),
+            averageRentalRate: round2(firstPositiveNumber(calculation.marketRentAverage, marketSnapshot?.averageRentalRate)),
+            medianRentalRate: round2(firstPositiveNumber(calculation.marketRentMedian, marketSnapshot?.medianRentalRate)),
+            minRentalRate: round2(firstPositiveNumber(calculation.marketRentMin, marketSnapshot?.minRentalRate)),
+            maxRentalRate: round2(firstPositiveNumber(calculation.marketRentMax, marketSnapshot?.maxRentalRate)),
             rentalRateSource: calculation.rentalRateSource || marketSnapshot?.rentalRateSource || 'market_analogs',
             marketRentSelectionMethod: rentDiagnostics.rentSelectionMethod,
             rentCalculationMode: rentDiagnostics.rentCalculationMode,
@@ -706,6 +753,17 @@ function normalizeFieldSourceHints(value) {
     }, {});
 }
 
+function firstPositiveNumber(...values) {
+    for (const value of values) {
+        const numeric = toNumber(value, null);
+        if (Number.isFinite(numeric) && numeric > 0) {
+            return numeric;
+        }
+    }
+
+    return null;
+}
+
 function classifySourceKind(source) {
     const normalized = String(source || '').trim().toLowerCase();
 
@@ -734,6 +792,38 @@ function humanizeSourceKind(kind) {
             return 'Автоматически определено платформой';
         default:
             return 'Источник не классифицирован';
+    }
+}
+
+function humanizeFieldSource(source) {
+    const normalized = String(source || '').trim().toLowerCase();
+
+    switch (normalized) {
+        case 'historical_project_questionnaire':
+            return 'История анкет по объекту';
+        case 'market_analogs':
+            return 'Рыночные аналоги';
+        case 'market_offers_exact_object':
+            return 'Рыночные предложения по точному объекту';
+        case 'market_offers_district_class':
+            return 'Рыночные предложения по району и классу';
+        case 'metro_by_coordinates':
+            return 'Метро по координатам';
+        case 'environment_analysis_cache':
+            return 'Кэш анализа окружения';
+        case 'manual':
+        case 'manual_input':
+            return 'Ручной ввод';
+        case 'profile':
+            return 'Профиль модели';
+        case 'rule_based_profile':
+            return 'Параметрический профиль';
+        case 'factual':
+            return 'Фактические данные объекта';
+        case 'cadastral_land':
+            return 'Кадастровые данные участка';
+        default:
+            return source ? String(source) : 'Источник не указан';
     }
 }
 
@@ -826,6 +916,7 @@ function buildCalculationInputRegistry(questionnaire, calculation, landInput, op
             ...item,
             sourceKind: classifySourceKind(item.source),
             sourceKindLabel: humanizeSourceKind(classifySourceKind(item.source)),
+            sourceLabel: humanizeFieldSource(item.source),
         }));
 }
 

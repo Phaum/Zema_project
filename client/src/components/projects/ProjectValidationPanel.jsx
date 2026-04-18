@@ -418,7 +418,7 @@ export default function ProjectValidationPanel({
 
                 <div className="project-step-actions-right">
                     <Button type="primary" loading={saving || enriching} disabled={!canProceed || enriching} onClick={handleNext}>
-                        Перейти к оплате
+                        Далее
                     </Button>
                 </div>
             </div>

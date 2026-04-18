@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Card,
@@ -16,6 +16,7 @@ import {
   Statistic,
   Tooltip,
 } from 'antd';
+import html2canvas from 'html2canvas';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
@@ -320,7 +321,7 @@ function ResultMapBounds({ points, highlightBounds }) {
   return null;
 }
 
-function ProjectComparablesMap({ objectPoint, comparables }) {
+function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) {
   const { data: addressGeometry } = useAddressGeometry(objectPoint?.address);
   const highlightBounds = useMemo(
     () => buildLeafletBoundsFromAddressGeometry(addressGeometry),
@@ -341,7 +342,11 @@ function ProjectComparablesMap({ objectPoint, comparables }) {
   ];
 
   return (
-    <div className="project-result-map-shell" data-html2canvas-ignore="true">
+    <div
+      ref={captureRef}
+      className="project-result-map-shell"
+      data-html2canvas-ignore="true"
+    >
       <MapContainer
         key={[
           objectPoint ? `${objectPoint.lat}_${objectPoint.lng}` : 'no-object',
@@ -358,6 +363,7 @@ function ProjectComparablesMap({ objectPoint, comparables }) {
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          crossOrigin="anonymous"
         />
         <ResultMapBounds points={boundsPoints} highlightBounds={highlightBounds} />
         <ObjectLocationHighlight
@@ -588,6 +594,77 @@ function prepareReportData(projectId, project, breakdown, result) {
   };
 }
 
+function waitForElementImages(element, timeoutMs = 4000) {
+  const images = Array.from(element?.querySelectorAll?.('img') || []);
+  const pendingImages = images.filter((img) => !img.complete);
+
+  if (!pendingImages.length) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanups = [];
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanups.forEach((cleanup) => cleanup());
+      resolve();
+    };
+
+    const timer = window.setTimeout(finish, timeoutMs);
+    cleanups.push(() => window.clearTimeout(timer));
+
+    let remaining = pendingImages.length;
+    pendingImages.forEach((img) => {
+      const handleDone = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          finish();
+        }
+      };
+
+      img.addEventListener('load', handleDone, { once: true });
+      img.addEventListener('error', handleDone, { once: true });
+      cleanups.push(() => {
+        img.removeEventListener('load', handleDone);
+        img.removeEventListener('error', handleDone);
+      });
+    });
+  });
+}
+
+async function captureElementAsPng(element) {
+  if (!element) return null;
+
+  const ignoreAttribute = element.getAttribute('data-html2canvas-ignore');
+
+  if (ignoreAttribute !== null) {
+    element.removeAttribute('data-html2canvas-ignore');
+  }
+
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  await waitForElementImages(element);
+  await new Promise((resolve) => window.setTimeout(resolve, 250));
+  try {
+    const canvas = await html2canvas(element, {
+      backgroundColor: '#ffffff',
+      scale: Math.max(2, Math.min(window.devicePixelRatio || 1, 3)),
+      logging: false,
+      useCORS: true,
+      allowTaint: false,
+      imageTimeout: 15000,
+    });
+
+    return canvas.toDataURL('image/png');
+  } finally {
+    if (ignoreAttribute !== null) {
+      element.setAttribute('data-html2canvas-ignore', ignoreAttribute);
+    }
+  }
+}
+
 // ========== ОСНОВНОЙ КОМПОНЕНТ ==========
 export default function ProjectResultDetailedPanel({ projectId, project, marketContext, onBack }) {
   const { user, refreshProfile } = useAuth();
@@ -597,6 +674,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
   const [exportingPdf, setExportingPdf] = useState(false);
   const [expandedStepKeys, setExpandedStepKeys] = useState([]);
   const [showExcludedComparables, setShowExcludedComparables] = useState(false);
+  const comparablesMapRef = useRef(null);
   const questionnaire = project?.questionnaire || {};
 
   const loadResult = useCallback(async ({ showError = true, silent = false } = {}) => {
@@ -745,6 +823,17 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     try {
       setExportingPdf(true);
       const reportData = prepareReportData(projectId, project, breakdown, result);
+      const comparablesMapImageUrl = await captureElementAsPng(comparablesMapRef.current)
+        .catch((error) => {
+          console.error('Не удалось сделать снимок карты аналогов:', error);
+          return null;
+        });
+
+      if (comparablesMapImageUrl) {
+        reportData.comparablesMapImageUrl = comparablesMapImageUrl;
+        reportData.mapImageUrl = reportData.mapImageUrl || comparablesMapImageUrl;
+      }
+
       await exportZemaReportToPDF(projectId, reportData);
       message.success('Справка ЗЕМА успешно экспортирована');
     } catch (error) {
@@ -1017,7 +1106,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                             render: (value, record) => (
                               <Space direction="vertical" size={0}>
                                 <Text>{localizeResultText(value)}</Text>
-                                <Text type="secondary">{localizeResultText(record.source)}</Text>
+                                <Text type="secondary">{localizeResultText(record.sourceLabel || record.source)}</Text>
                               </Space>
                             ),
                           },
@@ -1694,6 +1783,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                         </Text>
                       </div>
                       <ProjectComparablesMap
+                        captureRef={comparablesMapRef}
                         objectPoint={objectMapPoint}
                         comparables={comparableMapPoints}
                       />

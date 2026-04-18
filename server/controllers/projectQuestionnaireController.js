@@ -1,5 +1,8 @@
 import { ProjectQuestionnaire, ValuationProject } from '../models/index.js';
-import { enrichQuestionnaireData } from '../services/questionnaireEnrichmentService.js';
+import {
+    enrichQuestionnaireData,
+    sanitizeAutoFilledTotalOksAreaOnLand,
+} from '../services/questionnaireEnrichmentService.js';
 
 function toNumberOrNull(value) {
     if (value === undefined || value === null || value === '') return null;
@@ -55,7 +58,7 @@ function normalizeOutgoing(row) {
     if (!row) return null;
     const plain = row.get ? row.get({ plain: true }) : row;
 
-    return {
+    const normalized = {
         ...plain,
         averageRentalRate: plain.averageRentalRate !== null ? Number(plain.averageRentalRate) : null,
         mapPointLat: plain.mapPointLat !== null ? Number(plain.mapPointLat) : null,
@@ -73,6 +76,8 @@ function normalizeOutgoing(row) {
         floors: Array.isArray(plain.floors) ? plain.floors : [],
         fieldSourceHints: normalizeFieldSourceHints(plain.fieldSourceHints) || {},
     };
+
+    return sanitizeAutoFilledTotalOksAreaOnLand(normalized).questionnaire;
 }
 
 function stripQuestionnaireMeta(payload = {}) {
