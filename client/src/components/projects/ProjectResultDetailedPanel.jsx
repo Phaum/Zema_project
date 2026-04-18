@@ -44,7 +44,7 @@ import {
   buildLeafletBoundsFromAddressGeometry,
   hasRenderableAddressGeometry,
   ObjectLocationHighlight,
-  useAddressGeometry,
+  useObjectGeometry,
 } from './ObjectLocationHighlight';
 import './ProjectResultDetailedPanel.css';
 
@@ -285,7 +285,75 @@ function MethodologyBlock({ title, summary, facts = [] }) {
 }
 
 function hasValidMapCoords(lat, lng) {
-  return Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+  return Number.isFinite(Number(lat))
+    && Number.isFinite(Number(lng))
+    && !(Number(lat) === 0 && Number(lng) === 0);
+}
+
+function normalizeComparableAddressKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getComparableIdentityKeys(item) {
+  if (!item || typeof item !== 'object') {
+    return [];
+  }
+
+  const keys = [
+    item.id,
+    item.external_id,
+    item.analogId,
+    item.building_cadastral_number,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+
+  const addressKey = normalizeComparableAddressKey(item.address_offer || item.address);
+  if (addressKey) {
+    keys.push(`addr:${addressKey}`);
+  }
+
+  return Array.from(new Set(keys));
+}
+
+function extractComparablePoint(item) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const candidates = [
+    {
+      lat: item.latitude,
+      lng: item.longitude,
+      source: item.coordinate_source,
+    },
+    {
+      lat: item.lat,
+      lng: item.lng,
+      source: item.coordinate_source,
+    },
+    {
+      lat: item.lat,
+      lng: item.lon,
+      source: item.coordinate_source,
+    },
+  ];
+
+  for (const candidate of candidates) {
+    if (hasValidMapCoords(candidate.lat, candidate.lng)) {
+      return {
+        lat: Number(candidate.lat),
+        lng: Number(candidate.lng),
+        source: candidate.source || null,
+      };
+    }
+  }
+
+  return null;
 }
 
 function ResultMapBounds({ points, highlightBounds }) {
@@ -322,16 +390,20 @@ function ResultMapBounds({ points, highlightBounds }) {
 }
 
 function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) {
-  const { data: addressGeometry } = useAddressGeometry(objectPoint?.address);
+  const { data: objectGeometry } = useObjectGeometry({
+    address: objectPoint?.address,
+    point: objectPoint,
+    preferPoint: true,
+  });
   const highlightBounds = useMemo(
-    () => buildLeafletBoundsFromAddressGeometry(addressGeometry),
-    [addressGeometry]
+    () => buildLeafletBoundsFromAddressGeometry(objectGeometry),
+    [objectGeometry]
   );
-  const hasObjectGeometry = hasRenderableAddressGeometry(addressGeometry);
+  const hasObjectGeometry = hasRenderableAddressGeometry(objectGeometry);
   const fallbackCenter = objectPoint
     ? [objectPoint.lat, objectPoint.lng]
-    : Number.isFinite(Number(addressGeometry?.lat)) && Number.isFinite(Number(addressGeometry?.lng))
-      ? [Number(addressGeometry.lat), Number(addressGeometry.lng)]
+    : Number.isFinite(Number(objectGeometry?.lat)) && Number.isFinite(Number(objectGeometry?.lng))
+      ? [Number(objectGeometry.lat), Number(objectGeometry.lng)]
     : comparables.length
       ? [comparables[0].lat, comparables[0].lng]
       : [59.9386, 30.3141];
@@ -367,7 +439,7 @@ function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) 
         />
         <ResultMapBounds points={boundsPoints} highlightBounds={highlightBounds} />
         <ObjectLocationHighlight
-          geometry={addressGeometry}
+          geometry={objectGeometry}
           color="#c026d3"
           fillColor="#d946ef"
         />
@@ -635,6 +707,59 @@ function waitForElementImages(element, timeoutMs = 4000) {
   });
 }
 
+async function waitForLeafletMapReady(element, timeoutMs = 5000) {
+  if (!element) return;
+
+  const tileImages = Array.from(element.querySelectorAll('.leaflet-tile'));
+  if (!tileImages.length) {
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    return;
+  }
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const cleanups = [];
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanups.forEach((cleanup) => cleanup());
+      resolve();
+    };
+
+    const timer = window.setTimeout(finish, timeoutMs);
+    cleanups.push(() => window.clearTimeout(timer));
+
+    let remaining = tileImages.filter((img) => !img.complete).length;
+    if (remaining <= 0) {
+      finish();
+      return;
+    }
+
+    tileImages.forEach((img) => {
+      if (img.complete) {
+        return;
+      }
+
+      const handleDone = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          finish();
+        }
+      };
+
+      img.addEventListener('load', handleDone, { once: true });
+      img.addEventListener('error', handleDone, { once: true });
+      cleanups.push(() => {
+        img.removeEventListener('load', handleDone);
+        img.removeEventListener('error', handleDone);
+      });
+    });
+  });
+
+  await new Promise((resolve) => window.setTimeout(resolve, 400));
+}
+
 async function captureElementAsPng(element) {
   if (!element) return null;
 
@@ -646,7 +771,7 @@ async function captureElementAsPng(element) {
 
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
   await waitForElementImages(element);
-  await new Promise((resolve) => window.setTimeout(resolve, 250));
+  await waitForLeafletMapReady(element);
   try {
     const canvas = await html2canvas(element, {
       backgroundColor: '#ffffff',
@@ -749,28 +874,62 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
       cadastralNumber: questionnaire.buildingCadastralNumber,
     }
     : null;
-  const mapComparableSource = (() => {
+  const mapComparableSource = useMemo(() => {
     const resultComparables = Array.isArray(breakdown?.market?.topComparables)
       ? breakdown.market.topComparables
       : [];
-    const resultHasCoords = resultComparables.some((item) => hasValidMapCoords(item?.latitude, item?.longitude));
+    const fallbackComparables = Array.isArray(marketContext?.topComparables)
+      ? marketContext.topComparables
+      : [];
 
-    if (resultHasCoords) {
-      return resultComparables;
+    if (!resultComparables.length) {
+      return fallbackComparables;
     }
 
-    return Array.isArray(marketContext?.topComparables) && marketContext.topComparables.length
-      ? marketContext.topComparables
-      : resultComparables;
-  })();
+    const fallbackByKey = new Map();
+    fallbackComparables.forEach((item) => {
+      getComparableIdentityKeys(item).forEach((key) => {
+        if (!fallbackByKey.has(key)) {
+          fallbackByKey.set(key, item);
+        }
+      });
+    });
+
+    return resultComparables.map((item) => {
+      const fallback = getComparableIdentityKeys(item)
+        .map((key) => fallbackByKey.get(key))
+        .find(Boolean);
+      const primaryPoint = extractComparablePoint(item);
+      const fallbackPoint = extractComparablePoint(fallback);
+      const point = primaryPoint || fallbackPoint;
+
+      return {
+        ...(fallback || {}),
+        ...item,
+        latitude: point?.lat ?? null,
+        longitude: point?.lng ?? null,
+        coordinate_source: point?.source || item?.coordinate_source || fallback?.coordinate_source || null,
+      };
+    });
+  }, [breakdown?.market?.topComparables, marketContext?.topComparables]);
   const comparableMapPoints = Array.isArray(mapComparableSource)
     ? mapComparableSource
-      .filter((item) => hasValidMapCoords(item?.latitude, item?.longitude))
-      .map((item) => ({
-        ...item,
-        lat: Number(item.latitude),
-        lng: Number(item.longitude),
-      }))
+      .map((item) => {
+        const point = extractComparablePoint(item);
+        if (!point) {
+          return null;
+        }
+
+        return {
+          ...item,
+          lat: point.lat,
+          lng: point.lng,
+          latitude: point.lat,
+          longitude: point.lng,
+          coordinate_source: point.source || item?.coordinate_source || null,
+        };
+      })
+      .filter(Boolean)
     : [];
   const comparableWithoutCoordsCount = Math.max(
     (mapComparableSource?.length || 0) - comparableMapPoints.length,
@@ -831,7 +990,6 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
 
       if (comparablesMapImageUrl) {
         reportData.comparablesMapImageUrl = comparablesMapImageUrl;
-        reportData.mapImageUrl = reportData.mapImageUrl || comparablesMapImageUrl;
       }
 
       await exportZemaReportToPDF(projectId, reportData);
@@ -1017,7 +1175,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                 <Divider />
 
                 <div>
-                  <Title level={3}>
+                  {/* <Title level={3}>
                     <CalculatorOutlined />
                     <Tooltip title="Анализ надежности и качества расчета">
                       Качество расчёта <InfoCircleOutlined />
@@ -1076,7 +1234,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                         ))}
                       </Row>
                     </Card>
-                  )}
+                  )} */}
 
                   {breakdown?.dataQuality?.fieldSources?.length > 0 && (
                     <Card style={{ marginTop: 16 }} className="project-result-section-card">
@@ -1725,7 +1883,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               </>
             )}
 
-            {debugModeEnabled && breakdown?.assumptions?.length > 0 && (
+            {/* {debugModeEnabled && breakdown?.assumptions?.length > 0 && (
               <>
                 <Divider />
                 <div className="project-result-pdf-break-before">
@@ -1758,7 +1916,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                   />
                 </div>
               </>
-            )}
+            )} */}
 
             {(objectMapPoint || comparableMapPoints.length > 0) && (
               <>
@@ -1774,7 +1932,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                     <Space direction="vertical" size={12} style={{ width: '100%' }}>
                       <div className="project-result-map-meta">
                         <Tag color="magenta">Объект</Tag>
-                        <Tag color="processing">Контур по адресу</Tag>
+                        <Tag color="processing">Контур по координатам</Tag>
                         <Tag color="green">Аналог в расчёте</Tag>
                         <Tag>Исключённый аналог</Tag>
                         <Text type="secondary">

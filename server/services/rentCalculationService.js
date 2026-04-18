@@ -118,6 +118,10 @@ function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
+function roundFactor2(value) {
+    return Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
+}
+
 function average(values = []) {
     const arr = values.map(Number).filter(Number.isFinite);
     if (!arr.length) return 0;
@@ -319,8 +323,12 @@ function resolveAnalogQuarter(analog = {}) {
     );
 }
 
+// function resolveValuationQuarterForAreaAndFloor(questionnaire = {}) {
+//     return resolveValuationQuarter(questionnaire) || '2025Q1';
+// }
+
 function resolveValuationQuarterForAreaAndFloor(questionnaire = {}) {
-    return resolveValuationQuarter(questionnaire) || '2025Q1';
+    return resolveValuationQuarter(questionnaire);
 }
 
 function getMetroCoefficient(distanceKm) {
@@ -340,26 +348,45 @@ function getMetroAdjustment(subjectDistance, analogDistance) {
     return subjectCoeff / analogCoeff;
 }
 
+// function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
+//     const subject = toNumber(subjectArea, null);
+//     const analog = toNumber(analogArea, null);
+//     const exponent = toNumber(
+//         RENT_CONFIG.adjustments.areaExponentByQuarter?.[valuationQuarter],
+//         toNumber(RENT_CONFIG.adjustments.areaExponentByQuarter?.['2025Q1'], -0.18)
+//     );
+
+//     if (!Number.isFinite(subject) || !Number.isFinite(analog) || subject <= 0 || analog <= 0) {
+//         return 1;
+//     }
+
+//     const subjectCoefficient = Math.pow(subject / subject, exponent);
+//     const analogCoefficient = Math.pow(subject / analog, exponent);
+
+//     if (!Number.isFinite(subjectCoefficient) || !Number.isFinite(analogCoefficient) || analogCoefficient === 0) {
+//         return 1;
+//     }
+
+//     return subjectCoefficient / analogCoefficient;
+// }
+
 function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
     const subject = toNumber(subjectArea, null);
     const analog = toNumber(analogArea, null);
     const exponent = toNumber(
         RENT_CONFIG.adjustments.areaExponentByQuarter?.[valuationQuarter],
-        toNumber(RENT_CONFIG.adjustments.areaExponentByQuarter?.['2025Q1'], -0.18)
+        null
     );
 
     if (!Number.isFinite(subject) || !Number.isFinite(analog) || subject <= 0 || analog <= 0) {
         return 1;
     }
 
-    const subjectCoefficient = Math.pow(subject / subject, exponent);
-    const analogCoefficient = Math.pow(subject / analog, exponent);
-
-    if (!Number.isFinite(subjectCoefficient) || !Number.isFinite(analogCoefficient) || analogCoefficient === 0) {
+    if (!Number.isFinite(exponent)) {
         return 1;
     }
 
-    return subjectCoefficient / analogCoefficient;
+    return Math.pow(subject / analog, exponent);
 }
 
 function getFloorCoefficient(floorCategory, valuationQuarter) {
@@ -370,9 +397,36 @@ function getFloorCoefficient(floorCategory, valuationQuarter) {
     return toNumber(quarterMap?.[parseFloorCategory(floorCategory)], 1);
 }
 
+// function getFloorAdjustment(subjectFloorCategory, analogFloorCategory, valuationQuarter) {
+//     const subjectCoeff = getFloorCoefficient(subjectFloorCategory, valuationQuarter);
+//     const analogCoeff = getFloorCoefficient(analogFloorCategory, valuationQuarter);
+
+//     if (!Number.isFinite(subjectCoeff) || !Number.isFinite(analogCoeff) || analogCoeff === 0) {
+//         return 1;
+//     }
+
+//     return subjectCoeff / analogCoeff;
+// }
+
 function getFloorAdjustment(subjectFloorCategory, analogFloorCategory, valuationQuarter) {
-    const subjectCoeff = getFloorCoefficient(subjectFloorCategory, valuationQuarter);
-    const analogCoeff = getFloorCoefficient(analogFloorCategory, valuationQuarter);
+    const subjectCategory = parseFloorCategory(subjectFloorCategory);
+    const analogCategory = parseFloorCategory(analogFloorCategory);
+
+    const quarterMap =
+        RENT_CONFIG.adjustments.floorCoefficientsByQuarter?.[valuationQuarter]
+        || null;
+
+    if (!quarterMap) {
+        return 1;
+    }
+
+    if (subjectCategory === 'first') {
+        if (analogCategory === 'first') return 1;
+        return toNumber(quarterMap?.[analogCategory], 1);
+    }
+
+    const subjectCoeff = toNumber(quarterMap?.[subjectCategory], 1);
+    const analogCoeff = toNumber(quarterMap?.[analogCategory], 1);
 
     if (!Number.isFinite(subjectCoeff) || !Number.isFinite(analogCoeff) || analogCoeff === 0) {
         return 1;
@@ -638,7 +692,7 @@ function calculateFloorAdjustmentRecord(questionnaire, analog) {
         'floor',
         'Этаж расположения',
         factor,
-        'Корректировка по отношению коэффициентов этажности',
+        'Корректировка по квартальной таблице этажности',
         {
             valuationQuarter,
             subjectFloorCategory: parseFloorCategory(subjectFloorCategory),
@@ -666,6 +720,119 @@ function calculateEnvironmentAdjustmentRecord(questionnaire, analog) {
     );
 }
 
+// function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
+//     const rawRate = toNumber(baseRate, null);
+
+//     if (!Number.isFinite(rawRate) || rawRate <= 0) {
+//         return {
+//             rawRate: null,
+//             baseRate: null,
+//             afterDate: null,
+//             afterBargain: null,
+//             correctedRate: null,
+//             dateAdjustment: 1,
+//             bargainAdjustment: 1,
+//             metroAdjustment: 1,
+//             areaAdjustment: 1,
+//             floorAdjustment: 1,
+//             environmentAdjustment: 1,
+//             firstGroupFactor: 1,
+//             secondGroupMultiFactor: 1,
+//             totalAdjustmentFactor: 1,
+//             adjustments: [],
+//             adjustmentSummary: null,
+//         };
+//     }
+
+//     const dateRecord = calculateDateAdjustmentRecord(questionnaire, analog);
+//     const afterDate = rawRate * dateRecord.factor;
+
+//     const bargainRecord = calculateBargainAdjustmentRecord();
+//     const afterBargain = afterDate * bargainRecord.factor;
+
+//     const metroRecord = calculateMetroAdjustmentRecord(questionnaire, analog);
+//     const areaRecord = calculateAreaAdjustmentRecord(questionnaire, analog);
+//     const floorRecord = calculateFloorAdjustmentRecord(questionnaire, analog);
+//     const environmentRecord = calculateEnvironmentAdjustmentRecord(questionnaire, analog);
+
+//     const secondGroupMultiFactor =
+//         metroRecord.factor *
+//         areaRecord.factor *
+//         floorRecord.factor *
+//         environmentRecord.factor;
+
+//     const correctedRate = afterBargain * secondGroupMultiFactor;
+//     const firstGroupFactor = dateRecord.factor * bargainRecord.factor;
+//     const totalAdjustmentFactor = firstGroupFactor * secondGroupMultiFactor;
+
+//     const adjustments = [
+//         dateRecord,
+//         bargainRecord,
+//         metroRecord,
+//         areaRecord,
+//         floorRecord,
+//         environmentRecord,
+//     ];
+
+//     return {
+//         rawRate: round2(rawRate),
+//         baseRate: round2(rawRate),
+//         afterDate: round2(afterDate),
+//         afterBargain: round2(afterBargain),
+//         correctedRate: round2(correctedRate),
+//         adjustedRate: round2(correctedRate),
+
+//         dateAdjustment: round4(dateRecord.factor),
+//         bargainAdjustment: round4(bargainRecord.factor),
+//         metroAdjustment: round4(metroRecord.factor),
+//         areaAdjustment: round4(areaRecord.factor),
+//         floorAdjustment: round4(floorRecord.factor),
+//         environmentAdjustment: round4(environmentRecord.factor),
+
+//         firstGroupFactor: round4(firstGroupFactor),
+//         secondGroupMultiFactor: round4(secondGroupMultiFactor),
+//         totalAdjustmentFactor: round4(totalAdjustmentFactor),
+
+//         adjustments,
+//         adjustmentSummary: {
+//             firstGroup: [
+//                 {
+//                     key: 'date',
+//                     factor: round4(dateRecord.factor),
+//                     deltaPercent: round2((dateRecord.factor - 1) * 100),
+//                 },
+//                 {
+//                     key: 'bargain',
+//                     factor: round4(bargainRecord.factor),
+//                     deltaPercent: round2((bargainRecord.factor - 1) * 100),
+//                 },
+//             ],
+//             secondGroup: [
+//                 {
+//                     key: 'metro',
+//                     factor: round4(metroRecord.factor),
+//                     deltaPercent: round2((metroRecord.factor - 1) * 100),
+//                 },
+//                 {
+//                     key: 'area',
+//                     factor: round4(areaRecord.factor),
+//                     deltaPercent: round2((areaRecord.factor - 1) * 100),
+//                 },
+//                 {
+//                     key: 'floor',
+//                     factor: round4(floorRecord.factor),
+//                     deltaPercent: round2((floorRecord.factor - 1) * 100),
+//                 },
+//                 {
+//                     key: 'environment',
+//                     factor: round4(environmentRecord.factor),
+//                     deltaPercent: round2((environmentRecord.factor - 1) * 100),
+//                 },
+//             ],
+//         },
+//     };
+// }
+
 function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
     const rawRate = toNumber(baseRate, null);
 
@@ -676,40 +843,68 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
             afterDate: null,
             afterBargain: null,
             correctedRate: null,
+            adjustedRate: null,
+
             dateAdjustment: 1,
             bargainAdjustment: 1,
             metroAdjustment: 1,
             areaAdjustment: 1,
             floorAdjustment: 1,
             environmentAdjustment: 1,
+
             firstGroupFactor: 1,
             secondGroupMultiFactor: 1,
             totalAdjustmentFactor: 1,
+
             adjustments: [],
             adjustmentSummary: null,
         };
     }
 
     const dateRecord = calculateDateAdjustmentRecord(questionnaire, analog);
-    const afterDate = rawRate * dateRecord.factor;
+    dateRecord.factor = roundFactor2(dateRecord.factor);
+    dateRecord.deltaPercent = round2((dateRecord.factor - 1) * 100);
+
+    const afterDate = round2(rawRate * dateRecord.factor);
 
     const bargainRecord = calculateBargainAdjustmentRecord();
-    const afterBargain = afterDate * bargainRecord.factor;
+    bargainRecord.factor = roundFactor2(bargainRecord.factor);
+    bargainRecord.deltaPercent = round2((bargainRecord.factor - 1) * 100);
+
+    const afterBargain = round2(afterDate * bargainRecord.factor);
 
     const metroRecord = calculateMetroAdjustmentRecord(questionnaire, analog);
-    const areaRecord = calculateAreaAdjustmentRecord(questionnaire, analog);
-    const floorRecord = calculateFloorAdjustmentRecord(questionnaire, analog);
-    const environmentRecord = calculateEnvironmentAdjustmentRecord(questionnaire, analog);
+    metroRecord.factor = roundFactor2(metroRecord.factor);
+    metroRecord.deltaPercent = round2((metroRecord.factor - 1) * 100);
 
-    const secondGroupMultiFactor =
+    const areaRecord = calculateAreaAdjustmentRecord(questionnaire, analog);
+    areaRecord.factor = roundFactor2(areaRecord.factor);
+    areaRecord.deltaPercent = round2((areaRecord.factor - 1) * 100);
+
+    const floorRecord = calculateFloorAdjustmentRecord(questionnaire, analog);
+    floorRecord.factor = roundFactor2(floorRecord.factor);
+    floorRecord.deltaPercent = round2((floorRecord.factor - 1) * 100);
+
+    const environmentRecord = calculateEnvironmentAdjustmentRecord(questionnaire, analog);
+    environmentRecord.factor = roundFactor2(environmentRecord.factor);
+    environmentRecord.deltaPercent = round2((environmentRecord.factor - 1) * 100);
+
+    const secondGroupMultiFactor = roundFactor2(
         metroRecord.factor *
         areaRecord.factor *
         floorRecord.factor *
-        environmentRecord.factor;
+        environmentRecord.factor
+    );
 
-    const correctedRate = afterBargain * secondGroupMultiFactor;
-    const firstGroupFactor = dateRecord.factor * bargainRecord.factor;
-    const totalAdjustmentFactor = firstGroupFactor * secondGroupMultiFactor;
+    const correctedRate = round2(afterBargain * secondGroupMultiFactor);
+
+    const firstGroupFactor = roundFactor2(
+        dateRecord.factor * bargainRecord.factor
+    );
+
+    const totalAdjustmentFactor = roundFactor2(
+        firstGroupFactor * secondGroupMultiFactor
+    );
 
     const adjustments = [
         dateRecord,
@@ -723,56 +918,56 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
     return {
         rawRate: round2(rawRate),
         baseRate: round2(rawRate),
-        afterDate: round2(afterDate),
-        afterBargain: round2(afterBargain),
-        correctedRate: round2(correctedRate),
-        adjustedRate: round2(correctedRate),
+        afterDate,
+        afterBargain,
+        correctedRate,
+        adjustedRate: correctedRate,
 
-        dateAdjustment: round4(dateRecord.factor),
-        bargainAdjustment: round4(bargainRecord.factor),
-        metroAdjustment: round4(metroRecord.factor),
-        areaAdjustment: round4(areaRecord.factor),
-        floorAdjustment: round4(floorRecord.factor),
-        environmentAdjustment: round4(environmentRecord.factor),
+        dateAdjustment: dateRecord.factor,
+        bargainAdjustment: bargainRecord.factor,
+        metroAdjustment: metroRecord.factor,
+        areaAdjustment: areaRecord.factor,
+        floorAdjustment: floorRecord.factor,
+        environmentAdjustment: environmentRecord.factor,
 
-        firstGroupFactor: round4(firstGroupFactor),
-        secondGroupMultiFactor: round4(secondGroupMultiFactor),
-        totalAdjustmentFactor: round4(totalAdjustmentFactor),
+        firstGroupFactor,
+        secondGroupMultiFactor,
+        totalAdjustmentFactor,
 
         adjustments,
         adjustmentSummary: {
             firstGroup: [
                 {
                     key: 'date',
-                    factor: round4(dateRecord.factor),
-                    deltaPercent: round2((dateRecord.factor - 1) * 100),
+                    factor: dateRecord.factor,
+                    deltaPercent: dateRecord.deltaPercent,
                 },
                 {
                     key: 'bargain',
-                    factor: round4(bargainRecord.factor),
-                    deltaPercent: round2((bargainRecord.factor - 1) * 100),
+                    factor: bargainRecord.factor,
+                    deltaPercent: bargainRecord.deltaPercent,
                 },
             ],
             secondGroup: [
                 {
                     key: 'metro',
-                    factor: round4(metroRecord.factor),
-                    deltaPercent: round2((metroRecord.factor - 1) * 100),
+                    factor: metroRecord.factor,
+                    deltaPercent: metroRecord.deltaPercent,
                 },
                 {
                     key: 'area',
-                    factor: round4(areaRecord.factor),
-                    deltaPercent: round2((areaRecord.factor - 1) * 100),
+                    factor: areaRecord.factor,
+                    deltaPercent: areaRecord.deltaPercent,
                 },
                 {
                     key: 'floor',
-                    factor: round4(floorRecord.factor),
-                    deltaPercent: round2((floorRecord.factor - 1) * 100),
+                    factor: floorRecord.factor,
+                    deltaPercent: floorRecord.deltaPercent,
                 },
                 {
                     key: 'environment',
-                    factor: round4(environmentRecord.factor),
-                    deltaPercent: round2((environmentRecord.factor - 1) * 100),
+                    factor: environmentRecord.factor,
+                    deltaPercent: environmentRecord.deltaPercent,
                 },
             ],
         },

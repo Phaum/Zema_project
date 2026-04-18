@@ -239,6 +239,54 @@ function roundAreaValue(value) {
     return Number(numeric.toFixed(2));
 }
 
+function toAreaNumber(value, fallback = 0) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function applyDerivedThirdPlusArea(floors = [], totalArea) {
+    const floorRows = Array.isArray(floors) ? floors : [];
+    const total = Number(totalArea);
+
+    if (!Number.isFinite(total) || total <= 0) {
+        return floorRows;
+    }
+
+    const firstFloor = floorRows.find((floor) => String(floor?.id) === 'above_1');
+    const secondFloor = floorRows.find((floor) => String(floor?.id) === 'above_2');
+    const derivedArea = roundAreaValue(
+        Math.max(0, total - toAreaNumber(firstFloor?.area) - toAreaNumber(secondFloor?.area))
+    );
+
+    return floorRows.map((floor) => {
+        if (String(floor?.id) !== 'above_3_plus') {
+            return floor;
+        }
+
+        if (roundAreaValue(floor?.area) === derivedArea) {
+            return floor;
+        }
+
+        return {
+            ...floor,
+            area: derivedArea,
+        };
+    });
+}
+
+function shouldRecalculateThirdPlusArea(floorId, fieldName) {
+    if (fieldName !== 'area') {
+        return false;
+    }
+
+    const normalizedFloorId = String(floorId || '');
+    return normalizedFloorId === 'above_1' || normalizedFloorId === 'above_2';
+}
+
+function isDerivedThirdPlusFloor(floor = {}) {
+    return String(floor?.id || '') === 'above_3_plus';
+}
+
 function hasNumericAreaValue(value) {
     return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 }
@@ -321,6 +369,11 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
     const watchedFloors = Form.useWatch('floors', form);
 
     const floors = Array.isArray(watchedFloors) ? watchedFloors : [];
+    const currentTotalArea = form.getFieldValue('totalArea');
+    const displayFloors = useMemo(
+        () => applyDerivedThirdPlusArea(floors, currentTotalArea),
+        [floors, currentTotalArea]
+    );
 
     useEffect(() => {
         const currentFloors = Array.isArray(form.getFieldValue('floors'))
@@ -333,10 +386,11 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
             hasBasementFloor,
         });
 
-        const mergedFloors = mergeGeneratedFloorsWithCurrent(
+        let mergedFloors = mergeGeneratedFloorsWithCurrent(
             generatedTemplates,
             currentFloors
         );
+        mergedFloors = applyDerivedThirdPlusArea(mergedFloors, form.getFieldValue('totalArea'));
 
         const currentSerialized = JSON.stringify(currentFloors);
         const nextSerialized = JSON.stringify(mergedFloors);
@@ -350,6 +404,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
         aboveGroundFloors,
         undergroundFloors,
         hasBasementFloor,
+        watchedFloors,
         form,
         onFloorsChange,
     ]);
@@ -391,9 +446,13 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
             ? form.getFieldValue('floors')
             : [];
 
-        const updatedFloors = currentFloors.map((floor) =>
+        let updatedFloors = currentFloors.map((floor) =>
             floor.id === floorId ? { ...floor, [field]: value } : floor
         );
+
+        if (shouldRecalculateThirdPlusArea(floorId, field)) {
+            updatedFloors = applyDerivedThirdPlusArea(updatedFloors, form.getFieldValue('totalArea'));
+        }
 
         form.setFieldsValue({ floors: updatedFloors });
         onFloorsChange?.(updatedFloors);
@@ -403,13 +462,13 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
         <div>
             {showHints && (
                 <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                    {floors.length === 0
+                    {displayFloors.length === 0
                         ? 'Укажите количество надземных и подземных этажей, а также наличие цокольного этажа. Этажи будут созданы автоматически.'
-                        : `Сформировано ${floors.length} этаж(ей). Заполните данные по каждому этажу.`}
+                        : `Сформировано ${displayFloors.length} этаж(ей). Заполните данные по каждому этажу.`}
                 </Paragraph>
             )}
 
-            {floors.map((floor, index) => (
+            {displayFloors.map((floor, index) => (
                 <Card
                     key={floor.id}
                     size="small"
@@ -439,6 +498,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                                 <InputNumber
                                     {...sqmInputProps}
                                     placeholder="Введите площадь"
+                                    // disabled={isDerivedThirdPlusFloor(floor)}
                                     value={floor.area}
                                     onChange={(value) => updateFloor(floor.id, 'area', value)}
                                 />
@@ -477,7 +537,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                 </Card>
             ))}
 
-            {showHints && floors.length === 0 && (
+            {showHints && displayFloors.length === 0 && (
                 <Alert
                     type="info"
                     message="Данные по этажам не указаны"
@@ -849,6 +909,9 @@ export default function QuestionnairePanel({
 
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
+        const currentAddress = normalizeAddressText(form.getFieldValue('objectAddress'));
+        if (currentAddress) return;
+
         if (reverseGeocodeTimerRef.current) {
             clearTimeout(reverseGeocodeTimerRef.current);
         }
@@ -860,6 +923,9 @@ export default function QuestionnairePanel({
                 });
 
                 const currentAddress = normalizeAddressText(form.getFieldValue('objectAddress'));
+                if (currentAddress) {
+                    return;
+                }
                 const reverseAddress = data?.address || data?.displayName || '';
                 const selectedAddress = chooseMoreSpecificAddress(currentAddress, reverseAddress);
 
@@ -922,7 +988,6 @@ export default function QuestionnairePanel({
             ? Math.abs(currentLeasable - leasableSum) > 0.01
             : false;
         const canRecalculate = hasFloorAreaValues && leasableSum !== null;
-        const needsInitialFill = canRecalculate && currentLeasable === null;
         const signature = [
             currentLeasable ?? 'null',
             leasableSum ?? 'null',
@@ -933,7 +998,6 @@ export default function QuestionnairePanel({
             leasableSum,
             hasFloorAreaValues,
             canRecalculate,
-            needsInitialFill,
             hasMismatch: leasableMismatch,
             leasableMismatch,
             signature,
@@ -1021,11 +1085,11 @@ export default function QuestionnairePanel({
                 leasableArea: floorAreaComparison.leasableSum,
             },
             {
-                sourceUpdates: { leasableArea: 'derived_from_floor_sum' },
+                sourceUpdates: { leasableArea: 'manual_input' },
             }
         );
         setAcceptedAreaMismatchKey(null);
-        message.success('Арендопригодная площадь пересчитана по данным этажей');
+        message.success('Арендопригодная площадь заполнена по данным этажей');
     };
 
     const acceptAreaMismatch = () => {
@@ -1038,47 +1102,7 @@ export default function QuestionnairePanel({
     };
 
     const ensureAreaMismatchResolved = async () => {
-        if (!showActualDataFields || !floorAreaComparison.hasMismatch) {
-            return true;
-        }
-
-        if (acceptedAreaMismatchKey === floorAreaComparison.signature) {
-            return true;
-        }
-
-        return new Promise((resolve) => {
-            Modal.confirm({
-                title: 'Арендопригодная площадь по этажам не совпадает с основным полем',
-                centered: true,
-                closable: false,
-                maskClosable: false,
-                keyboard: false,
-                okText: 'Пересчитать по этажам',
-                cancelText: 'Согласиться с несоответствием',
-                content: (
-                    <div>
-                        <Paragraph>
-                            Арендопригодная площадь сверху заполнена отдельно от этажей и сейчас
-                            расходится с суммой по этажам. Перед сохранением нужно либо пересчитать
-                            её по этажам, либо явно оставить как есть.
-                        </Paragraph>
-                        <div>
-                            <Text strong>Арендопригодная площадь:</Text>{' '}
-                            {floorAreaComparison.currentLeasable ?? 'не указано'} м² сверху против{' '}
-                            {floorAreaComparison.leasableSum ?? 'не указано'} м² по этажам
-                        </div>
-                    </div>
-                ),
-                onOk: () => {
-                    applyFloorAreasToObjectFields();
-                    resolve(true);
-                },
-                onCancel: () => {
-                    acceptAreaMismatch();
-                    resolve(true);
-                },
-            });
-        });
+        return true;
     };
 
     const buildEnrichmentPayload = () => {
@@ -1210,25 +1234,31 @@ export default function QuestionnairePanel({
 
     const handleMapConfirm = ({ lat, lng, address, displayName }) => {
         const currentAddress = form.getFieldValue('objectAddress');
-        const selectedAddress = address || displayName || currentAddress || '';
+        const normalizedCurrentAddress = normalizeAddressText(currentAddress);
+        const selectedAddress = address || displayName || '';
+        const shouldFillAddress = !normalizedCurrentAddress && normalizeAddressText(selectedAddress);
+
+        const nextValues = {
+            mapPointLat: lat,
+            mapPointLng: lng,
+        };
+        const sourceUpdates = {
+            mapPointLat: 'manual_map_selection',
+            mapPointLng: 'manual_map_selection',
+        };
+
+        if (shouldFillAddress) {
+            nextValues.objectAddress = selectedAddress;
+            nextValues.addressConfirmed = true;
+            sourceUpdates.objectAddress = 'manual_map_selection';
+        }
 
         applyFormPatch(
-            {
-                mapPointLat: lat,
-                mapPointLng: lng,
-                objectAddress: selectedAddress,
-                addressConfirmed: Boolean(selectedAddress),
-            },
-            {
-                sourceUpdates: {
-                    mapPointLat: 'manual_map_selection',
-                    mapPointLng: 'manual_map_selection',
-                    objectAddress: 'manual_map_selection',
-                },
-            }
+            nextValues,
+            { sourceUpdates }
         );
         setMapPickerOpen(false);
-        message.success('Координаты и адрес обновлены по карте');
+        message.success(shouldFillAddress ? 'Координаты и адрес обновлены по карте' : 'Координаты обновлены по карте');
     };
 
     const handleSave = async () => {
@@ -1391,21 +1421,22 @@ export default function QuestionnairePanel({
                                         ]}
                                         extra={showQuestionnaireHints ? 'После ввода номера поле можно оставить: система сама попробует подтянуть максимум доступных данных.' : null}
                                     >
-                                        <div className="questionnaire-cadastral-row">
-                                            <Input
-                                                className="sharp-input questionnaire-cadastral-input"
-                                                placeholder="00:00:0000000:0"
-                                                onBlur={handleBuildingCadBlur}
-                                            />
-                                            <Button
-                                                icon={<DatabaseOutlined />}
-                                                onClick={() => fetchBuildingFromNSPD({ force: true })}
-                                                loading={buildingLoading}
-                                                className="questionnaire-cadastral-fill-btn"
-                                            >
-                                                Заполнить данные по кадастровому номеру
-                                            </Button>
-                                        </div>
+                                        <Input
+                                            className="sharp-input questionnaire-cadastral-input"
+                                            placeholder="00:00:0000000:0"
+                                            onBlur={handleBuildingCadBlur}
+                                            addonAfter={(
+                                                <Button
+                                                    type="text"
+                                                    icon={<DatabaseOutlined />}
+                                                    onClick={() => fetchBuildingFromNSPD({ force: true })}
+                                                    loading={buildingLoading}
+                                                    className="questionnaire-cadastral-fill-btn"
+                                                >
+                                                    Заполнить данные по кадастровому номеру
+                                                </Button>
+                                            )}
+                                        />
                                     </Form.Item>
                                 </Col>
                             </Row>
@@ -1762,11 +1793,6 @@ export default function QuestionnairePanel({
                                     message="Арендопригодная площадь по этажам не совпадает с основным полем"
                                     description={(
                                         <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                            <div>
-                                                {shouldShowDynamicField('leasableArea')
-                                                    ? `Арендопригодная площадь: сверху ${floorAreaComparison.currentLeasable ?? 'не указано'} м², по этажам ${floorAreaComparison.leasableSum ?? 'не указано'} м².`
-                                                    : 'Сумма по этажам не совпадает с сохранённым общим значением арендопригодной площади. До результата само значение платформы остаётся скрытым.'}
-                                            </div>
                                             <Space wrap>
                                                 <Button onClick={applyFloorAreasToObjectFields}>
                                                     Пересчитать по этажам
@@ -1779,25 +1805,6 @@ export default function QuestionnairePanel({
                                                     Согласиться с несоответствием
                                                 </Button>
                                             </Space>
-                                        </Space>
-                                    )}
-                                />
-                            )}
-
-                            {showActualDataFields && !floorAreaComparison.hasMismatch && floorAreaComparison.needsInitialFill && (
-                                <Alert
-                                    className="questionnaire-alert"
-                                    type="info"
-                                    showIcon
-                                    message="По этажам уже можно заполнить арендопригодную площадь"
-                                    description={(
-                                        <Space wrap>
-                                            <span>
-                                                Сумма арендопригодной площади по этажам рассчитана, но верхнее поле ещё не заполнено.
-                                            </span>
-                                            <Button onClick={applyFloorAreasToObjectFields}>
-                                                Заполнить из этажей
-                                            </Button>
                                         </Space>
                                     )}
                                 />

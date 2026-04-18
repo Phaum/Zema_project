@@ -6,10 +6,12 @@ import {
     normalizeComparableClass,
     buildAnalogueClassCandidates,
     buildAreaRangeByCalculationArea,
+    buildMarketSnapshot,
     deduplicateAnaloguesByObject,
     deduplicateAnaloguesByClosestDatePerQuarter,
     deduplicateAnaloguesForSelection,
     deduplicateRankedAnalogsByObject,
+    resolveComparableCoordinates,
     resolveManualRentalOverrideRate,
     resolveAnalogueQuarterKey,
 } from '../controllers/projectCalculationController.js';
@@ -100,6 +102,46 @@ test('resolveManualRentalOverrideRate prioritizes explicit request manual rate',
     });
 
     assert.equal(manualRate, 1500);
+});
+
+test('resolveComparableCoordinates accepts pre-normalized latitude and longitude fields', () => {
+    const coords = resolveComparableCoordinates({
+        latitude: '59.9386300',
+        longitude: '30.3141300',
+    });
+
+    assert.equal(coords.lat, 59.93863);
+    assert.equal(coords.lon, 30.31413);
+    assert.equal(coords.source, 'latitude_longitude');
+});
+
+test('buildMarketSnapshot uses normalized comparable coordinates for report map', () => {
+    const snapshot = buildMarketSnapshot(
+        {},
+        [
+            {
+                id: 'analog-1',
+                address_offer: 'САНКТ-ПЕТЕРБУРГ. МЕЛЬНИЧНАЯ УЛИЦА. 18',
+                lat: '59.9104426560',
+                lon: '30.3876050610',
+            },
+            {
+                id: 'analog-2',
+                address_offer: 'САНКТ-ПЕТЕРБУРГ. ШПАЛЕРНАЯ УЛИЦА. 2/4',
+                x: '91468.2800000000',
+                y: '117755.1700000000',
+            },
+        ],
+        []
+    );
+
+    assert.equal(snapshot.topComparables.length, 2);
+    assert.equal(snapshot.topComparables[0].latitude, 59.910442656);
+    assert.equal(snapshot.topComparables[0].longitude, 30.387605061);
+    assert.equal(snapshot.topComparables[0].coordinate_source, 'lat_lon');
+    assert.ok(Math.abs(snapshot.topComparables[1].latitude - 59.91049) < 0.01);
+    assert.ok(Math.abs(snapshot.topComparables[1].longitude - 30.38984) < 0.01);
+    assert.equal(snapshot.topComparables[1].coordinate_source, 'msk64_xy');
 });
 
 test('deduplicateAnaloguesByClosestDatePerQuarter keeps nearest analogue within each quarter', () => {

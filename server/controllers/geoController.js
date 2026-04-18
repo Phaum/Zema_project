@@ -222,6 +222,7 @@ export async function reverseGeocodeByCoords(lat, lng) {
             format: 'jsonv2',
             addressdetails: 1,
             zoom: 18,
+            polygon_geojson: 1,
         },
         timeout: 8000,
         headers: {
@@ -237,6 +238,8 @@ export async function reverseGeocodeByCoords(lat, lng) {
         lng: numLng,
         displayName: data.display_name || '',
         address: normalizeAddress(data),
+        bounds: parseBoundingBox(data.boundingbox),
+        geojson: data.geojson || null,
         raw: data,
     };
 }
@@ -321,4 +324,3 @@ export const geocode = async (req, res) => {
         });
     }
 };
-

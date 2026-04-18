@@ -31,33 +31,31 @@ export default function ProjectCalculationPanel({
             ? 'Автозаполнение платформы'
             : 'По базе analogues';
 
-    let leasableArea = 0;
-    let occupiedArea = 0;
-    let pgi = 0;
+    const hasFloorBreakdown = q.floors && Array.isArray(q.floors) && q.floors.length > 0;
+    const questionnaireLeasableArea = Number(q.leasableArea || 0);
+    const questionnaireOccupiedArea = Number(q.occupiedArea || 0);
+    let floorLeasableAreaTotal = 0;
+    let floorOccupiedAreaTotal = 0;
 
-    if (q.floors && Array.isArray(q.floors) && q.floors.length > 0) {
+    if (hasFloorBreakdown) {
         for (const floor of q.floors) {
             const floorLeasableArea = Number(floor.leasableArea || 0);
             const floorOccupiedArea = Number(floor.occupiedArea || floorLeasableArea);
 
-            leasableArea += floorLeasableArea;
-            occupiedArea += floorOccupiedArea;
-
-            const floorPgi = rentalRate > 0 && floorLeasableArea > 0
-                ? rentalRate * floorLeasableArea * 12
-                : 0;
-            pgi += floorPgi;
+            floorLeasableAreaTotal += floorLeasableArea;
+            floorOccupiedAreaTotal += floorOccupiedArea;
         }
-    } else {
-        leasableArea = Number(q.leasableArea || q.totalArea || 0);
-        occupiedArea = q.calculationMethod === 'actual_market'
-            ? Number(q.occupiedArea || 0)
-            : leasableArea;
-
-        pgi = rentalRate > 0 && leasableArea > 0
-            ? rentalRate * leasableArea * 12
-            : 0;
     }
+
+    const leasableArea = questionnaireLeasableArea > 0
+        ? questionnaireLeasableArea
+        : (floorLeasableAreaTotal > 0 ? floorLeasableAreaTotal : Number(q.totalArea || 0));
+    const occupiedArea = q.calculationMethod === 'actual_market'
+        ? (questionnaireOccupiedArea > 0 ? questionnaireOccupiedArea : floorOccupiedAreaTotal)
+        : leasableArea;
+    const pgi = rentalRate > 0 && leasableArea > 0
+        ? rentalRate * leasableArea * 12
+        : 0;
 
     const occupancyRate = leasableArea > 0 ? (occupiedArea / leasableArea) * 100 : 100;
     const egi = pgi * (occupancyRate / 100);
@@ -139,7 +137,7 @@ export default function ProjectCalculationPanel({
                     </Col>
                 </Row>
 
-                {q.floors && Array.isArray(q.floors) && q.floors.length > 0 && (
+                {hasFloorBreakdown && (
                     <div style={{ marginTop: 16 }}>
                         <Text strong>Данные по этажам:</Text>
                         <div style={{ marginTop: 8 }}>

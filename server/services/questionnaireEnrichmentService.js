@@ -660,6 +660,35 @@ export function sanitizeAutoFilledTotalOksAreaOnLand(questionnaire = {}, { sourc
     };
 }
 
+export function sanitizeAutoFilledLeasableArea(questionnaire = {}, { sourceHints = {} } = {}) {
+    const nextQuestionnaire = {
+        ...questionnaire,
+        fieldSourceHints: normalizeFieldSourceHints(questionnaire?.fieldSourceHints),
+    };
+    const source = resolveEffectiveFieldSource(nextQuestionnaire, 'leasableArea', sourceHints);
+
+    if (!hasMeaningfulValue(nextQuestionnaire.leasableArea) || !source || isManualFieldSource(source)) {
+        return {
+            questionnaire: nextQuestionnaire,
+            removed: false,
+            source: source || null,
+        };
+    }
+
+    const nextHints = { ...nextQuestionnaire.fieldSourceHints };
+    delete nextHints.leasableArea;
+
+    return {
+        questionnaire: {
+            ...nextQuestionnaire,
+            leasableArea: null,
+            fieldSourceHints: nextHints,
+        },
+        removed: true,
+        source,
+    };
+}
+
 export function shouldPreferCadastralTotalOksAreaOnLand({
     currentValue,
     currentSource = null,
@@ -731,7 +760,7 @@ function buildLandMissingFields(questionnaire = {}) {
 }
 
 export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh = false } = {}) {
-    const enriched = {
+    let enriched = {
         ...questionnaire,
         fieldSourceHints: normalizeFieldSourceHints(questionnaire.fieldSourceHints),
     };
@@ -742,6 +771,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
     let buildingRecord = null;
     let landRecord = null;
 
+    enriched = sanitizeAutoFilledLeasableArea(enriched).questionnaire;
     clearInvalidAutoFilledTotalOksAreaOnLand(enriched, autoFilledFields, sourceHints, warnings);
 
     if (hasMeaningfulValue(enriched.buildingCadastralNumber) && isValidCadastralNumber(enriched.buildingCadastralNumber)) {
@@ -819,14 +849,6 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                 landCadastralNumber: enriched.landCadastralNumber,
             });
 
-            pickMissing(
-                enriched,
-                'leasableArea',
-                historicalActualArea?.leasableArea ?? null,
-                'historical_project_questionnaire',
-                autoFilledFields,
-                sourceHints
-            );
             pickMissing(
                 enriched,
                 'occupiedArea',

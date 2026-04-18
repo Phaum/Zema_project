@@ -25,6 +25,10 @@ import {
     calculateDistanceToMetroStation,
     findNearestMetroByCoords,
 } from '../services/metroFallbackService.js';
+import {
+    sanitizeAutoFilledLeasableArea,
+    sanitizeAutoFilledTotalOksAreaOnLand,
+} from '../services/questionnaireEnrichmentService.js';
 
 function median(values = []) {
     const arr = values
@@ -61,6 +65,23 @@ function firstFinite(...values) {
     return null;
 }
 
+function toTimestamp(value) {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(value);
+    const time = parsed.getTime();
+    return Number.isFinite(time) ? time : null;
+}
+
+function hasValidWgs84Coordinates(lat, lon) {
+    return Number.isFinite(lat)
+        && Number.isFinite(lon)
+        && lat >= -90
+        && lat <= 90
+        && lon >= -180
+        && lon <= 180
+        && !(lat === 0 && lon === 0);
+}
+
 function normalizeFieldSourceHints(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return {};
@@ -79,13 +100,17 @@ function normalizeFieldSourceHints(value) {
     }, {});
 }
 
+function hasExplicitManualOverrideRequest(requestBody = {}) {
+    return ['manualRate', 'averageRentalRate']
+        .some((key) => Object.prototype.hasOwnProperty.call(requestBody || {}, key));
+}
+
 function isManualSource(source) {
     return String(source || '').trim().toLowerCase().startsWith('manual');
 }
 
 export function resolveManualRentalOverrideRate({ requestBody = {}, questionnaire = {} } = {}) {
-    const hasManualRateInRequest = ['manualRate', 'averageRentalRate']
-        .some((key) => Object.prototype.hasOwnProperty.call(requestBody || {}, key));
+    const hasManualRateInRequest = hasExplicitManualOverrideRequest(requestBody);
     const manualRateFromRequest = toNumber(
         requestBody?.manualRate ?? requestBody?.averageRentalRate,
         null
@@ -114,15 +139,60 @@ export function resolveManualRentalOverrideRate({ requestBody = {}, questionnair
         : null;
 }
 
-function resolveComparableCoordinates(row) {
-    const lat = firstFinite(row?.lat);
-    const lon = firstFinite(row?.lon);
+export function shouldReuseStoredProjectResult({
+    resultRecord = null,
+    questionnaireRecord = null,
+    requestBody = {},
+    forceRecalculate = false,
+} = {}) {
+    if (forceRecalculate) {
+        return false;
+    }
 
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    if (!resultRecord) {
+        return false;
+    }
+
+    if (hasExplicitManualOverrideRequest(requestBody)) {
+        return false;
+    }
+
+    const resultUpdatedAt = toTimestamp(
+        resultRecord?.updated_at
+        ?? resultRecord?.updatedAt
+        ?? resultRecord?.created_at
+        ?? resultRecord?.createdAt
+    );
+    if (!Number.isFinite(resultUpdatedAt)) {
+        return false;
+    }
+
+    const questionnaireUpdatedAt = toTimestamp(
+        questionnaireRecord?.updated_at
+        ?? questionnaireRecord?.updatedAt
+        ?? questionnaireRecord?.created_at
+        ?? questionnaireRecord?.createdAt
+    );
+
+    if (!Number.isFinite(questionnaireUpdatedAt)) {
+        return true;
+    }
+
+    return resultUpdatedAt >= questionnaireUpdatedAt;
+}
+
+export function resolveComparableCoordinates(row) {
+    const latitude = firstFinite(row?.latitude, row?.lat);
+    const longitude = firstFinite(row?.longitude, row?.lon);
+
+    if (hasValidWgs84Coordinates(latitude, longitude)) {
         return {
-            lat,
-            lon,
-            source: 'lat_lon',
+            lat: latitude,
+            lon: longitude,
+            source: Number.isFinite(firstFinite(row?.latitude))
+                || Number.isFinite(firstFinite(row?.longitude))
+                ? 'latitude_longitude'
+                : 'lat_lon',
         };
     }
 
@@ -756,7 +826,7 @@ function buildComparableAdjustmentMap(adjustedRates = []) {
     return map;
 }
 
-function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketMeta = {}) {
+export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketMeta = {}) {
     const adjustedRateRows = Array.isArray(marketMeta.adjustedRates) ? marketMeta.adjustedRates : [];
     const adjustmentMap = buildComparableAdjustmentMap(adjustedRateRows);
 
@@ -791,6 +861,7 @@ function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketM
     const topComparables = (selectedAnalogs || []).slice(0, 10).map((rawRow) => {
         const row = toComparablePlain(rawRow);
         const adjustment = adjustmentMap.get(String(row.id));
+        const coords = resolveComparableCoordinates(row);
 
         return {
             id: row.id,
@@ -811,9 +882,9 @@ function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, marketM
             scale_weight_penalty: toNumber(adjustment?.scaleWeightPenalty, null),
             pre_weight: toNumber(adjustment?.preWeight ?? adjustment?.baseWeight, null),
             final_weight: toNumber(adjustment?.finalWeight ?? adjustment?.normalizedWeight, null),
-            latitude: toNumber(row.latitude, null),
-            longitude: toNumber(row.longitude, null),
-            coordinate_source: row.coordinate_source || null,
+            latitude: coords.lat,
+            longitude: coords.lon,
+            coordinate_source: coords.source || row.coordinate_source || null,
             selection_weight: toNumber(adjustment?.weight, null),
             normalized_weight: toNumber(adjustment?.normalizedWeight, null),
             relevance_score: toNumber(adjustment?.relevanceScore, null),
@@ -912,13 +983,19 @@ export const calculateProject = async (req, res) => {
             });
         }
 
-        const questionnaire = await ProjectQuestionnaire.findOne({
+        const questionnaireRecord = await ProjectQuestionnaire.findOne({
             where: { project_id: project.id },
         });
 
-        if (!questionnaire) {
+        if (!questionnaireRecord) {
             return res.status(400).json({ error: 'Анкета проекта не заполнена' });
         }
+
+        const questionnaire = sanitizeAutoFilledTotalOksAreaOnLand(
+            sanitizeAutoFilledLeasableArea(
+                questionnaireRecord.get ? questionnaireRecord.get({ plain: true }) : questionnaireRecord
+            ).questionnaire
+        ).questionnaire;
 
         if (!questionnaire.mapPointLat || !questionnaire.mapPointLng) {
             return res.status(400).json({ error: 'Координаты объекта не указаны' });

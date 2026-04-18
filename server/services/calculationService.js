@@ -60,6 +60,34 @@ const OPEX_RATE_BY_CLASS = {
     unknown: 0.22,
 };
 
+const QUARTER_MARKET_PROFILE_BY_PERIOD = {
+    '2025-Q1': {
+        capitalizationRate: 0.10,
+        vacancyRate: 0.09,
+        opexRate: 0.21,
+    },
+    '2025-Q2': {
+        capitalizationRate: 0.10,
+        vacancyRate: 0.11,
+        opexRate: 0.21,
+    },
+    '2025-Q3': {
+        capitalizationRate: 0.12,
+        vacancyRate: 0.14,
+        opexRate: 0.26,
+    },
+    '2025-Q4': {
+        capitalizationRate: 0.10,
+        vacancyRate: 0.14,
+        opexRate: 0.25,
+    },
+    '2026-Q1': {
+        capitalizationRate: 0.08,
+        vacancyRate: 0.14,
+        opexRate: 0.24,
+    },
+};
+
 const CLASS_ORDER = {
     unknown: 0,
     C: 1,
@@ -368,6 +396,87 @@ function resolveDistrictBucket(value) {
 
 function resolveValuationYear(value) {
     return parseYear(value) || 0;
+}
+
+function resolveValuationDateParts(value) {
+    if (!value) {
+        return null;
+    }
+
+    const normalized = String(value).trim();
+    if (!normalized) {
+        return null;
+    }
+
+    let match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+        return {
+            year: Number(match[1]),
+            month: Number(match[2]),
+            day: Number(match[3]),
+        };
+    }
+
+    match = normalized.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (match) {
+        return {
+            year: Number(match[3]),
+            month: Number(match[2]),
+            day: Number(match[1]),
+        };
+    }
+
+    match = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (match) {
+        return {
+            year: Number(match[3]),
+            month: Number(match[2]),
+            day: Number(match[1]),
+        };
+    }
+
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+
+    return {
+        year: parsed.getFullYear(),
+        month: parsed.getMonth() + 1,
+        day: parsed.getDate(),
+    };
+}
+
+function resolveValuationQuarterKey(value) {
+    const parts = resolveValuationDateParts(value);
+    const year = Number(parts?.year);
+    const month = Number(parts?.month);
+
+    if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+        return null;
+    }
+
+    return `${year}-Q${Math.floor((month - 1) / 3) + 1}`;
+}
+
+function humanizeQuarterKey(value) {
+    const match = String(value || '').match(/^(\d{4})-Q([1-4])$/);
+    if (!match) {
+        return null;
+    }
+
+    return `${match[2]} кв. ${match[1]}`;
+}
+
+function resolveQuarterMarketProfile(questionnaire = {}) {
+    const key = resolveValuationQuarterKey(questionnaire?.valuationDate);
+    const profile = key ? QUARTER_MARKET_PROFILE_BY_PERIOD[key] || null : null;
+
+    return {
+        key,
+        label: humanizeQuarterKey(key),
+        profile,
+    };
 }
 
 function sumAdjustments(items = []) {
@@ -811,6 +920,7 @@ function calculateFloorAdjustmentRecord(questionnaire, analog) {
 }
 
 export function resolveCapitalizationRateProfile(questionnaire, selectedAnalogs = [], context = {}) {
+    const marketProfile = resolveQuarterMarketProfile(questionnaire);
     const normalizedClass = normalizeBusinessCenterClass(
         questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
@@ -822,135 +932,34 @@ export function resolveCapitalizationRateProfile(questionnaire, selectedAnalogs 
         context?.marketRentAnalysis?.includedCount,
         Array.isArray(selectedAnalogs) ? selectedAnalogs.length : 0
     );
-    const baseRate = CAPITALIZATION_RATE_BY_CLASS[normalizedClass] ?? CAPITALIZATION_RATE_BY_CLASS.unknown;
-    const adjustments = [];
     const environmentScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
-    const historicalCenterFlag = encodeBooleanLike(resolveQuestionnaireHistoricalCenter(questionnaire)) === 1;
-    const marketAnalysis = context?.marketRentAnalysis || {};
-    const comparableQuality = toNumber(marketAnalysis?.qualityScore, null);
-    const excludedComparableCount = toNumber(marketAnalysis?.excludedCount, 0);
-    const vacancyProfile = context?.vacancyProfile || null;
-
-    if (questionnaire?.calculationMethod === 'actual_market') {
-        return {
-            rate: baseRate,
-            baseRate,
-            adjustments: [],
-            source: 'excel_parity_base',
-            sourceLabel: 'Базовая ставка капитализации по классу объекта для расчета по фактическим данным',
-            normalizedClass,
-            districtBucket,
-            valuationYear,
-            comparableCount,
-            comparableQuality,
-            historicalCenterFlag,
-            environmentScore,
-        };
-    }
-
-    if (districtBucket === 'central') {
-        adjustments.push({
-            reason: 'Центральная деловая локация',
-            value: -0.005,
-        });
-    } else if (districtBucket === 'outer') {
-        adjustments.push({
-            reason: 'Периферийная локация',
-            value: 0.005,
-        });
-    }
-
-    if (valuationYear >= 2026) {
-        adjustments.push({
-            reason: 'Рыночная дата оценки 2026+',
-            value: -0.0025,
-        });
-    } else if (valuationYear > 0 && valuationYear <= 2024) {
-        adjustments.push({
-            reason: 'Рыночная дата оценки до 2025 года',
-            value: 0.0025,
-        });
-    }
-
-    if (historicalCenterFlag) {
-        adjustments.push({
-            reason: 'Объект в историческом центре',
-            value: -0.0025,
-        });
-    }
-
-    if (environmentScore !== null) {
-        if (environmentScore >= 0.86) {
-            adjustments.push({
-                reason: 'Сильное деловое окружение',
-                value: -0.0025,
-            });
-        } else if (environmentScore < 0.72) {
-            adjustments.push({
-                reason: 'Слабое окружение и ликвидность локации',
-                value: 0.0025,
-            });
-        }
-    }
-
-    if (comparableCount >= 8 && comparableQuality >= 0.72) {
-        adjustments.push({
-            reason: 'Качественная и репрезентативная выборка аналогов',
-            value: -0.0025,
-        });
-    } else if (comparableCount > 0 && comparableCount < 5) {
-        adjustments.push({
-            reason: 'Ограниченная выборка аналогов',
-            value: 0.005,
-        });
-    } else if (comparableQuality !== null && comparableQuality < 0.58) {
-        adjustments.push({
-            reason: 'Низкое качество и заполненность аналогов',
-            value: 0.0025,
-        });
-    }
-
-    if (excludedComparableCount >= 2) {
-        adjustments.push({
-            reason: 'Повышенная неоднородность аналогов и выбросы',
-            value: 0.0025,
-        });
-    }
-
-    const vacancyRate = toNumber(vacancyProfile?.rate, null);
-    if (Number.isFinite(vacancyRate)) {
-        if (vacancyRate <= 0.08) {
-            adjustments.push({
-                reason: 'Высокая ликвидность сегмента по vacancy profile',
-                value: -0.0025,
-            });
-        } else if (vacancyRate >= 0.11) {
-            adjustments.push({
-                reason: 'Повышенный рыночный риск незаполняемости',
-                value: 0.0025,
-            });
-        }
-    }
-
-    const rate = clampProfileRate(baseRate + sumAdjustments(adjustments), 0.08, 0.13);
+    const baseRate = toNumber(
+        marketProfile.profile?.capitalizationRate,
+        EXCEL_PARITY_CONFIG.valuation.capitalizationRate
+    );
 
     return {
-        rate,
+        rate: baseRate,
         baseRate,
-        adjustments,
-        source: 'rule_based_profile',
-        sourceLabel: 'Профиль по классу, локации, дате оценки и качеству выборки аналогов',
+        adjustments: [],
+        source: 'quarter_profile',
+        sourceLabel: marketProfile.label
+            ? `Квартальный рыночный профиль капитализации (${marketProfile.label})`
+            : 'Квартальный рыночный профиль капитализации',
         normalizedClass,
         districtBucket,
         valuationYear,
         comparableCount,
-        comparableQuality,
-        historicalCenterFlag,
+        comparableQuality: null,
+        historicalCenterFlag: encodeBooleanLike(resolveQuestionnaireHistoricalCenter(questionnaire)) === 1,
         environmentScore,
+        profileQuarterKey: marketProfile.key,
+        profileQuarterLabel: marketProfile.label,
     };
 }
 
 export function resolveVacancyRateProfile(questionnaire, context = {}) {
+    const marketProfile = resolveQuarterMarketProfile(questionnaire);
     const normalizedClass = normalizeBusinessCenterClass(
         questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
@@ -958,132 +967,47 @@ export function resolveVacancyRateProfile(questionnaire, context = {}) {
     );
     const districtBucket = resolveDistrictBucket(questionnaire?.district);
     const valuationYear = resolveValuationYear(questionnaire?.valuationDate);
-    const hasProfileInputs = normalizedClass !== 'unknown' || Boolean(questionnaire?.district);
     const actualVacancyRate = toNumber(context?.actualVacancyRate, null);
-    const baseRate = VACANCY_RATE_BY_CLASS[normalizedClass] ?? VACANCY_RATE_BY_CLASS.unknown;
-    const adjustments = [];
-    const environmentScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
-    const historicalCenterFlag = encodeBooleanLike(resolveQuestionnaireHistoricalCenter(questionnaire)) === 1;
+    const marketRate = clamp(
+        toNumber(marketProfile.profile?.vacancyRate, EXCEL_PARITY_CONFIG.valuation.defaultVacancyRate),
+        0,
+        1
+    );
 
-    if (!hasProfileInputs && Number.isFinite(actualVacancyRate)) {
+    if (Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate < marketRate) {
         return {
-            rate: clampProfileRate(actualVacancyRate, 0.02, 0.2),
-            baseRate: actualVacancyRate,
-            adjustments,
-            source: 'fact_fallback',
-            sourceLabel: 'Фактическая незаполняемость использована как fallback из-за нехватки рыночного профиля',
+            rate: clamp(actualVacancyRate, 0, 1),
+            baseRate: marketRate,
+            adjustments: [],
+            source: 'factual',
+            sourceLabel: marketProfile.label
+                ? `Фактическая незаполняемость ниже квартального рыночного профиля (${marketProfile.label})`
+                : 'Фактическая незаполняемость ниже квартального рыночного профиля',
             normalizedClass,
             districtBucket,
             valuationYear,
-            environmentScore,
-            historicalCenterFlag,
-        };
-    }
-
-    if (!hasProfileInputs) {
-        return {
-            rate: EXCEL_PARITY_CONFIG.valuation.defaultVacancyRate,
-            baseRate: EXCEL_PARITY_CONFIG.valuation.defaultVacancyRate,
-            adjustments,
-            source: 'default_fallback',
-            sourceLabel: 'Безопасный fallback-профиль незаполняемости по умолчанию',
-            normalizedClass,
-            districtBucket,
-            valuationYear,
-            environmentScore,
-            historicalCenterFlag,
-        };
-    }
-
-    if (districtBucket === 'central') {
-        adjustments.push({
-            reason: 'Центральная деловая локация',
-            value: -0.005,
-        });
-    } else if (districtBucket === 'outer') {
-        adjustments.push({
-            reason: 'Периферийная локация',
-            value: 0.005,
-        });
-    }
-
-    if (valuationYear >= 2026) {
-        adjustments.push({
-            reason: 'Актуализированная рыночная конъюнктура 2026+',
-            value: -0.0025,
-        });
-    }
-
-    if (historicalCenterFlag) {
-        adjustments.push({
-            reason: 'Исторический центр и устойчивая деловая среда',
-            value: -0.0025,
-        });
-    }
-
-    if (environmentScore !== null) {
-        if (environmentScore >= 0.86) {
-            adjustments.push({
-                reason: 'Качественное деловое окружение',
-                value: -0.0025,
-            });
-        } else if (environmentScore < 0.72) {
-            adjustments.push({
-                reason: 'Ослабленное окружение',
-                value: 0.0025,
-            });
-        }
-    }
-
-    const rate = clampProfileRate(baseRate + sumAdjustments(adjustments), 0.04, 0.18);
-
-    if (questionnaire?.calculationMethod === 'actual_market' && Number.isFinite(actualVacancyRate)) {
-        if (actualVacancyRate < rate) {
-            return {
-                rate: clampProfileRate(actualVacancyRate, 0.02, 0.2),
-                baseRate,
-                adjustments: [
-                    ...adjustments,
-                    {
-                        reason: 'Для расчета по фактическим данным использована меньшая из фактической и рыночной незаполняемости',
-                        value: actualVacancyRate - rate,
-                    },
-                ],
-                source: 'actual_min_market',
-                sourceLabel: 'Для расчета использована меньшая из фактической и рыночной незаполняемости',
-                normalizedClass,
-                districtBucket,
-                valuationYear,
-                environmentScore,
-                historicalCenterFlag,
-            };
-        }
-
-        return {
-            rate,
-            baseRate,
-            adjustments,
-            source: 'rule_based_profile',
-            sourceLabel: 'Рыночный профиль незаполняемости по классу, локации и дате оценки',
-            normalizedClass,
-            districtBucket,
-            valuationYear,
-            environmentScore,
-            historicalCenterFlag,
+            environmentScore: calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire)),
+            historicalCenterFlag: encodeBooleanLike(resolveQuestionnaireHistoricalCenter(questionnaire)) === 1,
+            profileQuarterKey: marketProfile.key,
+            profileQuarterLabel: marketProfile.label,
         };
     }
 
     return {
-        rate,
-        baseRate,
-        adjustments,
-        source: 'rule_based_profile',
-        sourceLabel: 'Рыночный профиль незаполняемости по классу, локации и дате оценки',
+        rate: marketRate,
+        baseRate: marketRate,
+        adjustments: [],
+        source: 'quarter_profile',
+        sourceLabel: marketProfile.label
+            ? `Квартальный рыночный профиль незаполняемости (${marketProfile.label})`
+            : 'Квартальный рыночный профиль незаполняемости',
         normalizedClass,
         districtBucket,
         valuationYear,
-        environmentScore,
-        historicalCenterFlag,
+        environmentScore: calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire)),
+        historicalCenterFlag: encodeBooleanLike(resolveQuestionnaireHistoricalCenter(questionnaire)) === 1,
+        profileQuarterKey: marketProfile.key,
+        profileQuarterLabel: marketProfile.label,
     };
 }
 
@@ -1209,6 +1133,25 @@ function getQuestionnaireReferenceFloorCategory(questionnaire) {
     return 'first';
 }
 
+// function mapEnvironmentTokenToCoefficient(value) {
+//     if (value === undefined || value === null || value === '') {
+//         return null;
+//     }
+
+//     const numeric = toNumber(value, null);
+//     if (numeric !== null && Number.isFinite(numeric)) {
+//         return numeric;
+//     }
+
+//     const s = String(value).toLowerCase();
+
+//     if (s.includes('пром')) return 0.62;
+//     if (s.includes('обществен') || s.includes('делов')) return 0.89;
+//     if (s.includes('жил')) return 0.8;
+
+//     return null;
+// }
+
 function mapEnvironmentTokenToCoefficient(value) {
     if (value === undefined || value === null || value === '') {
         return null;
@@ -1219,11 +1162,20 @@ function mapEnvironmentTokenToCoefficient(value) {
         return numeric;
     }
 
-    const s = String(value).toLowerCase();
+    const normalized = String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/\s+/g, ' ');
 
-    if (s.includes('пром')) return 0.62;
-    if (s.includes('обществен') || s.includes('делов')) return 0.89;
-    if (s.includes('жил')) return 0.8;
+    if (!normalized || normalized === '0') return null;
+
+    if (normalized.includes('культур') || normalized.includes('истор')) return 1.00;
+    if (normalized.includes('делов')) return 0.91;
+    if (normalized.includes('многоквартир')) return 0.83;
+    if (normalized.includes('среднеэтаж')) return 0.80;
+    if (normalized.includes('пром')) return 0.61;
+    if (normalized.includes('автомагистра')) return 0.79;
 
     return null;
 }
@@ -1264,35 +1216,91 @@ function resolveAnalogZone(analog) {
     );
 }
 
+// function resolveQuestionnaireEnvironment(questionnaire) {
+//     return [
+//         questionnaire?.environmentCategory1,
+//         questionnaire?.environmentCategory2,
+//         questionnaire?.environmentCategory3,
+//         questionnaire?.environmentIndustrial,
+//         questionnaire?.environmentBusiness,
+//         questionnaire?.environmentResidential,
+//     ];
+// }
+
 function resolveQuestionnaireEnvironment(questionnaire) {
     return [
+        questionnaire?.env_category_1,
+        questionnaire?.env_category_2,
+        questionnaire?.environment_category_1,
+        questionnaire?.environment_category_2,
         questionnaire?.environmentCategory1,
         questionnaire?.environmentCategory2,
         questionnaire?.environmentCategory3,
         questionnaire?.environmentIndustrial,
         questionnaire?.environmentBusiness,
         questionnaire?.environmentResidential,
+        questionnaire?.environment,
     ];
 }
+
+// function resolveAnalogEnvironment(analog) {
+//     return [
+//         analog?.environment_category_1,
+//         analog?.environment_category_2,
+//         analog?.environment_category_3,
+//     ];
+// }
 
 function resolveAnalogEnvironment(analog) {
     return [
+        analog?.env_category_1,
+        analog?.env_category_2,
         analog?.environment_category_1,
         analog?.environment_category_2,
         analog?.environment_category_3,
+        analog?.environment,
     ];
 }
 
+// function resolveQuestionnaireHistoricalCenter(questionnaire) {
+//     return (
+//         questionnaire?.isHistoricalCenter ??
+//         questionnaire?.environmentHistoricalCenter ??
+//         false
+//     );
+// }
+
 function resolveQuestionnaireHistoricalCenter(questionnaire) {
     return (
+        questionnaire?.historicalCenter ??
         questionnaire?.isHistoricalCenter ??
+        questionnaire?.historicCenter ??
+        questionnaire?.historical_center ??
+        questionnaire?.historic_center ??
+        questionnaire?.historicalCentre ??
+        questionnaire?.historicCentre ??
         questionnaire?.environmentHistoricalCenter ??
         false
     );
 }
 
+// function resolveAnalogHistoricalCenter(analog) {
+//     return analog?.environment_historical_center ?? false;
+// }
+
 function resolveAnalogHistoricalCenter(analog) {
-    return analog?.environment_historical_center ?? false;
+    return (
+        analog?.historical_center ??
+        analog?.historic_center ??
+        analog?.historicalCenter ??
+        analog?.historicCenter ??
+        analog?.isHistoricalCenter ??
+        analog?.is_historical_center ??
+        analog?.historicalCentre ??
+        analog?.historicCentre ??
+        analog?.environment_historical_center ??
+        false
+    );
 }
 
 function encodeEnvironmentForVector(values = []) {
@@ -2013,211 +2021,136 @@ export function calculateVacancyRate({ questionnaire, subject = {}, marketContex
         subject?.occupiedArea ?? questionnaire?.occupiedArea,
         null
     );
-
-    if (Number.isFinite(manualVacancy) && manualVacancy >= 0) {
-        return {
-            rate: clamp(manualVacancy, 0.03, 0.20),
-            source: 'manual',
-            sourceLabel: 'Явный ввод пользователя',
-            reasoning: 'Использовано прямое значение vacancy, указанное пользователем.',
-            details: {
-                priority: 'manual',
-                enteredValue: round2(manualVacancy * 100),
-            },
-            baseRate: manualVacancy,
-            adjustments: [],
-            profileUsed: null,
-            breakdown: {
-                vacancySource: 'manual',
-                vacancyBaseValue: round4(manualVacancy),
-                vacancyAdjustments: [],
-                vacancyFinalValue: round4(clamp(manualVacancy, 0.03, 0.20)),
-            },
-        };
-    }
-
-    const normalizedClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
-        questionnaire?.businessCenterClass ||
-        questionnaire?.objectClass
+    const marketProfile = resolveQuarterMarketProfile(questionnaire);
+    const marketRate = clamp(
+        toNumber(marketProfile.profile?.vacancyRate, EXCEL_PARITY_CONFIG.valuation.defaultVacancyRate),
+        0,
+        1
     );
-    const districtBucket = resolveDistrictBucket(questionnaire?.district);
-    const baseRate = VACANCY_RATE_BY_CLASS[normalizedClass] ?? VACANCY_RATE_BY_CLASS.unknown;
-    const adjustments = [];
-    const environmentScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
-    const valuationYear = resolveValuationYear(questionnaire?.valuationDate);
-    const analogQuality = toNumber(analogStats?.qualityScore ?? analogStats?.stats?.averageCompleteness, null);
-    const dispersionRatio = toNumber(analogStats?.stats?.dispersionRatio, null);
-    const hasStableProfile = isStableMarketProfileAvailable(questionnaire);
-
-    if (hasStableProfile) {
-        if (districtBucket === 'central') {
-            adjustments.push({ reason: 'Центральная локация', value: -0.0075 });
-        } else if (districtBucket === 'outer') {
-            adjustments.push({ reason: 'Периферийная локация', value: 0.0075 });
-        }
-
-        if (environmentScore !== null) {
-            if (environmentScore >= 0.86) {
-                adjustments.push({ reason: 'Сильное деловое окружение', value: -0.005 });
-            } else if (environmentScore <= 0.7) {
-                adjustments.push({ reason: 'Слабое окружение', value: 0.005 });
-            }
-        }
-
-        if (valuationYear >= 2026) {
-            adjustments.push({ reason: 'Оценка на более позднюю дату рынка', value: -0.0025 });
-        }
-
-        if (analogQuality !== null && analogQuality < 0.6) {
-            adjustments.push({ reason: 'Невысокое качество аналогов', value: 0.0075 });
-        }
-
-        if (dispersionRatio !== null && dispersionRatio > 0.3) {
-            adjustments.push({ reason: 'Шумный рынок аналогов', value: 0.005 });
-        }
-
-        const rate = clamp(baseRate + sumAdjustments(adjustments), 0.03, 0.20);
-
-        return {
-            rate,
-            source: 'market',
-            sourceLabel: 'Рыночный профиль vacancy',
-            reasoning: 'Vacancy рассчитана по сегментному рыночному профилю и корректировкам локации.',
-            details: {
-                priority: 'market',
-                normalizedClass,
-                districtBucket,
-                valuationYear,
-                environmentScore: Number.isFinite(environmentScore) ? round2(environmentScore) : null,
-                analogQuality: Number.isFinite(analogQuality) ? round2(analogQuality) : null,
-                dispersionRatio: Number.isFinite(dispersionRatio) ? round2(dispersionRatio) : null,
-            },
-            baseRate,
-            adjustments,
-            profileUsed: `vacancy_${normalizedClass}_${districtBucket}`,
-            breakdown: {
-                vacancySource: 'market',
-                vacancyBaseValue: round4(baseRate),
-                vacancyAdjustments: adjustments.map((item) => ({
-                    reason: item.reason,
-                    value: round4(item.value),
-                })),
-                vacancyFinalValue: round4(rate),
-            },
-        };
-    }
-
-    if (
+    const actualVacancyRate = (
         Number.isFinite(leasableArea) &&
         leasableArea > 0 &&
         Number.isFinite(occupiedArea) &&
         occupiedArea >= 0
-    ) {
-        const actualVacancyRate = clamp(1 - (occupiedArea / leasableArea), 0, 1);
-        const rate = clamp(actualVacancyRate, 0.03, 0.20);
+    )
+        ? clamp(1 - (occupiedArea / leasableArea), 0, 1)
+        : null;
 
+    if (Number.isFinite(manualVacancy) && manualVacancy >= 0 && manualVacancy <= marketRate) {
         return {
-            rate,
-            source: 'factual',
-            sourceLabel: 'Фактическая загрузка объекта',
-            reasoning: 'Vacancy рассчитана по введенным арендопригодной и занятой площади из-за отсутствия устойчивого рыночного профиля.',
+            rate: clamp(manualVacancy, 0, 1),
+            source: 'manual_input',
+            sourceLabel: marketProfile.label
+                ? `Значение клиента ниже квартального рыночного профиля (${marketProfile.label})`
+                : 'Значение клиента ниже квартального рыночного профиля',
+            reasoning: 'Использовано значение незаполняемости, введенное клиентом, так как оно ниже квартального рыночного профиля.',
             details: {
-                priority: 'factual',
-                leasableArea: round2(leasableArea),
-                occupiedArea: round2(occupiedArea),
-                actualVacancyRate: round2(actualVacancyRate * 100),
+                priority: 'client_min_market',
+                enteredValue: round2(manualVacancy * 100),
+                marketRate: round2(marketRate * 100),
+                valuationQuarterKey: marketProfile.key,
+                valuationQuarterLabel: marketProfile.label,
             },
-            baseRate: actualVacancyRate,
+            baseRate: marketRate,
             adjustments: [],
-            profileUsed: null,
+            profileUsed: marketProfile.key || null,
             breakdown: {
-                vacancySource: 'factual',
-                vacancyBaseValue: round4(actualVacancyRate),
+                vacancySource: 'manual_input',
+                vacancyBaseValue: round4(marketRate),
                 vacancyAdjustments: [],
-                vacancyFinalValue: round4(rate),
+                vacancyFinalValue: round4(clamp(manualVacancy, 0, 1)),
+                valuationQuarterKey: marketProfile.key,
             },
         };
     }
 
-    const fallbackRate = clamp(EXCEL_PARITY_CONFIG.valuation.defaultVacancyRate, 0.03, 0.20);
+    if (Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate <= marketRate) {
+        return {
+            rate: actualVacancyRate,
+            source: 'factual',
+            sourceLabel: marketProfile.label
+                ? `Фактическая незаполняемость ниже квартального рыночного профиля (${marketProfile.label})`
+                : 'Фактическая незаполняемость ниже квартального рыночного профиля',
+            reasoning: 'Использована фактическая незаполняемость объекта, так как она ниже квартального рыночного профиля.',
+            details: {
+                priority: 'client_min_market',
+                leasableArea: round2(leasableArea),
+                occupiedArea: round2(occupiedArea),
+                actualVacancyRate: round2(actualVacancyRate * 100),
+                marketRate: round2(marketRate * 100),
+                valuationQuarterKey: marketProfile.key,
+                valuationQuarterLabel: marketProfile.label,
+            },
+            baseRate: marketRate,
+            adjustments: [],
+            profileUsed: marketProfile.key || null,
+            breakdown: {
+                vacancySource: 'factual',
+                vacancyBaseValue: round4(marketRate),
+                vacancyAdjustments: [],
+                vacancyFinalValue: round4(actualVacancyRate),
+                valuationQuarterKey: marketProfile.key,
+            },
+        };
+    }
 
     return {
-        rate: fallbackRate,
-        source: 'fallback',
-        sourceLabel: 'Fallback-профиль vacancy',
-        reasoning: 'Отсутствуют устойчивый рыночный профиль и фактические данные по загрузке; применён безопасный fallback.',
+        rate: marketRate,
+        source: 'quarter_profile',
+        sourceLabel: marketProfile.label
+            ? `Квартальный рыночный профиль незаполняемости (${marketProfile.label})`
+            : 'Квартальный рыночный профиль незаполняемости',
+        reasoning: 'Незаполняемость взята из квартального рыночного профиля без дополнительных корректировок.',
         details: {
-            priority: 'fallback',
-            normalizedClass,
-            districtBucket,
-            valuationYear,
-            hasStableProfile,
+            priority: 'market',
+            marketRate: round2(marketRate * 100),
+            valuationQuarterKey: marketProfile.key,
+            valuationQuarterLabel: marketProfile.label,
+            analogQuality: toNumber(analogStats?.qualityScore ?? analogStats?.stats?.averageCompleteness, null),
+            marketContextQuality: toNumber(marketContext?.qualityScore, null),
         },
-        baseRate: fallbackRate,
+        baseRate: marketRate,
         adjustments: [],
-        profileUsed: 'vacancy_default_fallback',
+        profileUsed: marketProfile.key || 'vacancy_default_fallback',
         breakdown: {
-            vacancySource: 'fallback',
-            vacancyBaseValue: round4(fallbackRate),
+            vacancySource: 'quarter_profile',
+            vacancyBaseValue: round4(marketRate),
             vacancyAdjustments: [],
-            vacancyFinalValue: round4(fallbackRate),
+            vacancyFinalValue: round4(marketRate),
+            valuationQuarterKey: marketProfile.key,
         },
     };
 }
 
 export function calculateOpexRate({ subject = {}, questionnaire = {}, marketContext = {} }) {
-    const normalizedClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
-        questionnaire?.businessCenterClass ||
-        questionnaire?.objectClass
+    const marketProfile = resolveQuarterMarketProfile(questionnaire);
+    const opexRate = toNumber(
+        marketProfile.profile?.opexRate,
+        EXCEL_PARITY_CONFIG.valuation.opexRate
     );
-    const baseRate = OPEX_RATE_BY_CLASS[normalizedClass] ?? OPEX_RATE_BY_CLASS.unknown;
-    const adjustments = [];
-    const subjectYear = parseYear(subject?.constructionYear ?? questionnaire?.constructionYear);
-    const subjectArea = toNumber(subject?.totalArea ?? questionnaire?.totalArea, null);
-    const districtBucket = resolveDistrictBucket(questionnaire?.district);
-
-    if (subjectYear && subjectYear <= 2005) {
-        adjustments.push({ reason: 'Старший возраст здания', value: 0.015 });
-    } else if (subjectYear && subjectYear >= 2018) {
-        adjustments.push({ reason: 'Современное здание', value: -0.005 });
-    }
-
-    if (Number.isFinite(subjectArea) && subjectArea >= 20000) {
-        adjustments.push({ reason: 'Крупный объект с эффектом масштаба', value: -0.005 });
-    } else if (Number.isFinite(subjectArea) && subjectArea <= 5000) {
-        adjustments.push({ reason: 'Небольшой объект', value: 0.005 });
-    }
-
-    if (districtBucket === 'outer') {
-        adjustments.push({ reason: 'Периферийная эксплуатационная нагрузка', value: 0.005 });
-    }
-
-    const opexRate = clamp(baseRate + sumAdjustments(adjustments), 0.16, 0.28);
 
     return {
         opexRate,
-        source: 'profile',
-        reasoning: 'Параметрический профиль OPEX по классу, возрасту и масштабу объекта.',
-        profileUsed: `opex_${normalizedClass}`,
-        baseRate,
-        adjustments,
+        source: 'quarter_profile',
+        reasoning: marketProfile.label
+            ? `Квартальный рыночный профиль операционных расходов (${marketProfile.label})`
+            : 'Квартальный рыночный профиль операционных расходов',
+        profileUsed: marketProfile.key || null,
+        profileQuarterLabel: marketProfile.label,
+        baseRate: opexRate,
+        adjustments: [],
         breakdown: {
-            opexBase: round4(baseRate),
-            opexAdjustments: adjustments.map((item) => ({
-                reason: item.reason,
-                value: round4(item.value),
-            })),
+            opexBase: round4(opexRate),
+            opexAdjustments: [],
             opexFinal: round4(opexRate),
-            opexSource: 'profile',
+            opexSource: 'quarter_profile',
+            valuationQuarterKey: marketProfile.key,
         },
         details: {
-            normalizedClass,
-            subjectYear: subjectYear || null,
-            subjectArea: Number.isFinite(subjectArea) ? round2(subjectArea) : null,
-            districtBucket,
+            valuationQuarterKey: marketProfile.key,
+            valuationQuarterLabel: marketProfile.label,
             marketContextQuality: toNumber(marketContext?.qualityScore, null),
+            subjectArea: toNumber(subject?.totalArea ?? questionnaire?.totalArea, null),
         },
     };
 }
@@ -2356,11 +2289,11 @@ export function calculateReliabilityScore({
             ? 10
             : 6
         : 0;
-    const vacancySourceScore = vacancySource === 'market'
+    const vacancySourceScore = vacancySource === 'market' || vacancySource === 'quarter_profile'
         ? 6
         : vacancySource === 'factual'
             ? 3
-            : vacancySource === 'manual'
+            : vacancySource === 'manual' || vacancySource === 'manual_input'
                 ? 4
                 : 0;
     const rentalSourceScore = normalizedRentSource === 'market_analogs'
@@ -2404,7 +2337,7 @@ export function calculateReliabilityScore({
     const factors = [
         `Аналогов в расчете: ${analogCount}`,
         `Средняя полнота аналогов: ${round2(averageCompleteness * 100)}%`,
-        Number.isFinite(dispersionPct) ? `Разброс скорректированных ставок: ${round2(dispersionPct)}%` : 'Разброс ставок оценен как умеренный',
+        Number.isFinite(dispersionPct) ? `Разброс ставок: ${round2(dispersionPct)}%` : 'Разброс ставок оценен как умеренный',
         `Полнота данных объекта: ${round2(subjectCompleteness * 100)}%`,
         Number.isFinite(averageAreaRatio) ? `Средний area ratio аналогов: ${round2(averageAreaRatio)}` : 'Scale mismatch аналогов оценен как умеренный',
         `Размер выборки: ${sampleSizeLevel}`,
@@ -2458,15 +2391,17 @@ export function calculateCapitalizationRate({
     reliability = {},
     vacancyResult = {},
 }) {
+    const marketProfile = resolveQuarterMarketProfile(questionnaire);
     const normalizedClass = normalizeBusinessCenterClass(
         questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );
     const districtBucket = resolveDistrictBucket(questionnaire?.district);
-    const baseCapRate = CAPITALIZATION_RATE_BY_CLASS[normalizedClass] ?? CAPITALIZATION_RATE_BY_CLASS.unknown;
-    const adjustments = [];
-    const vacancyRate = toNumber(vacancyResult?.rate, null);
+    const baseCapRate = toNumber(
+        marketProfile.profile?.capitalizationRate,
+        EXCEL_PARITY_CONFIG.valuation.capitalizationRate
+    );
     const environmentScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
     const reliabilityScore = toNumber(reliability?.score, null);
     const dispersionPct = toNumber(
@@ -2483,80 +2418,49 @@ export function calculateCapitalizationRate({
         reliability?.metrics?.subjectDataQualityScoreNormalized,
         calculateSubjectDataQualityMetrics(subject).normalizedScore
     );
-    const vacancyRiskAdjustment = Number.isFinite(vacancyRate)
-        ? clamp((vacancyRate - 0.09) * 0.2, -0.01, 0.01)
-        : 0;
-    const reliabilityAdjustment = getReliabilityCapAdjustment(reliabilityScore);
-    const dispersionAdjustment = getDispersionCapAdjustment(dispersionPct);
-    const scaleMismatchAdjustment = getScaleMismatchCapAdjustment(averageAreaRatio);
-    const subjectDataAdjustment = getSubjectDataCapAdjustment(subjectDataQualityScoreNormalized);
-    let locationAdjustment = 0;
-    let environmentAdjustment = 0;
-
-    if (districtBucket === 'central') {
-        locationAdjustment = -0.004;
-        adjustments.push({ reason: 'Центральная локация', value: locationAdjustment });
-    } else if (districtBucket === 'outer') {
-        locationAdjustment = 0.004;
-        adjustments.push({ reason: 'Периферийная локация', value: locationAdjustment });
-    }
-
-    if (environmentScore !== null) {
-        if (environmentScore >= 0.86) {
-            environmentAdjustment = -0.002;
-            adjustments.push({ reason: 'Качественное деловое окружение', value: environmentAdjustment });
-        } else if (environmentScore <= 0.7) {
-            environmentAdjustment = 0.002;
-            adjustments.push({ reason: 'Ослабленное окружение', value: environmentAdjustment });
-        }
-    }
-
-    adjustments.push({ reason: 'Поправка на vacancy risk', value: vacancyRiskAdjustment });
-    adjustments.push({ reason: 'Поправка на надежность модели', value: reliabilityAdjustment });
-    adjustments.push({ reason: 'Поправка на разброс скорректированных ставок', value: dispersionAdjustment });
-    adjustments.push({ reason: 'Поправка на scale mismatch аналогов', value: scaleMismatchAdjustment });
-    adjustments.push({ reason: 'Поправка на качество данных объекта', value: subjectDataAdjustment });
 
     const capRateBreakdown = {
         baseCapRate: round4(baseCapRate),
-        locationAdjustment: round4(locationAdjustment),
-        environmentAdjustment: round4(environmentAdjustment),
-        vacancyRiskAdjustment: round4(vacancyRiskAdjustment),
-        reliabilityAdjustment: round4(reliabilityAdjustment),
-        dispersionAdjustment: round4(dispersionAdjustment),
-        scaleMismatchAdjustment: round4(scaleMismatchAdjustment),
-        subjectDataAdjustment: round4(subjectDataAdjustment),
-        finalCapRate: 0,
+        locationAdjustment: null,
+        environmentAdjustment: null,
+        vacancyRiskAdjustment: null,
+        reliabilityAdjustment: null,
+        dispersionAdjustment: null,
+        scaleMismatchAdjustment: null,
+        subjectDataAdjustment: null,
+        finalCapRate: round4(baseCapRate),
         reliabilityScore: Number.isFinite(reliabilityScore) ? round2(reliabilityScore) : null,
-        dispersionPct: Number.isFinite(dispersionPct) ? round2(dispersionPct) : null,
+        dispersionPct: null,
         averageAreaRatio: Number.isFinite(averageAreaRatio) ? round2(averageAreaRatio) : null,
         subjectDataQualityScoreNormalized: Number.isFinite(subjectDataQualityScoreNormalized)
             ? round4(subjectDataQualityScoreNormalized)
             : null,
+        valuationQuarterKey: marketProfile.key,
     };
 
-    const finalCapRate = clamp(baseCapRate + sumAdjustments(adjustments), 0.09, 0.14);
-    capRateBreakdown.finalCapRate = round4(finalCapRate);
-
     return {
-        finalCapRate,
+        finalCapRate: baseCapRate,
         baseCapRate,
-        source: 'rule_based_profile',
-        sourceLabel: 'Параметрическая ставка капитализации по классу, локации, vacancy и надежности',
-        reasoning: 'Ставка капитализации собрана из базового профиля и risk premium / premium по качеству объекта и надежности модели.',
-        adjustments,
+        source: 'quarter_profile',
+        sourceLabel: marketProfile.label
+            ? `Квартальный рыночный профиль капитализации (${marketProfile.label})`
+            : 'Квартальный рыночный профиль капитализации',
+        reasoning: 'Ставка капитализации взята из квартального рыночного профиля без дополнительных корректировок.',
+        adjustments: [],
         capRateBreakdown,
         details: {
             normalizedClass,
             districtBucket,
             environmentScore: Number.isFinite(environmentScore) ? round2(environmentScore) : null,
-            vacancyRate: Number.isFinite(vacancyRate) ? round2(vacancyRate * 100) : null,
+            vacancyRate: Number.isFinite(toNumber(vacancyResult?.rate, null)) ? round2(toNumber(vacancyResult.rate, 0) * 100) : null,
             reliabilityScore: Number.isFinite(reliabilityScore) ? round2(reliabilityScore) : null,
             dispersionPct: Number.isFinite(dispersionPct) ? round2(dispersionPct) : null,
             averageAreaRatio: Number.isFinite(averageAreaRatio) ? round2(averageAreaRatio) : null,
             subjectDataQualityScoreNormalized: Number.isFinite(subjectDataQualityScoreNormalized)
                 ? round4(subjectDataQualityScoreNormalized)
                 : null,
+            valuationQuarterKey: marketProfile.key,
+            valuationQuarterLabel: marketProfile.label,
         },
     };
 }
@@ -2792,17 +2696,14 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
 
     const floorLeasableTotal = areaFloor1 + areaFloor2 + areaFloor3Plus;
     const actualOccupiedArea = toNumber(questionnaire?.occupiedArea, null);
-    const actualVacancyRateFromFloors = floorLeasableTotal > 0
+    const inputLeasableArea = toNumber(questionnaire?.leasableArea, 0);
+    const effectiveLeasableArea = inputLeasableArea > 0
+        ? inputLeasableArea
+        : (floorLeasableTotal > 0 ? floorLeasableTotal : toNumber(questionnaire?.totalArea, 0));
+    const actualVacancyRate = effectiveLeasableArea > 0
         && Number.isFinite(actualOccupiedArea)
-        ? getVacancyRate(actualOccupiedArea, floorLeasableTotal)
+        ? getVacancyRate(actualOccupiedArea, effectiveLeasableArea)
         : null;
-    const fallbackLeasableArea =
-        toNumber(questionnaire?.leasableArea, 0) || toNumber(questionnaire?.totalArea, 0);
-    const actualVacancyRateFallback = fallbackLeasableArea > 0
-        && Number.isFinite(actualOccupiedArea)
-        ? getVacancyRate(actualOccupiedArea, fallbackLeasableArea)
-        : null;
-    const actualVacancyRate = actualVacancyRateFromFloors ?? actualVacancyRateFallback;
     const selectedMarketRentFirst = manualOverrideApplied
         ? manualOverrideRate
         : marketRentAnalysis.marketRentFirst;
@@ -2812,7 +2713,7 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
     const landShare = toNumber(landDetails.share, 0);
     const subjectContext = {
         ...questionnaire,
-        leasableArea: floorLeasableTotal > 0 ? floorLeasableTotal : fallbackLeasableArea,
+        leasableArea: effectiveLeasableArea,
         occupiedArea: Number.isFinite(actualOccupiedArea) ? actualOccupiedArea : questionnaire?.occupiedArea,
     };
     const vacancyResult = calculateVacancyRate({
@@ -2927,6 +2828,7 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
         });
     } else {
         const vacancyRateUsed = vacancyResult.rate;
+        const fallbackLeasableArea = effectiveLeasableArea || toNumber(questionnaire?.totalArea, 0);
 
         const pgi = calculatePGI(fallbackLeasableArea, selectedMarketRentFirst);
         const egi = calculateEGI(pgi, vacancyRateUsed);
@@ -3016,7 +2918,7 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
         sampleSizeLevel: marketRentAnalysis.sampleSizeLevel,
         stabilityFlag: marketRentAnalysis.stabilityFlag,
         floorDetails,
-        leasableArea: formulaResult.leasableAreaTotal,
+        leasableArea: round2(effectiveLeasableArea > 0 ? effectiveLeasableArea : formulaResult.leasableAreaTotal),
         occupiedArea: Number.isFinite(actualOccupiedArea) ? actualOccupiedArea : 0,
         vacancyRate: formulaResult.vacancyRate,
         vacancyRatePercent: formulaResult.vacancyRatePercent,

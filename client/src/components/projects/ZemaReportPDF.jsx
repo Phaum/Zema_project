@@ -270,7 +270,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
                 <tr><td><strong>Территориальная зона</strong></td><td>${territorialZone}</td></tr>
                 <tr><td><strong>Ближайшее окружение (600 м)</strong></td><td>${translateEnvCategory(nearbyEnvironment)}</td></tr>
               </table>
-              ${mapImageUrl ? `<img src="${mapImageUrl}" class="map-image">` : '<p>Карта не загружена</p>'}
+              ${mapImageUrl ? `<img src="${mapImageUrl}" class="map-image">` : ''}
             </div>
             ${footer}
           </div>
@@ -284,7 +284,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
               <div class="section-title">ОБЪЕКТЫ-АНАЛОГИ, ВЗЯТЫЕ В РАСЧЕТ</div>
               ${renderComparablesTable()}
               <p style="margin-top:8px"><strong>Средневзвешенная ставка:</strong> ${formatNumber(marketAverageRate)} руб./м² (диапазон: ${formatNumber(marketRateMin)} – ${formatNumber(marketRateMax)})</p>
-              ${comparablesMapImageUrl ? `<img src="${comparablesMapImageUrl}" class="map-image">` : '<p>Карта не загружена</p>'}
+              ${comparablesMapImageUrl ? `<img src="${comparablesMapImageUrl}" class="map-image">` : ''}
             </div>
             ${footer}
           </div>

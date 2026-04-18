@@ -135,6 +135,15 @@
     flex: 0 0 auto;
 }
 
+.questionnaire-cadastral-input .ant-input-group-addon {
+    padding: 0;
+}
+
+.questionnaire-cadastral-input .questionnaire-cadastral-fill-btn {
+    height: 100%;
+    border-radius: 0 6px 6px 0;
+}
+
 .questionnaire-map-picker-item {
     margin-bottom: 16px;
 }

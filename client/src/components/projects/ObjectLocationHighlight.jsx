@@ -3,13 +3,25 @@ import { GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
 import api from './api';
 
-const addressGeometryCache = new Map();
+const objectGeometryCache = new Map();
 
 function normalizeAddressKey(address) {
     return `v2:${String(address || '')
         .trim()
         .replace(/\s+/g, ' ')
         .toLowerCase()}`;
+}
+
+function hasValidMapCoords(lat, lng) {
+    return Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+}
+
+function normalizePointKey(point) {
+    if (!hasValidMapCoords(point?.lat, point?.lng)) {
+        return '';
+    }
+
+    return `coords:v1:${Number(point.lat).toFixed(6)}:${Number(point.lng).toFixed(6)}`;
 }
 
 function normalizeBounds(bounds) {
@@ -80,10 +92,54 @@ export function buildLeafletBoundsFromAddressGeometry(geometry) {
     return bounds.isValid() ? bounds : null;
 }
 
-export function useAddressGeometry(address) {
-    const normalizedKey = useMemo(() => normalizeAddressKey(address), [address]);
+function normalizeGeometryResponse(data, { address = '', point = null, source = null } = {}) {
+    return {
+        geojson: data?.geojson || null,
+        bounds: data?.bounds || null,
+        lat: Number.isFinite(Number(data?.lat))
+            ? Number(data.lat)
+            : (hasValidMapCoords(point?.lat, point?.lng) ? Number(point.lat) : null),
+        lng: Number.isFinite(Number(data?.lng))
+            ? Number(data.lng)
+            : (hasValidMapCoords(point?.lat, point?.lng) ? Number(point.lng) : null),
+        address: data?.address || data?.displayName || address || '',
+        source,
+    };
+}
+
+async function loadGeometryByAddress(address) {
+    const { data } = await api.get('/geo/geocode', {
+        params: { address },
+    });
+
+    return normalizeGeometryResponse(data, {
+        address,
+        source: 'address',
+    });
+}
+
+async function loadGeometryByPoint(point, address = '') {
+    const { data } = await api.get('/geo/reverse', {
+        params: {
+            lat: Number(point.lat),
+            lng: Number(point.lng),
+        },
+    });
+
+    return normalizeGeometryResponse(data, {
+        address,
+        point,
+        source: 'coords',
+    });
+}
+
+export function useObjectGeometry({ address, point = null, preferPoint = true } = {}) {
+    const pointKey = useMemo(() => normalizePointKey(point), [point]);
+    const addressKey = useMemo(() => normalizeAddressKey(address), [address]);
+    const primaryKey = preferPoint && pointKey ? pointKey : addressKey;
+
     const [state, setState] = useState(() => {
-        if (!normalizedKey || !addressGeometryCache.has(normalizedKey)) {
+        if (!primaryKey || !objectGeometryCache.has(primaryKey)) {
             return {
                 loading: false,
                 data: null,
@@ -92,12 +148,12 @@ export function useAddressGeometry(address) {
 
         return {
             loading: false,
-            data: addressGeometryCache.get(normalizedKey),
+            data: objectGeometryCache.get(primaryKey),
         };
     });
 
     useEffect(() => {
-        if (!normalizedKey) {
+        if (!primaryKey) {
             setState({
                 loading: false,
                 data: null,
@@ -105,10 +161,10 @@ export function useAddressGeometry(address) {
             return undefined;
         }
 
-        if (addressGeometryCache.has(normalizedKey)) {
+        if (objectGeometryCache.has(primaryKey)) {
             setState({
                 loading: false,
-                data: addressGeometryCache.get(normalizedKey),
+                data: objectGeometryCache.get(primaryKey),
             });
             return undefined;
         }
@@ -122,19 +178,23 @@ export function useAddressGeometry(address) {
                     loading: true,
                 }));
 
-                const { data } = await api.get('/geo/geocode', {
-                    params: { address },
-                });
+                let normalizedData = null;
 
-                const normalizedData = {
-                    geojson: data?.geojson || null,
-                    bounds: data?.bounds || null,
-                    lat: Number(data?.lat),
-                    lng: Number(data?.lng),
-                    address: data?.address || data?.displayName || address,
-                };
+                if (preferPoint && pointKey) {
+                    try {
+                        normalizedData = await loadGeometryByPoint(point, address);
+                    } catch {
+                        normalizedData = null;
+                    }
+                }
 
-                addressGeometryCache.set(normalizedKey, normalizedData);
+                if (!normalizedData && addressKey) {
+                    normalizedData = await loadGeometryByAddress(address);
+                }
+
+                if (normalizedData) {
+                    objectGeometryCache.set(primaryKey, normalizedData);
+                }
 
                 if (!cancelled) {
                     setState({
@@ -157,9 +217,13 @@ export function useAddressGeometry(address) {
         return () => {
             cancelled = true;
         };
-    }, [address, normalizedKey]);
+    }, [address, addressKey, point, pointKey, preferPoint, primaryKey]);
 
     return state;
+}
+
+export function useAddressGeometry(address) {
+    return useObjectGeometry({ address, preferPoint: false });
 }
 
 export function ObjectLocationHighlight({

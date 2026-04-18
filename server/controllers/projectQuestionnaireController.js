@@ -1,6 +1,7 @@
 import { ProjectQuestionnaire, ValuationProject } from '../models/index.js';
 import {
     enrichQuestionnaireData,
+    sanitizeAutoFilledLeasableArea,
     sanitizeAutoFilledTotalOksAreaOnLand,
 } from '../services/questionnaireEnrichmentService.js';
 
@@ -10,9 +11,17 @@ function toNumberOrNull(value) {
     return Number.isFinite(num) ? num : null;
 }
 
+function toOptionalNumberOrNull(value) {
+    return value === undefined ? undefined : toNumberOrNull(value);
+}
+
 function toIntegerOrNull(value) {
     const num = toNumberOrNull(value);
     return Number.isFinite(num) ? Math.trunc(num) : null;
+}
+
+function toOptionalIntegerOrNull(value) {
+    return value === undefined ? undefined : toIntegerOrNull(value);
 }
 
 function toBooleanOrNull(value) {
@@ -32,6 +41,12 @@ function pickFirst(...values) {
         if (value !== undefined) return value;
     }
     return undefined;
+}
+
+function omitUndefinedEntries(value) {
+    return Object.fromEntries(
+        Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
+    );
 }
 
 function normalizeFieldSourceHints(value) {
@@ -77,7 +92,9 @@ function normalizeOutgoing(row) {
         fieldSourceHints: normalizeFieldSourceHints(plain.fieldSourceHints) || {},
     };
 
-    return sanitizeAutoFilledTotalOksAreaOnLand(normalized).questionnaire;
+    return sanitizeAutoFilledTotalOksAreaOnLand(
+        sanitizeAutoFilledLeasableArea(normalized).questionnaire
+    ).questionnaire;
 }
 
 function stripQuestionnaireMeta(payload = {}) {
@@ -112,141 +129,138 @@ function buildQuestionnairePayload(body = {}, project = {}) {
     const payload = {
         project_id: project.id,
 
-        projectName: pickFirst(body.projectName, project.name),
-        calculationMethod: pickFirst(body.calculationMethod, 'market'),
-        buildingCadastralNumber: pickFirst(body.buildingCadastralNumber, null),
-        valuationDate: pickFirst(body.valuationDate, null),
-        objectType: pickFirst(body.objectType, null),
-        actualUse: pickFirst(body.actualUse, null),
-        businessCenterClass: pickFirst(body.businessCenterClass, null),
+        projectName: pickFirst(body.projectName),
+        calculationMethod: pickFirst(body.calculationMethod),
+        buildingCadastralNumber: pickFirst(body.buildingCadastralNumber),
+        valuationDate: pickFirst(body.valuationDate),
+        objectType: pickFirst(body.objectType),
+        actualUse: pickFirst(body.actualUse),
+        businessCenterClass: pickFirst(body.businessCenterClass),
 
-        averageRentalRate: toNumberOrNull(
-            pickFirst(body.averageRentalRate, body.average_rental_rate, null)
+        averageRentalRate: toOptionalNumberOrNull(
+            pickFirst(body.averageRentalRate, body.average_rental_rate)
         ),
 
-        mapPointLat: toNumberOrNull(
-            pickFirst(body.mapPointLat, body.map_point_lat, null)
+        mapPointLat: toOptionalNumberOrNull(
+            pickFirst(body.mapPointLat, body.map_point_lat)
         ),
-        mapPointLng: toNumberOrNull(
-            pickFirst(body.mapPointLng, body.map_point_lng, null)
-        ),
-
-        objectAddress: pickFirst(body.objectAddress, body.object_address, null),
-        addressConfirmed: Boolean(pickFirst(body.addressConfirmed, body.address_confirmed, false)),
-        district: pickFirst(body.district, null),
-        nearestMetro: pickFirst(body.nearestMetro, body.nearest_metro, null),
-
-        metroDistance: toNumberOrNull(
-            pickFirst(body.metroDistance, body.metro_distance, null)
+        mapPointLng: toOptionalNumberOrNull(
+            pickFirst(body.mapPointLng, body.map_point_lng)
         ),
 
-        cadCost: toNumberOrNull(
-            pickFirst(body.cadCost, body.cad_cost, null)
+        objectAddress: pickFirst(body.objectAddress, body.object_address),
+        addressConfirmed: pickFirst(body.addressConfirmed, body.address_confirmed) !== undefined
+            ? Boolean(pickFirst(body.addressConfirmed, body.address_confirmed))
+            : undefined,
+        district: pickFirst(body.district),
+        nearestMetro: pickFirst(body.nearestMetro, body.nearest_metro),
+
+        metroDistance: toOptionalNumberOrNull(
+            pickFirst(body.metroDistance, body.metro_distance)
         ),
 
-        permittedUse: pickFirst(body.permittedUse, body.permitted_use, null),
-
-        totalArea: toNumberOrNull(
-            pickFirst(body.totalArea, body.total_area, null)
+        cadCost: toOptionalNumberOrNull(
+            pickFirst(body.cadCost, body.cad_cost)
         ),
 
-        constructionYear: toIntegerOrNull(
-            pickFirst(body.constructionYear, body.construction_year, null)
+        permittedUse: pickFirst(body.permittedUse, body.permitted_use),
+
+        totalArea: toOptionalNumberOrNull(
+            pickFirst(body.totalArea, body.total_area)
         ),
 
-        aboveGroundFloors: toIntegerOrNull(
-            pickFirst(body.aboveGroundFloors, body.above_ground_floors, null)
+        constructionYear: toOptionalIntegerOrNull(
+            pickFirst(body.constructionYear, body.construction_year)
         ),
 
-        hasBasementFloor: pickFirst(body.hasBasementFloor, body.has_basement_floor, null),
-
-        undergroundFloors: toIntegerOrNull(
-            pickFirst(body.undergroundFloors, body.underground_floors, null)
+        aboveGroundFloors: toOptionalIntegerOrNull(
+            pickFirst(body.aboveGroundFloors, body.above_ground_floors)
         ),
 
-        landCadastralNumber: pickFirst(body.landCadastralNumber, body.land_cadastral_number, null),
+        hasBasementFloor: pickFirst(body.hasBasementFloor, body.has_basement_floor),
 
-        landArea: toNumberOrNull(
-            pickFirst(body.landArea, body.land_area, null)
+        undergroundFloors: toOptionalIntegerOrNull(
+            pickFirst(body.undergroundFloors, body.underground_floors)
         ),
 
-        hasPrepayment: pickFirst(body.hasPrepayment, body.has_prepayment, null),
-        hasSecurityDeposit: pickFirst(body.hasSecurityDeposit, body.has_security_deposit, null),
+        landCadastralNumber: pickFirst(body.landCadastralNumber, body.land_cadastral_number),
 
-        leasableArea: toNumberOrNull(
-            pickFirst(body.leasableArea, body.leasable_area, null)
+        landArea: toOptionalNumberOrNull(
+            pickFirst(body.landArea, body.land_area)
         ),
 
-        occupancyRate: toNumberOrNull(
-            pickFirst(body.occupancyRate, body.occupancy_rate, null)
+        hasPrepayment: pickFirst(body.hasPrepayment, body.has_prepayment),
+        hasSecurityDeposit: pickFirst(body.hasSecurityDeposit, body.has_security_deposit),
+
+        leasableArea: toOptionalNumberOrNull(
+            pickFirst(body.leasableArea, body.leasable_area)
         ),
 
-        occupiedArea: toNumberOrNull(
-            pickFirst(body.occupiedArea, body.occupied_area, null)
+        occupancyRate: toOptionalNumberOrNull(
+            pickFirst(body.occupancyRate, body.occupancy_rate)
         ),
 
-        nspdBuildingLoaded: Boolean(
-            pickFirst(body.nspdBuildingLoaded, body.nspd_building_loaded, false)
+        occupiedArea: toOptionalNumberOrNull(
+            pickFirst(body.occupiedArea, body.occupied_area)
         ),
 
-        nspdLandLoaded: Boolean(
-            pickFirst(body.nspdLandLoaded, body.nspd_land_loaded, false)
+        nspdBuildingLoaded: pickFirst(body.nspdBuildingLoaded, body.nspd_building_loaded) !== undefined
+            ? Boolean(pickFirst(body.nspdBuildingLoaded, body.nspd_building_loaded))
+            : undefined,
+
+        nspdLandLoaded: pickFirst(body.nspdLandLoaded, body.nspd_land_loaded) !== undefined
+            ? Boolean(pickFirst(body.nspdLandLoaded, body.nspd_land_loaded))
+            : undefined,
+
+        marketClassResolved: pickFirst(body.marketClassResolved, body.market_class_resolved),
+
+        floors: Array.isArray(body.floors) ? body.floors : undefined,
+
+        landCadCost: toOptionalNumberOrNull(
+            pickFirst(body.landCadCost, body.land_cad_cost)
         ),
 
-        marketClassResolved: pickFirst(body.marketClassResolved, body.market_class_resolved, null),
-
-        floors: Array.isArray(body.floors) ? body.floors : [],
-
-        landCadCost: toNumberOrNull(
-            pickFirst(body.landCadCost, body.land_cad_cost, null)
-        ),
-
-        totalOksAreaOnLand: toNumberOrNull(
-            pickFirst(body.totalOksAreaOnLand, body.total_oks_area_on_land, null)
+        totalOksAreaOnLand: toOptionalNumberOrNull(
+            pickFirst(body.totalOksAreaOnLand, body.total_oks_area_on_land)
         ),
 
         referenceFloorCategory: pickFirst(
             body.referenceFloorCategory,
             body.reference_floor_category,
-            null
         ),
 
-        isHistoricalCenter: toBooleanOrNull(
-            pickFirst(
-                body.isHistoricalCenter,
-                body.is_historical_center,
-                null
+        isHistoricalCenter: pickFirst(body.isHistoricalCenter, body.is_historical_center) !== undefined
+            ? toBooleanOrNull(
+                pickFirst(
+                    body.isHistoricalCenter,
+                    body.is_historical_center
+                )
             )
-        ),
+            : undefined,
 
         zoneCode: pickFirst(
             body.zoneCode,
-            body.zone_code,
-            null
+            body.zone_code
         ),
 
         terZone: pickFirst(
             body.terZone,
-            body.ter_zone,
-            null
+            body.ter_zone
         ),
 
         environmentCategory1: pickFirst(
             body.environmentCategory1,
-            body.environment_category_1,
-            null
+            body.environment_category_1
         ),
 
         environmentCategory2: pickFirst(
             body.environmentCategory2,
-            body.environment_category_2,
-            null
+            body.environment_category_2
         ),
 
         environmentCategory3: pickFirst(
             body.environmentCategory3,
-            body.environment_category_3,
-            null
+            body.environment_category_3
         ),
     };
 
@@ -255,7 +269,7 @@ function buildQuestionnairePayload(body = {}, project = {}) {
         payload.fieldSourceHints = fieldSourceHints;
     }
 
-    return payload;
+    return omitUndefinedEntries(payload);
 }
 
 export const getProjectQuestionnaire = async (req, res) => {
@@ -304,12 +318,13 @@ export const saveProjectQuestionnaire = async (req, res) => {
             forceRefresh: Boolean(req.body.forceRefresh),
         });
 
+        const nextQuestionnairePayload = enrichment.questionnaire;
         let questionnaire = existingQuestionnaire;
 
         if (questionnaire) {
-            await questionnaire.update(stripQuestionnaireMeta(enrichment.questionnaire));
+            await questionnaire.update(stripQuestionnaireMeta(nextQuestionnairePayload));
         } else {
-            questionnaire = await ProjectQuestionnaire.create(stripQuestionnaireMeta(enrichment.questionnaire));
+            questionnaire = await ProjectQuestionnaire.create(stripQuestionnaireMeta(nextQuestionnairePayload));
         }
 
         await project.update({
@@ -365,16 +380,17 @@ export const enrichProjectQuestionnaire = async (req, res) => {
             forceRefresh: Boolean(req.body.forceRefresh),
         });
 
+        const nextQuestionnairePayload = enrichment.questionnaire;
         let questionnaire = existingQuestionnaire;
 
         if (questionnaire) {
-            await questionnaire.update(stripQuestionnaireMeta(enrichment.questionnaire));
+            await questionnaire.update(stripQuestionnaireMeta(nextQuestionnairePayload));
             questionnaire = await questionnaire.reload();
         }
 
         res.json({
             success: true,
-            questionnaire: normalizeOutgoing(questionnaire || enrichment.questionnaire),
+            questionnaire: normalizeOutgoing(questionnaire || nextQuestionnairePayload),
             enrichment: {
                 autoFilledFields: enrichment.autoFilledFields,
                 sourceHints: enrichment.sourceHints,

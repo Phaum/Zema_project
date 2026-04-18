@@ -251,3 +251,81 @@ test('buildCalculationBreakdown keeps rent diagnostics and source labels human-r
     assert.ok(rentMethodology?.facts?.includes('Исключено из итоговой ставки: 6'));
     assert.equal(landSource?.sourceLabel, 'История анкет по объекту');
 });
+
+test('buildCalculationBreakdown hides correction lines for quarter-based cap, vacancy and opex profiles', () => {
+    const breakdown = buildCalculationBreakdown(
+        {
+            totalArea: 1000,
+            district: 'Приморский',
+            calculationMethod: 'actual_market',
+            leasableArea: 1000,
+            occupiedArea: 952.5,
+        },
+        {},
+        {
+            marketRentMonth: 1500,
+            marketRentYear: 18000,
+            marketRentFirst: 1500,
+            marketRentSecond: 1545,
+            marketRentThirdPlus: 1470,
+            correctedRateMin: 1527.08,
+            correctedRateMedian: 1700,
+            correctedRateMax: 1919.55,
+            correctedRateStdDev: 120,
+            correctedRateIQR: 80,
+            rentCalculationMode: 'stable_default',
+            rentalRateSelectionMethod: 'stable_trimmed_mean',
+            analogsInitialCount: 5,
+            analogsUsedCount: 5,
+            analogsExcludedCount: 0,
+            leasableArea: 1000,
+            occupiedArea: 952.5,
+            vacancyRate: 0.0475,
+            vacancyRatePercent: 4.75,
+            vacancyRateSource: 'factual',
+            vacancyRateSourceLabel: 'Фактическая незаполняемость ниже квартального рыночного профиля (1 кв. 2025)',
+            baseVacancyRate: 0.09,
+            vacancyAdjustments: [],
+            pgi: 18000000,
+            egi: 17145000,
+            opex: 3600450,
+            opexRate: 0.21,
+            opexRateSource: 'quarter_profile',
+            opexRateReasoning: 'Квартальный рыночный профиль операционных расходов (1 кв. 2025)',
+            baseOpexRate: 0.21,
+            opexAdjustments: [],
+            noi: 13544550,
+            capitalizationRate: 0.10,
+            capitalizationRateSource: 'quarter_profile',
+            capitalizationRateSourceLabel: 'Квартальный рыночный профиль капитализации (1 кв. 2025)',
+            baseCapitalizationRate: 0.10,
+            capitalizationAdjustments: [],
+            valueTotal: 135445500,
+            landShare: 1000000,
+            finalValue: 134445500,
+            pricePerM2: 134445.5,
+            actualVacancyRate: 0.0475,
+            reliabilityDetails: {
+                score: 80,
+                note: 'Тестовая уверенность',
+                factors: [],
+                components: {},
+            },
+            assumptions: [],
+        }
+    );
+
+    const rentBlock = breakdown.methodology.blocks.find((block) => block.key === 'rent');
+    const vacancyBlock = breakdown.methodology.blocks.find((block) => block.key === 'vacancy');
+    const capBlock = breakdown.methodology.blocks.find((block) => block.key === 'cap-rate');
+    const opexBlock = breakdown.methodology.blocks.find((block) => block.key === 'opex');
+
+    assert.ok(rentBlock);
+    assert.ok(vacancyBlock);
+    assert.ok(capBlock);
+    assert.ok(opexBlock);
+    assert.equal(rentBlock.facts.some((item) => /Диапазон скорректированных ставок/i.test(String(item))), false);
+    assert.equal(vacancyBlock.facts.some((item) => /Корректировки/i.test(String(item))), false);
+    assert.equal(capBlock.facts.some((item) => /Корректировки|Разброс скорректированных ставок/i.test(String(item))), false);
+    assert.equal(opexBlock.facts.some((item) => /Корректировки/i.test(String(item))), false);
+});

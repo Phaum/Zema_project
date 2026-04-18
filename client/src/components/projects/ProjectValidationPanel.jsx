@@ -9,7 +9,7 @@ import {
     buildLeafletBoundsFromAddressGeometry,
     hasRenderableAddressGeometry,
     ObjectLocationHighlight,
-    useAddressGeometry,
+    useObjectGeometry,
 } from './ObjectLocationHighlight';
 
 const { Text } = Typography;
@@ -82,12 +82,16 @@ function ValidationObjectMapBounds({ point, highlightBounds }) {
 }
 
 function ValidationObjectMap({ point, cadastralNumber, objectAddress }) {
-    const { data: addressGeometry } = useAddressGeometry(objectAddress);
+    const { data: objectGeometry } = useObjectGeometry({
+        address: objectAddress,
+        point,
+        preferPoint: true,
+    });
     const highlightBounds = useMemo(
-        () => buildLeafletBoundsFromAddressGeometry(addressGeometry),
-        [addressGeometry]
+        () => buildLeafletBoundsFromAddressGeometry(objectGeometry),
+        [objectGeometry]
     );
-    const hasObjectGeometry = hasRenderableAddressGeometry(addressGeometry);
+    const hasObjectGeometry = hasRenderableAddressGeometry(objectGeometry);
     const fallbackCenter = point ? [point.lat, point.lng] : [59.9386, 30.3141];
 
     return (
@@ -108,7 +112,7 @@ function ValidationObjectMap({ point, cadastralNumber, objectAddress }) {
                 />
                 <ValidationObjectMapBounds point={point} highlightBounds={highlightBounds} />
                 <ObjectLocationHighlight
-                    geometry={addressGeometry}
+                    geometry={objectGeometry}
                     color="#c026d3"
                     fillColor="#d946ef"
                 />
@@ -281,7 +285,7 @@ export default function ProjectValidationPanel({
                             />
                             {q?.objectAddress && (
                                 <Text type="secondary">
-                                    Контур объекта дополнительно подсвечен по подтянутому адресу, чтобы можно было проверить точность точки на карте.
+                                    Контур объекта определяется по текущей точке на карте. Адрес используется только как резервный источник, если по координатам геометрия не нашлась.
                                 </Text>
                             )}
                         </>

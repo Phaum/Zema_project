@@ -279,12 +279,12 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
                 title: 'Определение рыночной ставки аренды',
                 formula: manualOverrideApplied
                     ? 'Ручной override ставки аренды с сохранением рыночного ориентира по аналогам'
-                    : `${humanizeRentalSelectionMethod(rentDiagnostics.rentSelectionMethod)} по скорректированным ставкам аналогов`,
+                    : `${humanizeRentalSelectionMethod(rentDiagnostics.rentSelectionMethod)} по ставкам аналогов`,
                 result: round2(marketRentFirst),
                 unit: '₽/м²/мес',
                 explanation: manualOverrideApplied
                     ? `Использован ручной override ${formatMoney(marketRentFirst)} ₽/м²/мес. Рыночный ориентир по аналогам составил ${formatMoney(toNumber(calculation.marketDerivedRentFirst, marketRentFirst))} ₽/м²/мес.`
-                    : `Собрано ${selectedComparableCount} релевантных аналогов после дедупликации и scoring relevance. Для каждого аналога ставка корректируется по дате, площади, метро, классу, локации, году, этажу и масштабу, после чего применяется режим ${humanizeRentCalculationMode(rentDiagnostics.rentCalculationMode).toLowerCase()}. В итог вошло ${rentDiagnostics.analogsUsedCount || comparableCount}, исключено ${rentDiagnostics.analogsExcludedCount || excludedComparableCount}.`,
+                    : `Собрано ${selectedComparableCount} релевантных аналогов после дедупликации и scoring relevance. Для каждого аналога рассчитывается сопоставимая ставка, после чего применяется режим ${humanizeRentCalculationMode(rentDiagnostics.rentCalculationMode).toLowerCase()}. В итог вошло ${rentDiagnostics.analogsUsedCount || comparableCount}, исключено ${rentDiagnostics.analogsExcludedCount || excludedComparableCount}.`,
                 calculation: manualOverrideApplied
                     ? `Ручной override = ${formatPlain(marketRentFirst)} ₽/м²/мес`
                     : `min ${formatPlain(rentDiagnostics.correctedRateMin)} / median ${formatPlain(rentDiagnostics.correctedRateMedian)} / max ${formatPlain(rentDiagnostics.correctedRateMax)} ₽/м²; std dev = ${formatPlain(rentDiagnostics.correctedRateStdDev)}; IQR = ${formatPlain(rentDiagnostics.correctedRateIQR)}; метод = ${rentDiagnostics.rentSelectionMethod}`,
@@ -816,6 +816,8 @@ function humanizeFieldSource(source) {
             return 'Ручной ввод';
         case 'profile':
             return 'Профиль модели';
+        case 'quarter_profile':
+            return 'Квартальный рыночный профиль';
         case 'rule_based_profile':
             return 'Параметрический профиль';
         case 'factual':
@@ -959,6 +961,8 @@ function humanizeRentCalculationMode(mode) {
 
 function humanizeVacancySource(source) {
     switch (source) {
+        case 'quarter_profile':
+            return 'Квартальный рыночный профиль незаполняемости';
         case 'market':
         case 'rule_based_profile':
             return 'Рыночный профиль незаполняемости';
@@ -979,6 +983,8 @@ function humanizeVacancySource(source) {
 
 function humanizeCapitalizationSource(source) {
     switch (source) {
+        case 'quarter_profile':
+            return 'Квартальный рыночный профиль капитализации';
         case 'rule_based_profile':
             return 'Rule-based профиль капитализации';
         case 'fixed':
@@ -990,6 +996,8 @@ function humanizeCapitalizationSource(source) {
 
 function humanizeOpexSource(source) {
     switch (source) {
+        case 'quarter_profile':
+            return 'Квартальный рыночный профиль операционных расходов';
         case 'profile':
         case 'rule_based_profile':
             return 'Параметрический профиль OPEX';
@@ -1102,7 +1110,6 @@ function buildMethodologySummary({
                     `Аналогов до стабилизации: ${toNumber(calculation.analogsInitialCount, marketSnapshot?.analogsInitialCount || selectedComparableCount)}`,
                     `В итоговой ставке использовано: ${toNumber(calculation.analogsUsedCount, marketSnapshot?.analogsUsedCount || comparableCount)}`,
                     `Исключено из итоговой ставки: ${toNumber(calculation.analogsExcludedCount, marketSnapshot?.analogsExcludedCount || excludedComparableCount)}`,
-                    `Диапазон скорректированных ставок: ${formatMoney(toNumber(calculation.correctedRateMin, marketSnapshot?.correctedRateMin || calculation.marketRentMin))} - ${formatMoney(toNumber(calculation.correctedRateMax, marketSnapshot?.correctedRateMax || calculation.marketRentMax))} ₽/м²/мес`,
                     `Разброс: ${calculation.dispersionLevel || marketSnapshot?.dispersionLevel || 'n/a'}, размер выборки: ${calculation.sampleSizeLevel || marketSnapshot?.sampleSizeLevel || 'n/a'}, флаг: ${calculation.stabilityFlag || marketSnapshot?.stabilityFlag || 'n/a'}`,
                     `Итоговая ставка 1-го этажа: ${formatMoney(marketRentFirst)} ₽/м²/мес`,
                 ],
@@ -1115,9 +1122,7 @@ function buildMethodologySummary({
                     Number.isFinite(Number(calculation.baseVacancyRate))
                         ? `Базовое значение: ${formatNumber(Number(calculation.baseVacancyRate) * 100, 2)}%`
                         : null,
-                    Array.isArray(calculation.vacancyAdjustments) && calculation.vacancyAdjustments.length
-                        ? `Корректировки: ${calculation.vacancyAdjustments.map(formatAdjustmentLine).join(', ')}`
-                        : 'Корректировки vacancy не применялись',
+                    calculation.vacancyRateSourceLabel || null,
                     Number.isFinite(Number(calculation.actualVacancyRate))
                         ? `Фактическая vacancy объекта справочно: ${formatNumber(Number(calculation.actualVacancyRate) * 100, 2)}%`
                         : null,
@@ -1131,15 +1136,6 @@ function buildMethodologySummary({
                     Number.isFinite(Number(calculation.baseCapitalizationRate))
                         ? `Базовая ставка: ${formatNumber(Number(calculation.baseCapitalizationRate) * 100, 2)}%`
                         : null,
-                    Array.isArray(calculation.capitalizationAdjustments) && calculation.capitalizationAdjustments.length
-                        ? `Корректировки: ${calculation.capitalizationAdjustments.map(formatAdjustmentLine).join(', ')}`
-                        : 'Корректировки cap rate не применялись',
-                    calculation.capRateBreakdown?.averageAreaRatio
-                        ? `Средний area ratio аналогов: ${formatNumber(calculation.capRateBreakdown.averageAreaRatio, 2)}`
-                        : null,
-                    Number.isFinite(Number(calculation.capRateBreakdown?.dispersionPct))
-                        ? `Разброс скорректированных ставок: ${formatNumber(calculation.capRateBreakdown.dispersionPct, 2)}%`
-                        : null,
                     calculation.capitalizationRateSourceLabel || null,
                 ].filter(Boolean),
             },
@@ -1151,9 +1147,6 @@ function buildMethodologySummary({
                     Number.isFinite(Number(calculation.baseOpexRate))
                         ? `Базовый профиль: ${formatNumber(Number(calculation.baseOpexRate) * 100, 2)}%`
                         : null,
-                    Array.isArray(calculation.opexAdjustments) && calculation.opexAdjustments.length
-                        ? `Корректировки: ${calculation.opexAdjustments.map(formatAdjustmentLine).join(', ')}`
-                        : 'Корректировки OPEX не применялись',
                     calculation.opexRateReasoning || calculation.opexProfileUsed || null,
                 ].filter(Boolean),
             },
@@ -1349,7 +1342,7 @@ function calculateConfidenceDetailed(marketSnapshot, questionnaire, calculation,
 
     if (calculation.dispersionLevel === 'high') {
         score -= 8;
-        factors.push('высокий разброс скорректированных ставок снижает надежность');
+        factors.push('высокий разброс ставок снижает надежность');
     }
 
     if (calculation.stabilityFlag === 'unstable') {
