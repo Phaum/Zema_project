@@ -56,11 +56,16 @@ function buildRequestPayload(req) {
     };
 }
 
-function buildResponsePayload(statusCode, payload) {
+function buildResponsePayload(statusCode, payload, startedAtMs) {
     return {
         statusCode,
+        durationMs: Date.now() - startedAtMs,
         body: sanitizeValue(payload),
     };
+}
+
+function formatLogTime(date = new Date()) {
+    return date.toISOString();
 }
 
 export function attachDebugTransportLogging(req, res) {
@@ -68,8 +73,9 @@ export function attachDebugTransportLogging(req, res) {
         return;
     }
 
+    const startedAtMs = Date.now();
     const label = `[DEBUG USER ${req.user.id}${req.user.email ? ` ${req.user.email}` : ''}]`;
-    console.log(`${label} REQUEST ${JSON.stringify(buildRequestPayload(req))}`);
+    console.log(`${formatLogTime()} ${label} REQUEST ${JSON.stringify(buildRequestPayload(req))}`);
 
     const originalJson = res.json.bind(res);
     const originalSend = res.send.bind(res);
@@ -78,7 +84,7 @@ export function attachDebugTransportLogging(req, res) {
     const logResponseOnce = (payload) => {
         if (responseLogged) return;
         responseLogged = true;
-        console.log(`${label} RESPONSE ${JSON.stringify(buildResponsePayload(res.statusCode, payload))}`);
+        console.log(`${formatLogTime()} ${label} RESPONSE ${JSON.stringify(buildResponsePayload(res.statusCode, payload, startedAtMs))}`);
     };
 
     res.json = (payload) => {

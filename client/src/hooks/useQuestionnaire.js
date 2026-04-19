@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Form, message } from 'antd';
 import dayjs from 'dayjs';
-import { defaultQuestionnaire } from '../utils/questionnaireDefaults';
+import { FIXED_VALUATION_DATE, defaultQuestionnaire } from '../utils/questionnaireDefaults';
 import { normalizeObjectTypeValue } from '../utils/projectQuestionnaire';
 import { api } from '../shared/api';
 
@@ -11,25 +11,21 @@ function normalizeFromServer(data = {}) {
     return {
         ...defaultQuestionnaire,
         ...data,
-        valuationDate: data.valuationDate ? dayjs(data.valuationDate) : null,
+        valuationDate: dayjs(FIXED_VALUATION_DATE),
     };
 }
 
 function prepareForServer(values = {}) {
     return {
         ...values,
-        valuationDate: values.valuationDate
-            ? dayjs(values.valuationDate).format('YYYY-MM-DD')
-            : null,
+        valuationDate: FIXED_VALUATION_DATE,
     };
 }
 
 function prepareForStorage(values = {}) {
     return {
         ...values,
-        valuationDate: values.valuationDate
-            ? dayjs(values.valuationDate).format('YYYY-MM-DD')
-            : null,
+        valuationDate: FIXED_VALUATION_DATE,
     };
 }
 
@@ -71,11 +67,17 @@ export function useQuestionnaire() {
             if (data) {
                 form.setFieldsValue(normalizeFromServer(data));
             } else {
-                form.setFieldsValue(restoreLocalDraft() || defaultQuestionnaire);
+                form.setFieldsValue(restoreLocalDraft() || {
+                    ...defaultQuestionnaire,
+                    valuationDate: dayjs(FIXED_VALUATION_DATE),
+                });
             }
         } catch (error) {
             console.error('Не удалось загрузить анкету', error);
-            form.setFieldsValue(restoreLocalDraft() || defaultQuestionnaire);
+            form.setFieldsValue(restoreLocalDraft() || {
+                ...defaultQuestionnaire,
+                valuationDate: dayjs(FIXED_VALUATION_DATE),
+            });
         } finally {
             setQuestionnaireLoading(false);
         }
@@ -109,7 +111,10 @@ export function useQuestionnaire() {
     }, [form, persistDraftLocally]);
 
     const clearQuestionnaire = useCallback(() => {
-        form.setFieldsValue(defaultQuestionnaire);
+        form.setFieldsValue({
+            ...defaultQuestionnaire,
+            valuationDate: dayjs(FIXED_VALUATION_DATE),
+        });
         localStorage.removeItem(QUESTIONNAIRE_STORAGE_KEY);
         message.success('Черновик очищен');
     }, [form]);

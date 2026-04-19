@@ -561,6 +561,7 @@ function normalizeFloorInputRows(rows = []) {
         area: toNumber(row.area, 0),
         leasableArea: toNumber(row.leasableArea, 0),
         avgLeasableRoomArea: toNumber(row.avgLeasableRoomArea, 0),
+        premisesPurpose: row.premisesPurpose || row.purpose || '',
         occupiedArea: toNumber(row.occupiedArea, 0),
         monthlyRate: toNumber(row.monthlyRate, 0),
         annualIncome: toNumber(row.annualIncome, 0),

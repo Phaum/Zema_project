@@ -313,20 +313,23 @@ async function resolveComparableMetroDistanceKm(row) {
         return null;
     }
 
-    try {
-        const stationDistance = await calculateMetroDistanceToStation({
-            stationName: row?.station_name,
-            lat: coords.lat,
-            lon: coords.lon,
-            address: row?.address,
-            city: 'Санкт-Петербург',
-        });
-        const namedDistanceKm = normalizeMetroDistanceKm(stationDistance?.distance);
-        if (Number.isFinite(namedDistanceKm)) {
-            return namedDistanceKm;
+    if (hasMeaningfulValue(row?.station_name)) {
+        try {
+            const stationDistance = await calculateMetroDistanceToStation({
+                stationName: row?.station_name,
+                lat: coords.lat,
+                lon: coords.lon,
+                address: row?.address,
+                city: 'Санкт-Петербург',
+                preferWalkingRoute: false,
+            });
+            const namedDistanceKm = normalizeMetroDistanceKm(stationDistance?.distance);
+            if (Number.isFinite(namedDistanceKm)) {
+                return namedDistanceKm;
+            }
+        } catch (error) {
+            console.warn('Не удалось определить дистанцию до метро по названию станции для аналога', row?.id, error?.message || error);
         }
-    } catch (error) {
-        console.warn('Не удалось определить дистанцию до метро по названию станции для аналога', row?.id, error?.message || error);
     }
 
     try {
@@ -335,6 +338,7 @@ async function resolveComparableMetroDistanceKm(row) {
             lon: coords.lon,
             address: row?.address || 'Санкт-Петербург',
             city: 'Санкт-Петербург',
+            preferWalkingRoute: false,
         });
 
         return normalizeMetroDistanceKm(nearestMetro?.distance);

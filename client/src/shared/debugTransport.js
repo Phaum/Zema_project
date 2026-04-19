@@ -36,10 +36,17 @@ function sanitizePayload(value, depth = 0) {
     return value;
 }
 
+function buildLogMeta() {
+    return {
+        time: new Date().toISOString(),
+    };
+}
+
 export function logClientRequest(namespace, config) {
     if (!isDebugEnabled()) return;
 
     console.log(`[DEBUG CLIENT ${namespace}] REQUEST`, {
+        ...buildLogMeta(),
         method: config?.method,
         url: config?.url,
         params: sanitizePayload(config?.params),
@@ -51,6 +58,7 @@ export function logClientResponse(namespace, response) {
     if (!isDebugEnabled()) return;
 
     console.log(`[DEBUG CLIENT ${namespace}] RESPONSE`, {
+        ...buildLogMeta(),
         status: response?.status,
         url: response?.config?.url,
         data: sanitizePayload(response?.data),
@@ -61,6 +69,7 @@ export function logClientError(namespace, error) {
     if (!isDebugEnabled()) return;
 
     console.log(`[DEBUG CLIENT ${namespace}] ERROR`, {
+        ...buildLogMeta(),
         status: error?.response?.status,
         url: error?.config?.url,
         data: sanitizePayload(error?.response?.data),

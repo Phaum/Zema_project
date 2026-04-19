@@ -102,6 +102,27 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
         setActiveStep(1);
     };
 
+    const handleQuestionnaireChanged = useCallback((questionnaire) => {
+        if (!questionnaire) {
+            return;
+        }
+
+        setProject((currentProject) => {
+            if (!currentProject) {
+                return currentProject;
+            }
+
+            return {
+                ...currentProject,
+                questionnaire: {
+                    ...(currentProject.questionnaire || {}),
+                    ...questionnaire,
+                },
+            };
+        });
+        onProjectChanged?.();
+    }, [onProjectChanged]);
+
     const handleCalculated = async () => {
         await loadProject();
         onProjectChanged?.();
@@ -151,6 +172,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                                 projectId={projectId}
                                 project={project}
                                 onSaved={handleQuestionnaireSaved}
+                                onChanged={handleQuestionnaireChanged}
                             />
                         )}
 

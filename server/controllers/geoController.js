@@ -317,14 +317,25 @@ export const reverseGeocode = async (req, res) => {
 };
 
 export const geocode = async (req, res) => {
+    const address = req.query.address || req.query.q;
+
     try {
-        const address = req.query.address || req.query.q;
         const result = await geocodeByAddress(address);
         res.json(result);
     } catch (error) {
         console.error('Ошибка geocoding:', error?.response?.data || error.message);
-        res.status(500).json({
-            error: 'Не удалось определить координаты по адресу',
+
+        res.json({
+            lat: null,
+            lng: null,
+            displayName: normalizeText(address),
+            address: normalizeText(address),
+            bounds: null,
+            geojson: null,
+            raw: {
+                status: 'not_found',
+                error: error.message || 'Не удалось определить координаты по адресу',
+            },
         });
     }
 };

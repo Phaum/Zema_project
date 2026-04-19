@@ -5,6 +5,8 @@ import { translateEnvironmentCategory } from '../../utils/environmentLabels';
 export const exportZemaReportToPDF = async (projectId, data) => {
   const {
     assessmentDate = 'не указана',
+    calculationDate = null,
+    reportDate: providedReportDate = null,
     objectAddress = 'не указан',
     cadastralNumber = 'не указан',
     totalArea = 0,
@@ -52,6 +54,8 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     quarterlyChartUrl = null,
     dynamicsChartUrl = null,
   } = data;
+
+  const reportDate = providedReportDate || calculationDate || new Date().toISOString();
 
   const formatNumber = (num, digits = 2) => {
     if (num === undefined || num === null || isNaN(num)) return '0';
@@ -153,13 +157,14 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     if (!floors.length) return '<p>Нет данных</p>';
     return `
       <table class="data-table">
-        <thead><tr><th>Этаж</th><th>Площадь, м²</th><th>Арендопригодная, м²</th><th>Ср. площадь помещения, м²</th></tr></thead>
+        <thead><tr><th>Этаж</th><th>Площадь, м²</th><th>Арендопригодная, м²</th><th>Ср. площадь помещения, м²</th><th>Назначение помещений</th></tr></thead>
         <tbody>
           ${floors.map(f => `<tr>
             <td>${f.floorLocation || f.name || '—'}</td>
             <td>${formatNumber(f.area)}</td>
             <td>${formatNumber(f.leasableArea)}</td>
             <td>${formatNumber(f.avgRoomArea)}</td>
+            <td>${f.premisesPurpose || f.purpose || '—'}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -207,7 +212,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
         <div class="report-meta">Платформа рыночной экспресс-оценки<br>коммерческой недвижимости | zema.codeak.ru</div>
       </div>
     `;
-    const footer = `<div class="footer">ЗЕМА — платформа рыночной экспресс-оценки коммерческой недвижимости | zema.codeak.ru</div>`;
+    const footer = '<div class="footer">ЗЕМА — платформа рыночной экспресс-оценки коммерческой недвижимости | zema.codeak.ru</div>';
 
     switch (pageNumber) {
       case 1:
@@ -215,7 +220,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
           <div class="page">
             ${header}
             <div class="title">ЗАКЛЮЧЕНИЕ</div>
-            <div class="subtitle">от ${formatDate(assessmentDate)}</div>
+            <div class="subtitle">от ${formatDate(reportDate)}</div>
             <div class="section">
               <div class="section-title">РЕЗУЛЬТАТЫ ОЦЕНКИ</div>
               <table class="data-table">
@@ -242,7 +247,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
                 <tr><td style="width:45%"><strong>Дата оценки</strong></td><td>${formatDate(assessmentDate)}</td></tr>
                 <tr><td><strong>Вид объекта</strong></td><td>${objectType}</td></tr>
                 <tr><td><strong>Тип объекта</strong></td><td>${propertyType}</td></tr>
-                <tr><td><strong>Класс БЦ</strong></td><td>${businessClass} ${classConfirmedByRGUD ? '<span style="color:#2c7a4d;">(РГУД)</span>' : ''}</td></tr>
+                <tr><td><strong>Класс БЦ</strong></td><td>${businessClass}</td></tr>
                 <tr><td><strong>Кадастровый номер объекта оценки</strong></td><td>${cadastralNumber}</td></tr>
                 <tr><td><strong>Адрес</strong></td><td>${objectAddress}</td></tr>
                 <tr><td><strong>Завершение строительства / ввод в эксплуатацию</strong></td><td>${yearDisplay}</td></tr>
@@ -265,7 +270,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <div class="section">
               <div class="section-title">СОБРАННЫЕ ДАННЫЕ ОБ ОБЪЕКТЕ</div>
               <div class="photo-placeholder">
-                ${photoUrls.length ? `<img src="${photoUrls[0]}" style="max-width:100%; max-height:240px;">` : '📷 Фото не предоставлены'}
+                ${photoUrls.length ? `<img src="${photoUrls[0]}" style="max-width:100%; max-height:240px;">` : 'Фото не предоставлены'}
               </div>
               <table class="data-table">
                 <tr><td style="width:40%"><strong>Район</strong></td><td>${district}</td></tr>
@@ -366,11 +371,9 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     .subtitle { text-align:center; font-size:13px; color:#666; margin-bottom:20px; }
     .section { margin-bottom:20px; }
     .section-title { font-size:18px; font-weight:700; margin-bottom:10px; border-bottom:1px solid #ccc; color:#1e466e; }
-    /* Обычные таблицы (не аналогов) имеют шрифт 11px */
     .data-table { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:11px; }
     .data-table th { background:#f0f4f8; border:1px solid #aaa; padding:6px 5px; font-weight:700; }
     .data-table td { border:1px solid #aaa; padding:5px; vertical-align:top; }
-    /* Специальный класс для таблицы аналогов — меньший шрифт и отступы, чтобы влезла */
     .comparables-table { font-size:8px; }
     .comparables-table th, .comparables-table td { padding:3px 2px; }
     .value-highlight { font-weight:800; color:#1e466e; }

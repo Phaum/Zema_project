@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Space, Table, Typography, message } from 'antd';
-import dayjs from 'dayjs';
 import L from 'leaflet';
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
 import api from '../../components/projects/api';
 import { getMissingAutoBuildingFields, getQuestionnaireSourceBuckets, hasMeaningfulValue } from '../../utils/projectQuestionnaire';
+import { FIXED_VALUATION_DATE } from '../../utils/questionnaireDefaults';
 import {
     buildLeafletBoundsFromAddressGeometry,
     hasRenderableAddressGeometry,
@@ -15,10 +15,33 @@ import {
 const { Text } = Typography;
 const { TextArea } = Input;
 
+const validationEnrichmentAttempts = new Map();
+
 const numberInputProps = {
     className: 'full-width',
     min: 0,
 };
+
+function getValidationEnrichmentAttempt(key, projectId) {
+    const existingAttempt = validationEnrichmentAttempts.get(key);
+
+    if (existingAttempt) {
+        return existingAttempt;
+    }
+
+    const attempt = {
+        refreshApplied: false,
+        promise: api.post(`/projects/${projectId}/questionnaire/enrich`)
+            .then(({ data }) => data)
+            .catch((error) => {
+                validationEnrichmentAttempts.delete(key);
+                throw error;
+            }),
+    };
+
+    validationEnrichmentAttempts.set(key, attempt);
+    return attempt;
+}
 
 function buildChecks(project) {
     const q = project?.questionnaire || {};
@@ -26,7 +49,7 @@ function buildChecks(project) {
     return [
         { key: 'projectName', label: 'Название проекта', ok: Boolean(project?.name) },
         { key: 'buildingCadastralNumber', label: 'Кадастровый номер здания', ok: Boolean(q.buildingCadastralNumber) },
-        { key: 'valuationDate', label: 'Дата оценки', ok: Boolean(q.valuationDate) },
+        { key: 'valuationDate', label: 'Дата оценки', ok: true },
         { key: 'objectAddress', label: 'Адрес объекта', ok: Boolean(q.objectAddress) },
         { key: 'totalArea', label: 'Общая площадь', ok: Number(q.totalArea) > 0 },
         { key: 'landCadastralNumber', label: 'Кадастровый номер участка', ok: Boolean(q.landCadastralNumber) },
@@ -152,8 +175,8 @@ export default function ProjectValidationPanel({
     const [form] = Form.useForm();
     const [saving, setSaving] = useState(false);
     const [enriching, setEnriching] = useState(false);
-    const [enrichmentAttempted, setEnrichmentAttempted] = useState(false);
     const [enrichmentInfo, setEnrichmentInfo] = useState(null);
+    const onSavedRef = useRef(onSaved);
     const q = project?.questionnaire || {};
     const validationValues = Form.useWatch([], form) || {};
 
@@ -161,8 +184,29 @@ export default function ProjectValidationPanel({
         form.setFieldsValue(q);
     }, [form, q]);
 
+    useEffect(() => {
+        onSavedRef.current = onSaved;
+    }, [onSaved]);
+
     const checks = useMemo(() => buildChecks(project), [project]);
     const missingAutoFields = useMemo(() => getMissingAutoBuildingFields(q), [q]);
+    const missingAutoFieldNames = useMemo(() => (
+        missingAutoFields.map((field) => field.name).sort().join('|')
+    ), [missingAutoFields]);
+    const enrichmentAttemptKey = useMemo(() => {
+        const cadastralNumber = String(q?.buildingCadastralNumber || '').trim();
+
+        if (!projectId || !cadastralNumber || !missingAutoFieldNames) {
+            return '';
+        }
+
+        return [
+            projectId,
+            cadastralNumber,
+            String(q?.landCadastralNumber || '').trim(),
+            missingAutoFieldNames,
+        ].join(':');
+    }, [projectId, q?.buildingCadastralNumber, q?.landCadastralNumber, missingAutoFieldNames]);
     const questionnaireSourceBuckets = useMemo(() => getQuestionnaireSourceBuckets(q), [q]);
 
     const allRequiredFilled = checks.every((item) => item.ok);
@@ -185,19 +229,29 @@ export default function ProjectValidationPanel({
         let cancelled = false;
 
         async function enrichMissingFields() {
-            if (!missingAutoFields.length || enrichmentAttempted) {
+            if (!enrichmentAttemptKey) {
                 return;
             }
 
+            const attempt = getValidationEnrichmentAttempt(enrichmentAttemptKey, projectId);
+
             try {
                 setEnriching(true);
-                const { data } = await api.post(`/projects/${projectId}/questionnaire/enrich`);
+                const data = await attempt.promise;
+
+                if (cancelled) {
+                    return;
+                }
+
                 setEnrichmentInfo(data?.enrichment || null);
                 const autoFilledFields = data?.enrichment?.autoFilledFields || [];
 
-                if (!cancelled && autoFilledFields.length > 0) {
+                if (!attempt.refreshApplied && autoFilledFields.length > 0) {
+                    attempt.refreshApplied = true;
                     message.success(`Автоматически дополнено полей: ${autoFilledFields.length}`);
-                    await onSaved?.();
+                    await onSavedRef.current?.();
+                } else {
+                    attempt.refreshApplied = true;
                 }
             } catch (error) {
                 if (!cancelled) {
@@ -205,7 +259,6 @@ export default function ProjectValidationPanel({
                 }
             } finally {
                 if (!cancelled) {
-                    setEnrichmentAttempted(true);
                     setEnriching(false);
                 }
             }
@@ -216,7 +269,7 @@ export default function ProjectValidationPanel({
         return () => {
             cancelled = true;
         };
-    }, [projectId, missingAutoFields.length, enrichmentAttempted, onSaved]);
+    }, [enrichmentAttemptKey, projectId]);
 
     const saveMissingAutoFields = async () => {
         if (!missingAutoFields.length) {
@@ -239,9 +292,7 @@ export default function ProjectValidationPanel({
                 ...q,
                 ...values,
                 fieldSourceHints: nextFieldSourceHints,
-                valuationDate: q?.valuationDate
-                    ? dayjs(q.valuationDate).format('YYYY-MM-DD')
-                    : null,
+                valuationDate: FIXED_VALUATION_DATE,
             });
 
             message.success('Недостающие данные сохранены');
@@ -328,6 +379,12 @@ export default function ProjectValidationPanel({
                                 title: 'Средняя площадь помещения, м²',
                                 dataIndex: 'avgLeasableRoomArea',
                                 key: 'avgLeasableRoomArea',
+                            },
+                            {
+                                title: 'Назначение помещений',
+                                dataIndex: 'premisesPurpose',
+                                key: 'premisesPurpose',
+                                render: (value) => value || '—',
                             },
                         ]}
                     />

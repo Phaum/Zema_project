@@ -42,6 +42,7 @@ import {
     normalizeObjectTypeValue,
     normalizeQuestionnaireFieldSourceHints,
 } from '../utils/projectQuestionnaire';
+import { FIXED_VALUATION_DATE } from '../utils/questionnaireDefaults';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../shared/api';
 import { normalizeUserSettings } from '../shared/userSettings';
@@ -51,11 +52,27 @@ const { TextArea } = Input;
 
 const CADASTRAL_REGEX = /^\d{2}:\d{2}:\d{7}:\d{1,16}$/;
 
+const ENRICHED_BUILDING_REQUIRED_FIELDS = [
+    'objectAddress',
+    'totalArea',
+    'constructionYear',
+    'mapPointLat',
+    'mapPointLng',
+    'district',
+    'nearestMetro',
+    'metroDistance',
+    'cadCost',
+    'permittedUse',
+];
+
 const CALCULATION_OPTIONS = [
-    { value: 'market', label: 'По рыночным данным' },
     {
         value: 'actual_market',
         label: 'По фактическим данным с учетом рыночных данных',
+    },
+    { 
+        value: 'market', 
+        label: 'По рыночным данным' 
     },
 ];
 
@@ -109,6 +126,10 @@ const SOURCE_HINT_IGNORED_FIELDS = new Set([
     'addressConfirmed',
 ]);
 
+const ALWAYS_VISIBLE_AUTOFILL_FIELDS = new Set([
+    'objectAddress',
+]);
+
 const PLATFORM_AUTOFILL_FIELDS = new Set([
     'objectType',
     'actualUse',
@@ -117,7 +138,6 @@ const PLATFORM_AUTOFILL_FIELDS = new Set([
     'averageRentalRate',
     'mapPointLat',
     'mapPointLng',
-    'objectAddress',
     'totalArea',
     'constructionYear',
     'district',
@@ -243,6 +263,19 @@ function toAreaNumber(value, fallback = 0) {
     return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getMissingEnrichedBuildingFields(questionnaire = {}) {
+    return ENRICHED_BUILDING_REQUIRED_FIELDS.filter((fieldName) => {
+        const value = questionnaire?.[fieldName];
+        if (value === null || value === undefined) return true;
+        if (typeof value === 'number') return !Number.isFinite(value);
+        return String(value).trim() === '';
+    });
+}
+
 function applyDerivedThirdPlusArea(floors = [], totalArea) {
     const floorRows = Array.isArray(floors) ? floors : [];
     const total = Number(totalArea);
@@ -321,6 +354,7 @@ function mergeGeneratedFloorsWithCurrent(generatedTemplates, currentFloors = [])
             area: existing.area ?? 0,
             leasableArea: existing.leasableArea ?? 0,
             avgLeasableRoomArea: existing.avgLeasableRoomArea ?? 0,
+            premisesPurpose: existing.premisesPurpose ?? existing.purpose ?? '',
             occupiedArea: existing.occupiedArea ?? 0,
             isGenerated: true,
         };
@@ -417,6 +451,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
+            premisesPurpose: '',
             occupiedArea: 0,
             isGenerated: false,
         };
@@ -484,7 +519,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                     }
                 >
                     <Row gutter={[16, 16]} className="questionnaire-floor-row">
-                        <Col xs={24} sm={12} md={24} lg={8}>
+                        <Col xs={24} sm={12} md={24} lg={6}>
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Площадь, м²"
@@ -500,7 +535,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                             </Form.Item>
                         </Col>
 
-                        <Col xs={24} sm={12} md={24} lg={8}>
+                        <Col xs={24} sm={12} md={24} lg={6}>
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Арендопригодная площадь, м²"
@@ -515,7 +550,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                             </Form.Item>
                         </Col>
 
-                        <Col xs={24} sm={12} md={24} lg={8}>
+                        <Col xs={24} sm={12} md={24} lg={6}>
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Средняя площадь помещения, м²"
@@ -525,6 +560,20 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                                     placeholder="Введите среднюю площадь"
                                     value={floor.avgLeasableRoomArea}
                                     onChange={(value) => updateFloor(floor.id, 'avgLeasableRoomArea', value)}
+                                />
+                            </Form.Item>
+                        </Col>
+
+                        <Col xs={24} sm={12} md={24} lg={6}>
+                            <Form.Item
+                                className="questionnaire-floor-item"
+                                label="Назначение помещений"
+                            >
+                                <Input
+                                    className="sharp-input"
+                                    placeholder="Например: офисы, торговля"
+                                    value={floor.premisesPurpose || ''}
+                                    onChange={(event) => updateFloor(floor.id, 'premisesPurpose', event.target.value)}
                                 />
                             </Form.Item>
                         </Col>
@@ -646,6 +695,13 @@ const VerificationSection = ({ formValues, floors, onClose }) => {
             render: (value) => formatNumber(value),
             width: 180,
         },
+        {
+            title: 'Назначение помещений',
+            dataIndex: 'premisesPurpose',
+            key: 'premisesPurpose',
+            render: (value) => value || '—',
+            width: 180,
+        },
     ];
 
     return (
@@ -764,6 +820,7 @@ export default function QuestionnairePanel({
                                                saveQuestionnaire,
                                                clearQuestionnaire,
                                                onGoNext,
+                                               onQuestionnaireEnriched,
                                            }) {
     const { settings, user } = useAuth();
     const [buildingLoading, setBuildingLoading] = useState(false);
@@ -788,6 +845,7 @@ export default function QuestionnairePanel({
     const normalizedObjectType = normalizeObjectTypeValue(selectedObjectType);
     const reverseGeocodeTimerRef = useRef(null);
     const lastLoadedBuildingCadRef = useRef('');
+    const enrichmentRequestSeqRef = useRef(0);
     const sourceSyncInProgressRef = useRef(false);
     const floorsDataRef = useRef([]);
     const [fieldSourceHintsState, setFieldSourceHintsState] = useState({});
@@ -809,11 +867,23 @@ export default function QuestionnairePanel({
             ))
         );
     }, [debugModeEnabled, questionnaireSourceBuckets.autoFields]);
-    const shouldShowDynamicField = (fieldName) => !hiddenPlatformFieldNames.has(fieldName);
+    const shouldShowDynamicField = (fieldName) => (
+        ALWAYS_VISIBLE_AUTOFILL_FIELDS.has(fieldName) || !hiddenPlatformFieldNames.has(fieldName)
+    );
     const showBuildingSubtypeField = normalizedObjectType === 'здание' && shouldShowDynamicField('actualUse');
     const showLocationSection = shouldShowDynamicField('mapPointLat')
         || shouldShowDynamicField('mapPointLng')
         || shouldShowDynamicField('objectAddress');
+
+    useEffect(() => {
+        const currentValuationDate = form.getFieldValue('valuationDate');
+        const isFixedDate = dayjs.isDayjs(currentValuationDate)
+            && currentValuationDate.format('YYYY-MM-DD') === FIXED_VALUATION_DATE;
+
+        if (!isFixedDate) {
+            form.setFieldValue('valuationDate', dayjs(FIXED_VALUATION_DATE));
+        }
+    }, [form, questionnaireLoading]);
 
     useEffect(() => {
         const nextHints = normalizeQuestionnaireFieldSourceHints(
@@ -1138,9 +1208,7 @@ export default function QuestionnairePanel({
             floors: Array.isArray(floorsDataRef.current) && floorsDataRef.current.length > 0
                 ? floorsDataRef.current
                 : (Array.isArray(values.floors) ? values.floors : []),
-            valuationDate: values.valuationDate && dayjs.isDayjs(values.valuationDate)
-                ? values.valuationDate.format('YYYY-MM-DD')
-                : values.valuationDate || null,
+            valuationDate: FIXED_VALUATION_DATE,
         };
     };
 
@@ -1149,13 +1217,85 @@ export default function QuestionnairePanel({
 
         const normalizedValues = {
             ...buildQuestionnaireFormValues(questionnaire),
-            valuationDate: questionnaire?.valuationDate
-                ? dayjs(questionnaire.valuationDate)
-                : (form.getFieldValue('valuationDate') || null),
+            valuationDate: dayjs(FIXED_VALUATION_DATE),
         };
 
         floorsDataRef.current = Array.isArray(normalizedValues.floors) ? normalizedValues.floors : [];
         applyEnrichmentFormPatch(normalizedValues);
+    };
+
+    const isCurrentEnrichmentRequest = (requestSeq) => (
+        requestSeq === null || requestSeq === undefined || enrichmentRequestSeqRef.current === requestSeq
+    );
+
+    const reloadPersistedQuestionnaire = async ({ requestSeq = null } = {}) => {
+        const { data } = await api.get(`/projects/${projectId}/questionnaire`, {
+            params: { _ts: Date.now() },
+        });
+        if (isCurrentEnrichmentRequest(requestSeq)) {
+            applyEnrichedQuestionnaire(data);
+            onQuestionnaireEnriched?.(data, null);
+        }
+        return data;
+    };
+
+    const verifyPersistedQuestionnaireFilled = async ({
+        baseQuestionnaire = null,
+        attempts = 3,
+        delayMs = 700,
+        requestSeq = null,
+    } = {}) => {
+        let latestQuestionnaire = baseQuestionnaire;
+        let latestMissingFields = getMissingEnrichedBuildingFields(baseQuestionnaire || {});
+
+        for (let attempt = 0; attempt < attempts && latestMissingFields.length > 0; attempt += 1) {
+            if (!isCurrentEnrichmentRequest(requestSeq)) {
+                return {
+                    questionnaire: latestQuestionnaire,
+                    missingFields: latestMissingFields,
+                    stale: true,
+                };
+            }
+
+            if (attempt > 0) {
+                await sleep(delayMs);
+            }
+
+            try {
+                const persistedQuestionnaire = await reloadPersistedQuestionnaire({ requestSeq });
+                latestQuestionnaire = {
+                    ...(latestQuestionnaire || {}),
+                    ...(persistedQuestionnaire || {}),
+                };
+                latestMissingFields = getMissingEnrichedBuildingFields(latestQuestionnaire);
+            } catch (reloadError) {
+                console.error('Не удалось проверить сохраненную анкету после автодополнения', reloadError);
+                break;
+            }
+        }
+
+        return {
+            questionnaire: latestQuestionnaire,
+            missingFields: latestMissingFields,
+            stale: !isCurrentEnrichmentRequest(requestSeq),
+        };
+    };
+
+    const requestQuestionnaireEnrichment = async ({ forceRefresh, requestSeq = null }) => {
+        const { data } = await api.post(`/projects/${projectId}/questionnaire/enrich`, {
+            ...buildEnrichmentPayload(),
+            forceRefresh,
+        });
+
+        const responseQuestionnaire = data?.questionnaire || null;
+        if (isCurrentEnrichmentRequest(requestSeq)) {
+            applyEnrichedQuestionnaire(responseQuestionnaire);
+        }
+        if (responseQuestionnaire && isCurrentEnrichmentRequest(requestSeq)) {
+            onQuestionnaireEnriched?.(responseQuestionnaire, data?.enrichment || null);
+        }
+
+        return data;
     };
 
     const runQuestionnaireEnrichment = async ({
@@ -1178,26 +1318,57 @@ export default function QuestionnairePanel({
         if (!forceRefresh && lastLoadedBuildingCadRef.current === buildingCad) {
             return;
         }
+        const requestSeq = enrichmentRequestSeqRef.current + 1;
+        enrichmentRequestSeqRef.current = requestSeq;
         setBuildingLoading(true);
 
         try {
-            const { data } = await api.post(`/projects/${projectId}/questionnaire/enrich`, {
-                ...buildEnrichmentPayload(),
-                forceRefresh,
+            let data = await requestQuestionnaireEnrichment({ forceRefresh, requestSeq });
+            if (!isCurrentEnrichmentRequest(requestSeq)) return;
+
+            let responseQuestionnaire = data?.questionnaire || null;
+            let verification = await verifyPersistedQuestionnaireFilled({
+                baseQuestionnaire: responseQuestionnaire,
+                attempts: 3,
+                delayMs: 700,
+                requestSeq,
             });
+            if (verification.stale || !isCurrentEnrichmentRequest(requestSeq)) return;
 
-            applyEnrichedQuestionnaire(data?.questionnaire);
+            if (verification.missingFields.length > 0) {
+                await sleep(900);
+                if (!isCurrentEnrichmentRequest(requestSeq)) return;
+                data = await requestQuestionnaireEnrichment({ forceRefresh: true, requestSeq });
+                if (!isCurrentEnrichmentRequest(requestSeq)) return;
 
-            const nextBuildingCad = String(
-                data?.questionnaire?.buildingCadastralNumber || buildingCad || ''
-            ).trim();
-
-            if (nextBuildingCad) {
-                lastLoadedBuildingCadRef.current = nextBuildingCad;
+                responseQuestionnaire = {
+                    ...(verification.questionnaire || {}),
+                    ...(data?.questionnaire || {}),
+                };
+                verification = await verifyPersistedQuestionnaireFilled({
+                    baseQuestionnaire: responseQuestionnaire,
+                    attempts: 4,
+                    delayMs: 900,
+                    requestSeq,
+                });
+                if (verification.stale || !isCurrentEnrichmentRequest(requestSeq)) return;
             }
 
             const autoFilledFields = data?.enrichment?.autoFilledFields || [];
             const warnings = data?.enrichment?.warnings || [];
+            const missingAfterVerification = verification.missingFields;
+            const nextBuildingCad = String(
+                verification.questionnaire?.buildingCadastralNumber
+                || responseQuestionnaire?.buildingCadastralNumber
+                || buildingCad
+                || ''
+            ).trim();
+
+            if (nextBuildingCad && missingAfterVerification.length === 0) {
+                lastLoadedBuildingCadRef.current = nextBuildingCad;
+            } else {
+                lastLoadedBuildingCadRef.current = '';
+            }
 
             if (!silent) {
                 if (autoFilledFields.length > 0) {
@@ -1210,6 +1381,12 @@ export default function QuestionnairePanel({
             if (!silent && warnings.length > 0) {
                 message.warning(warnings[0]);
             }
+
+            if (!silent && autoFilledFields.length > 0 && missingAfterVerification.length > 0) {
+                message.warning(
+                    `Проверка автозаполнения: часть данных всё ещё не получена (${missingAfterVerification.length}). Номер не помечен как загруженный, следующая попытка снова обратится к НСПД.`
+                );
+            }
         } catch (error) {
             console.error('Ошибка автодополнения анкеты', error);
 
@@ -1219,7 +1396,9 @@ export default function QuestionnairePanel({
                 );
             }
         } finally {
-            setBuildingLoading(false);
+            if (isCurrentEnrichmentRequest(requestSeq)) {
+                setBuildingLoading(false);
+            }
         }
     };
 
@@ -1312,7 +1491,7 @@ export default function QuestionnairePanel({
     };
 
     const handleBuildingCadBlur = async () => {
-        await fetchBuildingFromNSPD({ silent: true });
+        await fetchBuildingFromNSPD({ silent: true, force: true });
     };
 
     const handleClearQuestionnaire = () => {
@@ -1452,6 +1631,7 @@ export default function QuestionnairePanel({
                                                 <Button
                                                     type="text"
                                                     icon={<DatabaseOutlined />}
+                                                    onMouseDown={(event) => event.preventDefault()}
                                                     onClick={() => fetchBuildingFromNSPD({ force: true })}
                                                     loading={buildingLoading}
                                                     className="questionnaire-cadastral-fill-btn"
@@ -1475,7 +1655,9 @@ export default function QuestionnairePanel({
                                         <DatePicker
                                             className="full-width"
                                             format="DD.MM.YYYY"
-                                            placeholder="дд.мм.гггг"
+                                            disabled
+                                            allowClear={false}
+                                            placeholder="01.01.2025"
                                         />
                                     </Form.Item>
                                 </Col>

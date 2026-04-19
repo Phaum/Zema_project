@@ -3,10 +3,10 @@ import { Form, message } from 'antd';
 import dayjs from 'dayjs';
 import api from '../../components/projects/api';
 import QuestionnairePanel from '../QuestionnairePanel';
-import { defaultQuestionnaire } from '../../utils/questionnaireDefaults';
+import { FIXED_VALUATION_DATE, defaultQuestionnaire } from '../../utils/questionnaireDefaults';
 import { buildQuestionnaireFormValues, normalizeObjectTypeValue } from '../../utils/projectQuestionnaire';
 
-export default function ProjectQuestionnairePanel({ projectId, project, onSaved }) {
+export default function ProjectQuestionnairePanel({ projectId, project, onSaved, onChanged }) {
     const [form] = Form.useForm();
     const [questionnaireLoading, setQuestionnaireLoading] = useState(true);
     const [questionnaireSaving, setQuestionnaireSaving] = useState(false);
@@ -22,12 +22,13 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved 
                 form.setFieldsValue({
                     ...defaultQuestionnaire,
                     ...buildQuestionnaireFormValues(data, project),
-                    valuationDate: data?.valuationDate ? dayjs(data.valuationDate) : null,
+                    valuationDate: dayjs(FIXED_VALUATION_DATE),
                 });
             } catch (error) {
                 form.setFieldsValue({
                     ...defaultQuestionnaire,
                     projectName: project?.name || '',
+                    valuationDate: dayjs(FIXED_VALUATION_DATE),
                 });
             } finally {
                 setQuestionnaireLoading(false);
@@ -78,9 +79,7 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved 
 
             const response = await api.post(`/projects/${projectId}/questionnaire`, {
                 ...values,
-                valuationDate: values.valuationDate
-                    ? dayjs(values.valuationDate).format('YYYY-MM-DD')
-                    : null,
+                valuationDate: FIXED_VALUATION_DATE,
             });
 
             message.success('Анкета проекта сохранена');
@@ -114,10 +113,12 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved 
                 form.setFieldsValue({
                     ...defaultQuestionnaire,
                     projectName: project?.name || '',
+                    valuationDate: dayjs(FIXED_VALUATION_DATE),
                 })
             }
             saveQuestionnaire={saveQuestionnaire}
             onGoNext={onSaved}
+            onQuestionnaireEnriched={(questionnaire) => onChanged?.(questionnaire)}
         />
     );
 }

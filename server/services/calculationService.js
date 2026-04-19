@@ -2637,6 +2637,7 @@ function normalizeFloorRow(floor, index) {
         area: toNumber(floor.area, 0),
         leasableArea: toNumber(floor.leasableArea, 0),
         avgLeasableRoomArea: toNumber(floor.avgLeasableRoomArea, 0),
+        premisesPurpose: floor.premisesPurpose || floor.purpose || '',
         occupiedArea: toNumber(floor.occupiedArea, 0),
     };
 }

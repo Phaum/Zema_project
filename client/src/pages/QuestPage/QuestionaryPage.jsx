@@ -395,7 +395,7 @@ const QuestionaryPage = () => {
         layout="vertical"
         className="questionary-form"
         initialValues={{
-          calculationMethod: 'market',
+          calculationMethod: 'actual_market',
           objectType: 'Здание',
           actualUse: 'business-center',
           classBC: 'B',

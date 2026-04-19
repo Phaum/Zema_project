@@ -189,7 +189,25 @@ export function useObjectGeometry({ address, point = null, preferPoint = true } 
                 }
 
                 if (!normalizedData && addressKey) {
-                    normalizedData = await loadGeometryByAddress(address);
+                    try {
+                        normalizedData = await loadGeometryByAddress(address);
+                    } catch {
+                        normalizedData = null;
+                    }
+                }
+
+                if (
+                    pointKey
+                    && (
+                        !normalizedData
+                        || (!hasRenderableAddressGeometry(normalizedData) && !hasValidMapCoords(normalizedData.lat, normalizedData.lng))
+                    )
+                ) {
+                    normalizedData = normalizeGeometryResponse(null, {
+                        address,
+                        point,
+                        source: 'coords_fallback',
+                    });
                 }
 
                 if (normalizedData) {

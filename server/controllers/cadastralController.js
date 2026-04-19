@@ -191,7 +191,10 @@ function needsRecordEnrichment(record) {
     return true;
   }
 
-  if (!isNormalizedRecordSufficient(normalizeStoredRecord(record))) {
+  const normalizedRecord = normalizeStoredRecord(record);
+  const likelyLandRecord = isLikelyLandRecord(normalizedRecord);
+
+  if (!isNormalizedRecordSufficient(normalizedRecord)) {
     return true;
   }
 
@@ -199,7 +202,22 @@ function needsRecordEnrichment(record) {
     return true;
   }
 
-  if (!isLikelyLandRecord(record) && !hasMeaningfulValue(record.land_plot_cadastral_number)) {
+  if (!likelyLandRecord) {
+    const requiredBuildingFields = [
+      normalizedRecord.address,
+      normalizedRecord.total_area,
+      normalizedRecord.cad_cost,
+      normalizedRecord.permitted_use,
+      normalizedRecord.latitude,
+      normalizedRecord.longitude,
+    ];
+
+    if (requiredBuildingFields.some((value) => !hasMeaningfulValue(value))) {
+      return true;
+    }
+  }
+
+  if (!likelyLandRecord && !hasMeaningfulValue(record.land_plot_cadastral_number)) {
     return true;
   }
 
@@ -216,6 +234,31 @@ function needsRecordEnrichment(record) {
   }
 
   return false;
+}
+
+function isCachedRecordUsableForQuestionnaire(record) {
+  const normalizedRecord = normalizeStoredRecord(record);
+
+  if (!isNormalizedRecordSufficient(normalizedRecord)) {
+    return false;
+  }
+
+  if (isLikelyLandRecord(normalizedRecord)) {
+    return Boolean(
+      hasMeaningfulValue(normalizedRecord.land_area) ||
+      hasMeaningfulValue(normalizedRecord.cad_cost) ||
+      hasMeaningfulValue(normalizedRecord.address) ||
+      hasValidCoordinates(normalizedRecord.latitude, normalizedRecord.longitude)
+    );
+  }
+
+  return Boolean(
+    hasMeaningfulValue(normalizedRecord.address) &&
+    hasMeaningfulValue(normalizedRecord.total_area) &&
+    hasMeaningfulValue(normalizedRecord.cad_cost) &&
+    hasMeaningfulValue(normalizedRecord.permitted_use) &&
+    hasValidCoordinates(normalizedRecord.latitude, normalizedRecord.longitude)
+  );
 }
 
 function mergeRecordPayloads({ cached = null, parsed = null, fallback = null, metroData = {} } = {}) {
@@ -426,11 +469,11 @@ export async function resolveLandCadastralNumberCandidate(
   return null;
 }
 
-export async function resolveLandRecord(cadastralNumber, { forceRefresh = false, relatedAddress = null } = {}) {
+export async function resolveLandRecord(cadastralNumber, { forceRefresh = false, relatedAddress = null, preferCached = false } = {}) {
   const normalizedCad = normalizeCadastralNumber(cadastralNumber);
 
   if (!isDerivedLandPlaceholder(normalizedCad)) {
-    return getOrFetchCadastralRecord(normalizedCad, { forceRefresh });
+    return getOrFetchCadastralRecord(normalizedCad, { forceRefresh, preferCached });
   }
 
   const resolvedCandidate = await resolveLandCadastralNumberCandidate(normalizedCad, {
@@ -441,7 +484,7 @@ export async function resolveLandRecord(cadastralNumber, { forceRefresh = false,
     throw new Error('Не удалось определить реальный кадастровый номер участка');
   }
 
-  return getOrFetchCadastralRecord(resolvedCandidate, { forceRefresh });
+  return getOrFetchCadastralRecord(resolvedCandidate, { forceRefresh, preferCached });
 }
 
 async function getMetroByCoordinates(latitude, longitude, { address = null, city = null } = {}) {
@@ -458,6 +501,7 @@ async function getMetroByCoordinates(latitude, longitude, { address = null, city
       lon: longitude,
       address,
       city,
+      preferWalkingRoute: false,
     });
 
     return {
@@ -558,7 +602,7 @@ function mapLandResponse(record) {
   };
 }
 
-export async function getOrFetchCadastralRecord(cadastralNumber, { forceRefresh = false } = {}) {
+export async function getOrFetchCadastralRecord(cadastralNumber, { forceRefresh = false, preferCached = false } = {}) {
   const normalizedCad = normalizeCadastralNumber(cadastralNumber);
 
   if (!isValidCadastralNumber(normalizedCad)) {
@@ -569,7 +613,10 @@ export async function getOrFetchCadastralRecord(cadastralNumber, { forceRefresh 
     where: { cadastral_number: normalizedCad },
   });
 
-  if (!forceRefresh && cached && !needsRecordEnrichment(cached)) {
+  if (cached && (
+    (!forceRefresh && !needsRecordEnrichment(cached)) ||
+    (preferCached && isCachedRecordUsableForQuestionnaire(cached))
+  )) {
     return cached;
   }
 

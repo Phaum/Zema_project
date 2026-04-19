@@ -150,7 +150,7 @@ export const createProject = asyncHandler(async (req, res) => {
             {
                 project_id: project.id,
                 projectName: name,
-                calculationMethod: 'market',
+                calculationMethod: 'actual_market',
                 objectType: null,
             },
             { transaction }

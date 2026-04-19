@@ -38,6 +38,11 @@ export async function prepareReportData(projectId) {
   return {
 
     assessmentDate: questionnaire.valuationDate,
+    calculationDate: calculation.updated_at
+      || calculation.updatedAt
+      || calculation.created_at
+      || calculation.createdAt
+      || new Date().toISOString(),
     objectAddress: questionnaire.objectAddress,
     reconstructionYear: questionnaire.reconstructionYear,
     landAreaUsedPercent, 
@@ -67,7 +72,11 @@ export async function prepareReportData(projectId) {
       questionnaire.environmentCategory3
     ]),
 
-    floors: questionnaire.floors || [],
+    floors: (questionnaire.floors || []).map((floor) => ({
+      ...floor,
+      avgRoomArea: floor.avgRoomArea ?? floor.avgLeasableRoomArea,
+      premisesPurpose: floor.premisesPurpose || floor.purpose || '—',
+    })),
     landCadastralNumber: questionnaire.landCadastralNumber,
     landArea: questionnaire.landArea,
     landAreaUsed: calculation.landAreaUsed || questionnaire.landAreaUsed || 0,

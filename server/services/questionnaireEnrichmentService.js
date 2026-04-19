@@ -3,7 +3,7 @@ import { geocodeByAddress, reverseGeocodeByCoords } from '../controllers/geoCont
 import { Op } from 'sequelize';
 import CadastralData from '../models/cadastral_data.js';
 import MarketOffer from '../models/MarketOffer.js';
-import { analyzeEnvironmentByCadastralNumber } from './environmentAnalysisService.js';
+import { getSavedEnvironmentAnalysis } from './environmentAnalysisService.js';
 import { msk64ToWgs84 } from '../utils/coordsConverter.js';
 import { resolveHistoricalCenterForCoords } from '../utils/historicalCenterResolver.js';
 import { resolveSpatialZoneForCoords } from '../utils/spatialZoneResolver.js';
@@ -73,6 +73,20 @@ function hasValidCoordinates(lat, lng) {
 
 function isManualFieldSource(source) {
     return normalizeText(source).toLowerCase().startsWith('manual');
+}
+
+function isCadastralFieldSource(source) {
+    const normalized = normalizeText(source).toLowerCase();
+
+    return normalized.includes('nspd') ||
+        normalized.includes('reestrnet') ||
+        normalized.includes('cadastral') ||
+        normalized === 'nspd_building' ||
+        normalized === 'nspd_land';
+}
+
+function hasCadastralFieldSource(target, key, sourceHints = {}) {
+    return isCadastralFieldSource(resolveEffectiveFieldSource(target, key, sourceHints));
 }
 
 function calculateDistanceMeters(left, right) {
@@ -452,6 +466,19 @@ function replaceResolvedValue(target, key, value, source, autoFilledFields, sour
     sourceHints[key] = source;
 }
 
+function replaceNonManualResolvedValue(target, key, value, source, autoFilledFields, sourceHints) {
+    if (!hasMeaningfulValue(value)) {
+        return;
+    }
+
+    const currentSource = resolveEffectiveFieldSource(target, key, sourceHints);
+    if (isManualFieldSource(currentSource)) {
+        return;
+    }
+
+    replaceResolvedValue(target, key, value, source, autoFilledFields, sourceHints);
+}
+
 function resolveEffectiveFieldSource(target, key, sourceHints = {}) {
     return normalizeText(
         sourceHints?.[key] ||
@@ -789,7 +816,10 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
             let record;
 
             try {
-                record = await getOrFetchCadastralRecord(enriched.buildingCadastralNumber, { forceRefresh });
+                record = await getOrFetchCadastralRecord(enriched.buildingCadastralNumber, {
+                    forceRefresh,
+                    preferCached: true,
+                });
             } catch (error) {
                 const cachedRecord = await getCachedCadastralRecord(enriched.buildingCadastralNumber);
 
@@ -810,7 +840,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
             const normalizedDistrict = extractDistrictFromCadastralRecord(buildingRecord);
 
             pickMissing(enriched, 'objectType', record.object_type || 'здание', recordSource, autoFilledFields, sourceHints);
-            pickMissing(enriched, 'objectAddress', record.address_document || record.address_display || record.address, recordSource, autoFilledFields, sourceHints);
+            replaceNonManualResolvedValue(enriched, 'objectAddress', record.address || record.address_document || record.address_display, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'totalArea', record.total_area !== null ? Number(record.total_area) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(
                 enriched,
@@ -822,8 +852,8 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
             );
             pickMissing(enriched, 'aboveGroundFloors', record.floor_count ? Number(record.floor_count) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'undergroundFloors', resolveUndergroundFloors(buildingRecord), recordSource, autoFilledFields, sourceHints);
-            pickMissing(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
-            pickMissing(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);
+            replaceNonManualResolvedValue(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
+            replaceNonManualResolvedValue(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'district', normalizedDistrict, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'nearestMetro', record.nearest_metro, metroSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'metroDistance', record.metro_distance !== null ? Number(record.metro_distance) : null, metroSource, autoFilledFields, sourceHints);
@@ -887,6 +917,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
         try {
             const record = await resolveLandRecord(enriched.landCadastralNumber, {
                 forceRefresh,
+                preferCached: true,
                 relatedAddress: enriched.objectAddress,
             });
             landRecord = record?.get ? record.get({ plain: true }) : record;
@@ -1010,30 +1041,37 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     autoFilledFields,
                     sourceHints
                 );
-                pickMissing(
-                    enriched,
-                    'objectAddress',
-                    addressFromOffers,
-                    'market_offers_exact_object',
-                    autoFilledFields,
-                    sourceHints
-                );
-                pickMissing(
-                    enriched,
-                    'mapPointLat',
-                    offerCoordinates?.lat ?? null,
-                    'market_offers_exact_object',
-                    autoFilledFields,
-                    sourceHints
-                );
-                pickMissing(
-                    enriched,
-                    'mapPointLng',
-                    offerCoordinates?.lng ?? null,
-                    'market_offers_exact_object',
-                    autoFilledFields,
-                    sourceHints
-                );
+                if (!hasCadastralFieldSource(enriched, 'objectAddress', sourceHints)) {
+                    pickMissing(
+                        enriched,
+                        'objectAddress',
+                        addressFromOffers,
+                        'market_offers_exact_object',
+                        autoFilledFields,
+                        sourceHints
+                    );
+                }
+                if (
+                    !hasCadastralFieldSource(enriched, 'mapPointLat', sourceHints) &&
+                    !hasCadastralFieldSource(enriched, 'mapPointLng', sourceHints)
+                ) {
+                    pickMissing(
+                        enriched,
+                        'mapPointLat',
+                        offerCoordinates?.lat ?? null,
+                        'market_offers_exact_object',
+                        autoFilledFields,
+                        sourceHints
+                    );
+                    pickMissing(
+                        enriched,
+                        'mapPointLng',
+                        offerCoordinates?.lng ?? null,
+                        'market_offers_exact_object',
+                        autoFilledFields,
+                        sourceHints
+                    );
+                }
                 pickMissing(
                     enriched,
                     'businessCenterClass',
@@ -1147,7 +1185,20 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
         }
     }
 
-    if (hasMeaningfulValue(enriched.objectAddress)) {
+    const existingCoordinateSourceBeforeAddressGeocode = normalizeText(
+        sourceHints.mapPointLat ||
+        sourceHints.mapPointLng ||
+        enriched.fieldSourceHints?.mapPointLat ||
+        enriched.fieldSourceHints?.mapPointLng
+    );
+    const shouldGeocodeAddressForCoordinates =
+        hasMeaningfulValue(enriched.objectAddress) &&
+        !(
+            hasValidCoordinates(enriched.mapPointLat, enriched.mapPointLng) &&
+            isCadastralFieldSource(existingCoordinateSourceBeforeAddressGeocode)
+        );
+
+    if (shouldGeocodeAddressForCoordinates) {
         try {
             const geocoded = await geocodeByAddress(enriched.objectAddress);
             const currentCoordinateSource = normalizeText(
@@ -1156,6 +1207,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                 enriched.fieldSourceHints?.mapPointLat ||
                 enriched.fieldSourceHints?.mapPointLng
             );
+            const currentCoordinatesFromCadastralSource = isCadastralFieldSource(currentCoordinateSource);
             const hasCurrentCoordinates = hasValidCoordinates(enriched.mapPointLat, enriched.mapPointLng);
             const geocodedPoint = {
                 lat: Number(geocoded.lat),
@@ -1167,7 +1219,9 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     lng: Number(enriched.mapPointLng),
                 }
                 : null;
-            const shouldUseAddressCoordinates = !isManualFieldSource(currentCoordinateSource);
+            const shouldUseAddressCoordinates =
+                !isManualFieldSource(currentCoordinateSource) &&
+                !currentCoordinatesFromCadastralSource;
 
             if (!hasCurrentCoordinates) {
                 pickMissing(
@@ -1245,6 +1299,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     lon: Number(enriched.mapPointLng),
                     address: enriched.objectAddress,
                     city: 'Санкт-Петербург',
+                    preferWalkingRoute: false,
                 });
 
                 if (hasMeaningfulValue(metro?.station) && isPlausibleMetroDistanceMeters(metro?.distance)) {
@@ -1284,18 +1339,10 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
         )
     ) {
         try {
-            const environmentResult = await analyzeEnvironmentByCadastralNumber(
-                enriched.buildingCadastralNumber,
-                {
-                    valuationDate: enriched.valuationDate || null,
-                    radiusMeters: 600,
-                    forceRecalculation: !isPlausibleMetroDistanceMeters(enriched.metroDistance),
-                }
-            );
-            const environment = environmentResult?.analysis;
-            const environmentSource = environmentResult?.fromCache
-                ? 'environment_analysis_cache'
-                : 'environment_analysis';
+            const environment = await getSavedEnvironmentAnalysis(enriched.buildingCadastralNumber, {
+                radiusMeters: 600,
+            });
+            const environmentSource = 'environment_analysis_cache';
 
             pickMissing(
                 enriched,
@@ -1350,7 +1397,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                 sourceHints
             );
         } catch (error) {
-            warnings.push(`Не удалось определить ближайшее окружение объекта: ${error.message}`);
+            warnings.push(`Не удалось получить сохранённое окружение объекта: ${error.message}`);
         }
     }
 

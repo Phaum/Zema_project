@@ -758,6 +758,7 @@ function prepareReportData(projectId, project, breakdown, result) {
     area: floor.area,
     leasableArea: floor.leasableArea,
     avgRoomArea: floor.avgLeasableRoomArea,
+    premisesPurpose: floor.premisesPurpose || floor.purpose || '—',
   }));
 
   const rawComparables = breakdown?.market?.topComparables || [];
@@ -829,6 +830,11 @@ function prepareReportData(projectId, project, breakdown, result) {
 
   return {
     assessmentDate: questionnaire.valuationDate,
+    calculationDate: result?.updated_at
+      || result?.updatedAt
+      || result?.created_at
+      || result?.createdAt
+      || new Date().toISOString(),
     objectAddress: questionnaire.objectAddress || '—',
     cadastralNumber: questionnaire.buildingCadastralNumber || '—',
     totalArea,
@@ -1832,6 +1838,12 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                         key: 'avgLeasableRoomArea',
                         render: (value) => formatSqm(value, 2),
                       },
+                      {
+                        title: 'Назначение помещений',
+                        dataIndex: 'premisesPurpose',
+                        key: 'premisesPurpose',
+                        render: (value) => value || '—',
+                      },
                     ]}
                   />
                   <Descriptions
@@ -2239,6 +2251,13 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       key: 'avgLeasableRoomArea',
                       width: '17%',
                       render: (value) => formatSqm(value, 2),
+                    },
+                    {
+                      title: <Tooltip title={getFieldTooltip('premisesPurpose')}>Назначение помещений</Tooltip>,
+                      dataIndex: 'premisesPurpose',
+                      key: 'premisesPurpose',
+                      width: '18%',
+                      render: (value) => value || '—',
                     },
                     {
                       title: <Tooltip title={getFieldTooltip('monthlyRate')}>Ставка, ₽/м²/мес</Tooltip>,

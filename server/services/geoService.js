@@ -44,6 +44,7 @@ export async function calculateNearestMetro({
   lon,
   address = null,
   city = DEFAULT_CITY,
+  preferWalkingRoute = true,
 } = {}) {
   const latitude = toFiniteNumber(lat);
   const longitude = toFiniteNumber(lon);
@@ -64,32 +65,34 @@ export async function calculateNearestMetro({
     throw new Error('Не удалось определить ближайшее метро');
   }
 
-  try {
-    const routes = await calculateWalkingRoutesToPoints({
-      origin: { lat: latitude, lon: longitude },
-      destinations: candidates.map((candidate) => ({
-        ...candidate,
-        lat: candidate.lat,
-        lon: candidate.lon,
-      })),
-    });
-    const bestWalkingRoute = routes
-      .filter((route) => route.station && Number.isFinite(Number(route.walkingDistance)))
-      .sort((left, right) => Number(left.walkingDistance) - Number(right.walkingDistance))[0];
+  if (preferWalkingRoute) {
+    try {
+      const routes = await calculateWalkingRoutesToPoints({
+        origin: { lat: latitude, lon: longitude },
+        destinations: candidates.map((candidate) => ({
+          ...candidate,
+          lat: candidate.lat,
+          lon: candidate.lon,
+        })),
+      });
+      const bestWalkingRoute = routes
+        .filter((route) => route.station && Number.isFinite(Number(route.walkingDistance)))
+        .sort((left, right) => Number(left.walkingDistance) - Number(right.walkingDistance))[0];
 
-    if (bestWalkingRoute) {
-      return {
-        status: 'success',
-        station: bestWalkingRoute.station,
-        distance: Math.round(Number(bestWalkingRoute.walkingDistance)),
-        straightDistance: Math.round(Number(bestWalkingRoute.distance)),
-        source: 'js_monolith_geo_service',
-        datasetSource: bestWalkingRoute.source || null,
-        distanceMode: 'walking_route',
-      };
+      if (bestWalkingRoute) {
+        return {
+          status: 'success',
+          station: bestWalkingRoute.station,
+          distance: Math.round(Number(bestWalkingRoute.walkingDistance)),
+          straightDistance: Math.round(Number(bestWalkingRoute.distance)),
+          source: 'js_monolith_geo_service',
+          datasetSource: bestWalkingRoute.source || null,
+          distanceMode: 'walking_route',
+        };
+      }
+    } catch (error) {
+      console.error('Ошибка расчета пешеходного маршрута до метро:', error.message);
     }
-  } catch (error) {
-    console.error('Ошибка расчета пешеходного маршрута до метро:', error.message);
   }
 
   const metro = candidates[0] || await findNearestMetroByCoords({
@@ -119,6 +122,7 @@ export async function calculateMetroDistanceToStation({
   lon,
   address = null,
   city = DEFAULT_CITY,
+  preferWalkingRoute = true,
 } = {}) {
   const latitude = toFiniteNumber(lat);
   const longitude = toFiniteNumber(lon);
@@ -139,29 +143,31 @@ export async function calculateMetroDistanceToStation({
     throw new Error('Не удалось определить расстояние до указанной станции метро');
   }
 
-  try {
-    const walkingDistance = await calculateWalkingRouteDistance({
-      origin: { lat: latitude, lon: longitude },
-      destination: {
-        lat: result.lat,
-        lon: result.lon,
-        station: result.station,
-      },
-    });
+  if (preferWalkingRoute) {
+    try {
+      const walkingDistance = await calculateWalkingRouteDistance({
+        origin: { lat: latitude, lon: longitude },
+        destination: {
+          lat: result.lat,
+          lon: result.lon,
+          station: result.station,
+        },
+      });
 
-    if (Number.isFinite(Number(walkingDistance))) {
-      return {
-        status: 'success',
-        station: result.station,
-        distance: Math.round(Number(walkingDistance)),
-        straightDistance: Math.round(Number(result.distance)),
-        source: 'js_monolith_geo_service',
-        datasetSource: result.source || null,
-        distanceMode: 'walking_route',
-      };
+      if (Number.isFinite(Number(walkingDistance))) {
+        return {
+          status: 'success',
+          station: result.station,
+          distance: Math.round(Number(walkingDistance)),
+          straightDistance: Math.round(Number(result.distance)),
+          source: 'js_monolith_geo_service',
+          datasetSource: result.source || null,
+          distanceMode: 'walking_route',
+        };
+      }
+    } catch (error) {
+      console.error('Ошибка расчета пешеходного маршрута до станции метро:', error.message);
     }
-  } catch (error) {
-    console.error('Ошибка расчета пешеходного маршрута до станции метро:', error.message);
   }
 
   return {

@@ -1,8 +1,10 @@
+export const FIXED_VALUATION_DATE = '2025-01-01';
+
 export const defaultQuestionnaire = {
-    calculationMethod: 'market',
+    calculationMethod: 'actual_market',
     projectName: '',
     buildingCadastralNumber: '',
-    valuationDate: null,
+    valuationDate: FIXED_VALUATION_DATE,
     objectType: 'здание',
     actualUse: undefined,
     businessCenterClass: undefined,

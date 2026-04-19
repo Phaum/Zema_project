@@ -209,6 +209,7 @@ export function buildGeneratedFloorTemplates({
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
+            premisesPurpose: '',
             occupiedArea: 0,
             isGenerated: true,
         });
@@ -223,6 +224,7 @@ export function buildGeneratedFloorTemplates({
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
+            premisesPurpose: '',
             occupiedArea: 0,
             isGenerated: true,
         });
@@ -237,6 +239,7 @@ export function buildGeneratedFloorTemplates({
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
+            premisesPurpose: '',
             occupiedArea: 0,
             isGenerated: true,
         });
@@ -251,6 +254,7 @@ export function buildGeneratedFloorTemplates({
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
+            premisesPurpose: '',
             occupiedArea: 0,
             isGenerated: true,
         });
@@ -267,6 +271,7 @@ export function buildGeneratedFloorTemplates({
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
+            premisesPurpose: '',
             occupiedArea: 0,
             isGenerated: true,
         });
@@ -310,6 +315,7 @@ function sanitizeFloor(floor, index) {
         area: floor?.area ?? 0,
         leasableArea: floor?.leasableArea ?? 0,
         avgLeasableRoomArea: floor?.avgLeasableRoomArea ?? 0,
+        premisesPurpose: floor?.premisesPurpose ?? floor?.purpose ?? '',
         occupiedArea: floor?.occupiedArea ?? 0,
     };
 }
@@ -353,6 +359,7 @@ export function normalizeLoadedFloors(questionnaire = {}) {
             area: matched.area ?? 0,
             leasableArea: matched.leasableArea ?? 0,
             avgLeasableRoomArea: matched.avgLeasableRoomArea ?? 0,
+            premisesPurpose: matched.premisesPurpose ?? matched.purpose ?? '',
             occupiedArea: matched.occupiedArea ?? 0,
             isGenerated: true,
         };
