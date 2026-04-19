@@ -389,11 +389,13 @@ export const enrichProjectQuestionnaire = async (req, res) => {
         if (questionnaire) {
             await questionnaire.update(stripQuestionnaireMeta(nextQuestionnairePayload));
             questionnaire = await questionnaire.reload();
+        } else {
+            questionnaire = await ProjectQuestionnaire.create(stripQuestionnaireMeta(nextQuestionnairePayload));
         }
 
         res.json({
             success: true,
-            questionnaire: normalizeOutgoing(questionnaire || nextQuestionnairePayload),
+            questionnaire: normalizeOutgoing(questionnaire),
             enrichment: {
                 autoFilledFields: enrichment.autoFilledFields,
                 sourceHints: enrichment.sourceHints,

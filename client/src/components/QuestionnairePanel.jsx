@@ -765,7 +765,7 @@ export default function QuestionnairePanel({
                                                clearQuestionnaire,
                                                onGoNext,
                                            }) {
-    const { settings } = useAuth();
+    const { settings, user } = useAuth();
     const [buildingLoading, setBuildingLoading] = useState(false);
     const [mapPickerOpen, setMapPickerOpen] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
@@ -797,11 +797,18 @@ export default function QuestionnairePanel({
         ...formSnapshot,
         fieldSourceHints: fieldSourceHintsState,
     }), [fieldSourceHintsState, formSnapshot]);
-    const hiddenPlatformFieldNames = useMemo(() => new Set(
-        questionnaireSourceBuckets.autoFields.flatMap((field) => (
-            [field.name, field.fieldName].filter((fieldName) => PLATFORM_AUTOFILL_FIELDS.has(fieldName))
-        ))
-    ), [questionnaireSourceBuckets.autoFields]);
+    const debugModeEnabled = Boolean(user?.debugMode);
+    const hiddenPlatformFieldNames = useMemo(() => {
+        if (debugModeEnabled) {
+            return new Set();
+        }
+
+        return new Set(
+            questionnaireSourceBuckets.autoFields.flatMap((field) => (
+                [field.name, field.fieldName].filter((fieldName) => PLATFORM_AUTOFILL_FIELDS.has(fieldName))
+            ))
+        );
+    }, [debugModeEnabled, questionnaireSourceBuckets.autoFields]);
     const shouldShowDynamicField = (fieldName) => !hiddenPlatformFieldNames.has(fieldName);
     const showBuildingSubtypeField = normalizedObjectType === 'здание' && shouldShowDynamicField('actualUse');
     const showLocationSection = shouldShowDynamicField('mapPointLat')

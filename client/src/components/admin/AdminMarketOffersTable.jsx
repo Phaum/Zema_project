@@ -11,6 +11,7 @@ import {
     clearAdminMarketOffers,
 } from './Api';
 import EditableGridModal from './EditableGridModal';
+import { translateEnvironmentCategory } from '../../utils/environmentLabels';
 
 export default function AdminMarketOffersTable() {
     const [loading, setLoading] = useState(false);
@@ -124,6 +125,8 @@ export default function AdminMarketOffersTable() {
         loadData();
     }, []);
 
+    const renderEnvironmentCategory = (value) => translateEnvironmentCategory(value) || '—';
+
     const columns = [
         { title: 'ID', dataIndex: 'external_id', width: 120 },
         { title: 'Функционал', dataIndex: 'model_functional', width: 180 },
@@ -131,9 +134,9 @@ export default function AdminMarketOffersTable() {
         { title: 'Адрес', dataIndex: 'address_offer', ellipsis: true },
         { title: 'КН здания', dataIndex: 'building_cadastral_number', width: 180 },
         { title: 'Район', dataIndex: 'district', width: 140 },
-        { title: 'Окружение 1', dataIndex: 'environment_category_1', width: 180 },
-        { title: 'Окружение 2', dataIndex: 'environment_category_2', width: 180 },
-        { title: 'Окружение 3', dataIndex: 'environment_category_3', width: 180 },
+        { title: 'Окружение 1', dataIndex: 'environment_category_1', width: 180, render: renderEnvironmentCategory },
+        { title: 'Окружение 2', dataIndex: 'environment_category_2', width: 180, render: renderEnvironmentCategory },
+        { title: 'Окружение 3', dataIndex: 'environment_category_3', width: 180, render: renderEnvironmentCategory },
         { title: 'Дата предложения', dataIndex: 'offer_date', width: 140 },
         { title: 'Действия', key: 'actions', width: 180, fixed: 'right',
             render: (_, row) => (

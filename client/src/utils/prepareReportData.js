@@ -1,4 +1,5 @@
 import { api } from '../shared/api';
+import { formatEnvironmentCategories } from './environmentLabels';
 
 export async function prepareReportData(projectId) {
 
@@ -60,11 +61,11 @@ export async function prepareReportData(projectId) {
     isHistoricalCenter: questionnaire.isHistoricalCenter,
     territorialZone: questionnaire.terZone,
     objectLocationDescription: questionnaire.objectLocationDescription || '—',
-    nearbyEnvironment: [
+    nearbyEnvironment: formatEnvironmentCategories([
       questionnaire.environmentCategory1,
       questionnaire.environmentCategory2,
       questionnaire.environmentCategory3
-    ].filter(Boolean).join(', ') || '—',
+    ]),
 
     floors: questionnaire.floors || [],
     landCadastralNumber: questionnaire.landCadastralNumber,

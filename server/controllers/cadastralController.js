@@ -1,48 +1,20 @@
 import { CadastralData } from '../models/index.js';
-import { execFile } from 'child_process';
-import util from 'util';
-import axios from 'axios';
 import { Op } from 'sequelize';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { reverseGeocodeByCoords } from './geoController.js';
 import { toNumber, safeString } from '../utils/dataValidation.js';
 import { fetchCadastralFallbackData } from '../services/cadastralFallbackService.js';
-import { findNearestMetroByCoords } from '../services/metroFallbackService.js';
+import { calculateNearestMetro } from '../services/geoService.js';
+import { getCadastralInfoFromNspd } from '../services/nspdParserService.js';
 import {
   extractDistrictFromCadastralRecord,
   isPlausibleMetroDistanceMeters,
   isSuspiciousDistrictLabel,
 } from '../utils/locationNormalization.js';
 
-const execFileAsync = util.promisify(execFile);
-
-const PYTHON_BIN = process.env.PYTHON_BIN;
-const NSPD_PARSER_PATH = process.env.NSPD_PARSER_PATH;
-const GEO_SERVICE_URL = process.env.GEO_SERVICE_URL;
-const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const SERVER_ROOT_DIR = path.resolve(CURRENT_DIR, '..');
-
 const CADASTRAL_REGEX = /^\d{2}:\d{2}:\d{7}:\d{1,16}$/;
 
 function normalizeCadastralNumber(value) {
   return String(value || '').trim();
-}
-
-function resolveNspdParserPath() {
-  if (!NSPD_PARSER_PATH) {
-    return null;
-  }
-
-  if (path.isAbsolute(NSPD_PARSER_PATH)) {
-    return NSPD_PARSER_PATH;
-  }
-
-  return path.resolve(SERVER_ROOT_DIR, NSPD_PARSER_PATH);
-}
-
-function shouldRunPythonThroughShell() {
-  return process.platform === 'win32' && /\.(cmd|bat)$/i.test(PYTHON_BIN || '');
 }
 
 function isValidCadastralNumber(value) {
@@ -179,16 +151,24 @@ function normalizeParserPayload(parsed) {
   return {
     cadastral_number: safeString(parsed.cadastral_number),
     object_type: safeString(parsed.object_type),
+    cadastral_quarter: safeString(parsed.cadastral_quarter),
     year_built: safeString(parsed.year_built),
     year_commisioning: safeString(parsed.year_commisioning),
     total_area: toNumber(parsed.total_area),
     land_area: toNumber(parsed.land_area),
     cad_cost: toNumber(parsed.cad_cost),
+    specific_cadastral_cost: toNumber(parsed.specific_cadastral_cost),
     permitted_use: safeString(parsed.permitted_use),
     address: safeString(parsed.address),
     district: safeString(parsed.district),
+    ownership_form: safeString(parsed.ownership_form),
     latitude: toNumber(parsed?.coordinates?.latitude),
     longitude: toNumber(parsed?.coordinates?.longitude),
+    land_plot_cadastral_number: safeString(parsed.land_plot_cadastral_number),
+    floor_count: safeString(parsed.floor_count),
+    source_provider: safeString(parsed.source_provider),
+    source_url: safeString(parsed.source_url),
+    raw_payload_json: parsed.raw_payload_json ?? null,
   };
 }
 
@@ -249,13 +229,13 @@ function mergeRecordPayloads({ cached = null, parsed = null, fallback = null, me
   return {
     cadastral_number: safeString(firstMeaningful(parsed?.cadastral_number, fallback?.cadastral_number, normalizedCached?.cadastral_number)),
     object_type: safeString(firstMeaningful(parsed?.object_type, fallback?.object_type, normalizedCached?.object_type)),
-    cadastral_quarter: safeString(firstMeaningful(fallback?.cadastral_quarter, normalizedCached?.cadastral_quarter)),
+    cadastral_quarter: safeString(firstMeaningful(parsed?.cadastral_quarter, fallback?.cadastral_quarter, normalizedCached?.cadastral_quarter)),
     year_built: safeString(firstMeaningful(parsed?.year_built, normalizedCached?.year_built)),
     year_commisioning: safeString(firstMeaningful(parsed?.year_commisioning, normalizedCached?.year_commisioning)),
     total_area: toNumber(firstMeaningful(parsed?.total_area, fallback?.total_area, normalizedCached?.total_area)),
     land_area: toNumber(firstMeaningful(parsed?.land_area, fallback?.land_area, normalizedCached?.land_area)),
     cad_cost: toNumber(firstMeaningful(parsed?.cad_cost, fallback?.cad_cost, normalizedCached?.cad_cost)),
-    specific_cadastral_cost: toNumber(firstMeaningful(fallback?.specific_cadastral_cost, normalizedCached?.specific_cadastral_cost)),
+    specific_cadastral_cost: toNumber(firstMeaningful(parsed?.specific_cadastral_cost, fallback?.specific_cadastral_cost, normalizedCached?.specific_cadastral_cost)),
     permitted_use: safeString(firstMeaningful(parsed?.permitted_use, fallback?.permitted_use, normalizedCached?.permitted_use)),
     address: pickBestAddress(
       parsed?.address,
@@ -269,9 +249,9 @@ function mergeRecordPayloads({ cached = null, parsed = null, fallback = null, me
     address_display: safeString(firstMeaningful(fallback?.address_display, normalizedCached?.address_display)),
     address_document: safeString(firstMeaningful(fallback?.address_document, normalizedCached?.address_document)),
     district: safeString(resolvedDistrict),
-    ownership_form: safeString(firstMeaningful(fallback?.ownership_form, normalizedCached?.ownership_form)),
-    latitude: toNumber(firstMeaningful(fallback?.latitude, parsed?.latitude, normalizedCached?.latitude)),
-    longitude: toNumber(firstMeaningful(fallback?.longitude, parsed?.longitude, normalizedCached?.longitude)),
+    ownership_form: safeString(firstMeaningful(parsed?.ownership_form, fallback?.ownership_form, normalizedCached?.ownership_form)),
+    latitude: toNumber(firstMeaningful(parsed?.latitude, fallback?.latitude, normalizedCached?.latitude)),
+    longitude: toNumber(firstMeaningful(parsed?.longitude, fallback?.longitude, normalizedCached?.longitude)),
     nearest_metro: safeString(firstMeaningful(
       metroData.station,
       isPlausibleMetroDistanceMeters(normalizedCached?.metro_distance) ? normalizedCached?.nearest_metro : null
@@ -280,14 +260,18 @@ function mergeRecordPayloads({ cached = null, parsed = null, fallback = null, me
       isPlausibleMetroDistanceMeters(metroData.distance) ? metroData.distance : null,
       isPlausibleMetroDistanceMeters(normalizedCached?.metro_distance) ? normalizedCached?.metro_distance : null
     )),
-    land_plot_cadastral_number: safeString(firstMeaningful(fallback?.land_plot_cadastral_number, normalizedCached?.land_plot_cadastral_number)),
+    land_plot_cadastral_number: safeString(firstMeaningful(parsed?.land_plot_cadastral_number, fallback?.land_plot_cadastral_number, normalizedCached?.land_plot_cadastral_number)),
     total_oks_area_on_land: toNumber(firstMeaningful(fallback?.total_oks_area_on_land, normalizedCached?.total_oks_area_on_land)),
-    floor_count: safeString(firstMeaningful(fallback?.floor_count, normalizedCached?.floor_count)),
-    source_provider: safeString(firstMeaningful(fallback?.source_provider, normalizedCached?.source_provider)),
-    source_url: safeString(firstMeaningful(fallback?.source_url, normalizedCached?.source_url)),
+    floor_count: safeString(firstMeaningful(parsed?.floor_count, fallback?.floor_count, normalizedCached?.floor_count)),
+    source_provider: safeString(firstMeaningful(parsed?.source_provider, fallback?.source_provider, normalizedCached?.source_provider)),
+    source_url: safeString(firstMeaningful(parsed?.source_url, fallback?.source_url, normalizedCached?.source_url)),
     source_note: safeString(firstMeaningful(fallback?.source_note, normalizedCached?.source_note)),
     source_updated_at: safeString(firstMeaningful(fallback?.source_updated_at, normalizedCached?.source_updated_at)),
-    raw_payload_json: firstMeaningful(fallback?.raw_payload_json, normalizedCached?.raw_payload_json),
+    raw_payload_json: {
+      ...(normalizedCached?.raw_payload_json || {}),
+      ...(fallback?.raw_payload_json ? { fallback: fallback.raw_payload_json } : {}),
+      ...(parsed?.raw_payload_json || {}),
+    },
     status: 'COMPLETED',
   };
 }
@@ -468,28 +452,8 @@ async function getMetroByCoordinates(latitude, longitude, { address = null, city
     };
   }
 
-  if (typeof GEO_SERVICE_URL === 'string' && GEO_SERVICE_URL.trim()) {
-    try {
-      const response = await axios.get(GEO_SERVICE_URL, {
-        params: { lat: latitude, lon: longitude },
-        timeout: 5000,
-      });
-
-      if (response.data?.status === 'success') {
-        return {
-          station: response.data.station ?? null,
-          distance: response.data.distance ?? null,
-        };
-      }
-
-      return { station: null, distance: null };
-    } catch (error) {
-      console.error('Ошибка geo-service:', error.message);
-    }
-  }
-
   try {
-    const fallbackMetro = await findNearestMetroByCoords({
+    const metro = await calculateNearestMetro({
       lat: latitude,
       lon: longitude,
       address,
@@ -497,39 +461,17 @@ async function getMetroByCoordinates(latitude, longitude, { address = null, city
     });
 
     return {
-      station: fallbackMetro?.station ?? null,
-      distance: fallbackMetro?.distance ?? null,
+      station: metro?.station ?? null,
+      distance: metro?.distance ?? null,
     };
   } catch (error) {
-    console.error('Ошибка fallback-поиска метро:', error.message);
+    console.error('Ошибка встроенного geo-service:', error.message);
     return { station: null, distance: null };
   }
 }
 
 async function loadObjectFromParser(cadastralNumber) {
-  if (!PYTHON_BIN || !NSPD_PARSER_PATH) {
-    throw new Error('Парсер НСПД не настроен');
-  }
-
-  const parserPath = resolveNspdParserPath();
-  const { stdout } = await execFileAsync(
-      PYTHON_BIN,
-      [parserPath, cadastralNumber],
-      {
-        maxBuffer: 10 * 1024 * 1024,
-        shell: shouldRunPythonThroughShell(),
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: 'utf-8',
-          PYTHONUTF8: '1',
-        },
-      }
-  );
-  const text = String(stdout || '').trim();
-  if (!text) {
-    throw new Error('Парсер НСПД вернул пустой ответ');
-  }
-  const parsed = JSON.parse(text);
+  const parsed = await getCadastralInfoFromNspd(cadastralNumber);
   if (parsed.error) {
     throw new Error(parsed.error);
   }
@@ -584,9 +526,21 @@ function mapBuildingResponse(record) {
     cadCost: record.cad_cost !== null ? Number(record.cad_cost) : null,
     permittedUse: record.permitted_use || null,
     aboveGroundFloors: record.floor_count ? Number(record.floor_count) || null : null,
+    undergroundFloors: resolveUndergroundFloorCount(record),
     sourceProvider: record.source_provider || null,
     nspdBuildingLoaded: true,
   };
+}
+
+function resolveUndergroundFloorCount(record = {}) {
+  const rawPayload = record.raw_payload_json || {};
+  const value =
+    rawPayload?.nspd?.options?.underground_floors ??
+    rawPayload?.fallback?.match?.data?.raw_fields?.['Количество подземных этажей'] ??
+    rawPayload?.match?.data?.raw_fields?.['Количество подземных этажей'];
+  const match = String(value ?? '').match(/\d+/);
+
+  return match ? Number(match[0]) : null;
 }
 
 function mapLandResponse(record) {

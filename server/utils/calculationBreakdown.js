@@ -1,3 +1,21 @@
+const ENVIRONMENT_CATEGORY_LABELS = Object.freeze({
+    prime_business: 'деловая активность высокого уровня',
+    urban_business: 'городская деловая среда',
+    mixed_urban: 'смешанная городская среда',
+    residential_mixed: 'смешанная жилая среда',
+    industrial_edge: 'промышленная периферия',
+    warehouse_industrial: 'складская и промышленная зона',
+    peripheral_low_activity: 'периферийная зона с низкой активностью',
+    residential: 'жилая застройка',
+    industrial: 'промзона',
+});
+
+function humanizeEnvironmentCategory(value) {
+    if (!value) return '';
+    const key = String(value).trim().toLowerCase();
+    return ENVIRONMENT_CATEGORY_LABELS[key] || String(value).trim();
+}
+
 export function buildCalculationBreakdown(questionnaire, marketSnapshot, calculation) {
     const manualRentalRate = toNumber(calculation.manualRentalRate, 0);
     const manualOverrideApplied = Boolean(calculation.manualOverrideApplied)
@@ -1094,7 +1112,7 @@ function buildMethodologySummary({
         questionnaire.environmentCategory1,
         questionnaire.environmentCategory2,
         questionnaire.environmentCategory3,
-    ].filter(Boolean);
+    ].filter(Boolean).map(humanizeEnvironmentCategory);
 
     const rentMethod = calculation.rentalRateSelectionMethod || marketSnapshot?.marketRentSelectionMethod || 'stable_trimmed_mean';
     const rentMode = calculation.rentCalculationMode || marketSnapshot?.rentCalculationMode || 'stable_default';

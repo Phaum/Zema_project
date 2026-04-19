@@ -1,4 +1,8 @@
 import axios from 'axios';
+import {
+    calculateNearestMetro,
+    getGeoServiceHealth,
+} from '../services/geoService.js';
 import { buildGeocodeQueryVariants } from '../utils/locationNormalization.js';
 
 function normalizeText(value) {
@@ -321,6 +325,42 @@ export const geocode = async (req, res) => {
         console.error('Ошибка geocoding:', error?.response?.data || error.message);
         res.status(500).json({
             error: 'Не удалось определить координаты по адресу',
+        });
+    }
+};
+
+export const geoHealth = async (req, res) => {
+    try {
+        const result = await getGeoServiceHealth({
+            city: req.query.city || undefined,
+        });
+
+        res.json(result);
+    } catch (error) {
+        console.error('Ошибка проверки встроенного geo-service:', error.message);
+        res.status(500).json({
+            status: 'degraded',
+            engine: 'js-monolith',
+            error: error.message || 'Не удалось проверить геосервис',
+        });
+    }
+};
+
+export const calculateMetro = async (req, res) => {
+    try {
+        const result = await calculateNearestMetro({
+            lat: req.query.lat,
+            lon: req.query.lon,
+            address: req.query.address,
+            city: req.query.city,
+        });
+
+        res.json(result);
+    } catch (error) {
+        console.error('Ошибка расчета метро во встроенном geo-service:', error.message);
+        res.status(500).json({
+            status: 'error',
+            error: error.message || 'Не удалось рассчитать расстояние до метро',
         });
     }
 };

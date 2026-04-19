@@ -7,7 +7,7 @@ import { analyzeEnvironmentByCadastralNumber } from './environmentAnalysisServic
 import { msk64ToWgs84 } from '../utils/coordsConverter.js';
 import { resolveHistoricalCenterForCoords } from '../utils/historicalCenterResolver.js';
 import { resolveSpatialZoneForCoords } from '../utils/spatialZoneResolver.js';
-import { findNearestMetroByCoords } from './metroFallbackService.js';
+import { calculateNearestMetro } from './geoService.js';
 import {
     extractDistrictFromCadastralRecord,
     isPlausibleMetroDistanceMeters,
@@ -724,6 +724,21 @@ function addWarningOnce(warnings, warning) {
     }
 }
 
+function parseFirstInteger(value) {
+    const match = String(value ?? '').match(/\d+/);
+    return match ? Number(match[0]) : null;
+}
+
+function resolveUndergroundFloors(record = {}) {
+    const rawPayload = record?.raw_payload_json || {};
+    return parseFirstInteger(
+        rawPayload?.nspd?.options?.underground_floors ??
+        rawPayload?.fallback?.match?.data?.raw_fields?.['Количество подземных этажей'] ??
+        rawPayload?.match?.data?.raw_fields?.['Количество подземных этажей'] ??
+        null
+    );
+}
+
 function hasUsableCachedCadastralRecord(record) {
     if (!record) return false;
 
@@ -806,6 +821,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                 sourceHints
             );
             pickMissing(enriched, 'aboveGroundFloors', record.floor_count ? Number(record.floor_count) : null, recordSource, autoFilledFields, sourceHints);
+            pickMissing(enriched, 'undergroundFloors', resolveUndergroundFloors(buildingRecord), recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'district', normalizedDistrict, recordSource, autoFilledFields, sourceHints);
@@ -816,9 +832,9 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
 
             enriched.nspdBuildingLoaded = true;
 
-            if (!hasMeaningfulValue(enriched.landCadastralNumber)) {
-                const directLandCad = normalizeText(record.land_plot_cadastral_number);
-                if (directLandCad) {
+            const directLandCad = normalizeText(record.land_plot_cadastral_number);
+            if (directLandCad) {
+                if (!hasMeaningfulValue(enriched.landCadastralNumber)) {
                     pickMissing(
                         enriched,
                         'landCadastralNumber',
@@ -827,24 +843,33 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                         autoFilledFields,
                         sourceHints
                     );
+                } else if (
+                    normalizeCadastralNumber(enriched.landCadastralNumber) === normalizeCadastralNumber(directLandCad) &&
+                    !isManualFieldSource(resolveEffectiveFieldSource(enriched, 'landCadastralNumber', sourceHints))
+                ) {
+                    sourceHints.landCadastralNumber = recordSource;
                 }
+            }
 
-                const resolvedLandCad = await resolveLandCadastralNumberCandidate(
-                    enriched.buildingCadastralNumber,
-                    {
-                        relatedAddress: record.address,
-                        excludeCadastralNumber: enriched.buildingCadastralNumber,
-                    }
-                );
+            if (!hasMeaningfulValue(enriched.landCadastralNumber)) {
+                if (!directLandCad) {
+                    const resolvedLandCad = await resolveLandCadastralNumberCandidate(
+                        enriched.buildingCadastralNumber,
+                        {
+                            relatedAddress: record.address,
+                            excludeCadastralNumber: enriched.buildingCadastralNumber,
+                        }
+                    );
 
-                pickMissing(
-                    enriched,
-                    'landCadastralNumber',
-                    resolvedLandCad,
-                    'resolved_from_cadastral_quarter',
-                    autoFilledFields,
-                    sourceHints
-                );
+                    pickMissing(
+                        enriched,
+                        'landCadastralNumber',
+                        resolvedLandCad,
+                        'resolved_from_cadastral_quarter',
+                        autoFilledFields,
+                        sourceHints
+                    );
+                }
 
                 if (!hasMeaningfulValue(enriched.landCadastralNumber)) {
                     addWarningOnce(
@@ -916,10 +941,12 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
 
                 addWarningOnce(warnings, warning);
             }
-            pickMissing(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
-            pickMissing(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);
-            pickMissing(enriched, 'district', normalizedDistrict, recordSource, autoFilledFields, sourceHints);
-            pickMissing(enriched, 'permittedUse', record.permitted_use, recordSource, autoFilledFields, sourceHints);
+            if (!buildingRecord) {
+                pickMissing(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
+                pickMissing(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);
+                pickMissing(enriched, 'district', normalizedDistrict, recordSource, autoFilledFields, sourceHints);
+                pickMissing(enriched, 'permittedUse', record.permitted_use, recordSource, autoFilledFields, sourceHints);
+            }
 
             enriched.nspdLandLoaded = true;
             clearInvalidAutoFilledTotalOksAreaOnLand(enriched, autoFilledFields, sourceHints, warnings);
@@ -1213,7 +1240,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
 
         if (shouldResolveMetroByCoords) {
             try {
-                const metro = await findNearestMetroByCoords({
+                const metro = await calculateNearestMetro({
                     lat: Number(enriched.mapPointLat),
                     lon: Number(enriched.mapPointLng),
                     address: enriched.objectAddress,

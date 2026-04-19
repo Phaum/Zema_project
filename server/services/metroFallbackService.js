@@ -14,7 +14,7 @@ function normalizeText(value) {
     .trim();
 }
 
-function detectDatasetKey({ address = null, city = null } = {}) {
+export function detectMetroDatasetKey({ address = null, city = null } = {}) {
   const source = normalizeText(city || address);
 
   if (source.includes('санкт-петербург') || source.includes('спб')) {
@@ -28,7 +28,7 @@ function detectDatasetKey({ address = null, city = null } = {}) {
   return null;
 }
 
-function haversineDistanceMeters(left, right) {
+export function haversineDistanceMeters(left, right) {
   const lat1 = Number(left?.lat);
   const lon1 = Number(left?.lon);
   const lat2 = Number(right?.lat);
@@ -101,7 +101,7 @@ export async function findMetroStationByName({ stationName, address = null, city
     return null;
   }
 
-  const datasetKey = detectDatasetKey({ address, city });
+  const datasetKey = detectMetroDatasetKey({ address, city });
   if (!datasetKey) {
     return null;
   }
@@ -150,39 +150,82 @@ export async function calculateDistanceToMetroStation({
   return {
     station: station.name || station.title || null,
     distance: Math.round(distance),
-    source: `github:${detectDatasetKey({ address, city })}:station_match`,
+    lat: Number(station.lat),
+    lon: Number(station.lon),
+    source: `github:${detectMetroDatasetKey({ address, city })}:station_match`,
   };
 }
 
-export async function findNearestMetroByCoords({ lat, lon, address = null, city = null } = {}) {
-  const datasetKey = detectDatasetKey({ address, city });
+export async function findNearestMetroCandidatesByCoords({
+  lat,
+  lon,
+  address = null,
+  city = null,
+  limit = 6,
+} = {}) {
+  const datasetKey = detectMetroDatasetKey({ address, city });
   if (!datasetKey) {
-    return null;
+    return [];
   }
 
   const stations = await loadMetroDataset(datasetKey);
   if (!stations.length) {
-    return null;
+    return [];
   }
 
-  const nearest = stations
+  return stations
     .map((station) => ({
-      station,
+      station: station.name || station.title || null,
+      lat: Number(station.lat),
+      lon: Number(station.lon),
       distance: haversineDistanceMeters(
         { lat, lon },
         { lat: station.lat, lon: station.lon }
       ),
+      source: `github:${datasetKey}`,
     }))
-    .filter((item) => Number.isFinite(item.distance))
-    .sort((left, right) => left.distance - right.distance)[0];
+    .filter((item) => item.station && Number.isFinite(item.lat) && Number.isFinite(item.lon) && Number.isFinite(item.distance))
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, Math.max(1, Number(limit) || 1))
+    .map((item) => ({
+      ...item,
+      distance: Math.round(item.distance),
+    }));
+}
+
+export async function findNearestMetroByCoords({ lat, lon, address = null, city = null } = {}) {
+  const [nearest] = await findNearestMetroCandidatesByCoords({
+    lat,
+    lon,
+    address,
+    city,
+    limit: 1,
+  });
 
   if (!nearest) {
     return null;
   }
 
+  return nearest;
+}
+
+export async function getMetroDatasetHealth({ address = null, city = null } = {}) {
+  const datasetKey = detectMetroDatasetKey({ address, city });
+
+  if (!datasetKey) {
+    return {
+      status: 'degraded',
+      datasetKey: null,
+      stationsCount: 0,
+      message: 'Не удалось определить город для датасета метро',
+    };
+  }
+
+  const stations = await loadMetroDataset(datasetKey);
+
   return {
-    station: nearest.station.name || nearest.station.title || null,
-    distance: Math.round(nearest.distance),
-    source: `github:${datasetKey}`,
+    status: stations.length > 0 ? 'ok' : 'degraded',
+    datasetKey,
+    stationsCount: stations.length,
   };
 }

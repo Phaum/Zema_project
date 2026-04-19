@@ -2,7 +2,7 @@ import * as turf from '@turf/turf';
 import CadastralData from '../models/cadastral_data.js';
 import { getOrFetchCadastralRecord } from '../controllers/cadastralController.js';
 import { geocodeByAddress } from '../controllers/geoController.js';
-import { findNearestMetroByCoords } from './metroFallbackService.js';
+import { calculateNearestMetro } from './geoService.js';
 import { fetchOsmEnvironment } from '../utils/osmEnvironmentClassifier.js';
 import { resolveHistoricalCenterStatusForCoords } from '../utils/historicalCenterResolver.js';
 import {
@@ -976,7 +976,7 @@ async function resolveMetroContext({ latitude, longitude, address, cachedMetro, 
     }
 
     try {
-        const metro = await findNearestMetroByCoords({
+        const metro = await calculateNearestMetro({
             lat: latitude,
             lon: longitude,
             address,
@@ -986,7 +986,7 @@ async function resolveMetroContext({ latitude, longitude, address, cachedMetro, 
         return {
             name: normalizeText(metro?.station) || null,
             distanceMeters: round(metro?.distance, 0),
-            source: metro?.station ? (metro?.source || 'metro_fallback_service') : 'metro_fallback_service',
+            source: metro?.station ? (metro?.source || 'js_monolith_geo_service') : 'js_monolith_geo_service',
         };
     } catch (error) {
         return {

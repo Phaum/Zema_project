@@ -22,9 +22,9 @@ import {
     normalizeMetroDistanceKm,
 } from '../services/calculationService.js';
 import {
-    calculateDistanceToMetroStation,
-    findNearestMetroByCoords,
-} from '../services/metroFallbackService.js';
+    calculateMetroDistanceToStation,
+    calculateNearestMetro,
+} from '../services/geoService.js';
 import {
     sanitizeAutoFilledLeasableArea,
     sanitizeAutoFilledOccupiedArea,
@@ -314,7 +314,7 @@ async function resolveComparableMetroDistanceKm(row) {
     }
 
     try {
-        const stationDistance = await calculateDistanceToMetroStation({
+        const stationDistance = await calculateMetroDistanceToStation({
             stationName: row?.station_name,
             lat: coords.lat,
             lon: coords.lon,
@@ -330,7 +330,7 @@ async function resolveComparableMetroDistanceKm(row) {
     }
 
     try {
-        const nearestMetro = await findNearestMetroByCoords({
+        const nearestMetro = await calculateNearestMetro({
             lat: coords.lat,
             lon: coords.lon,
             address: row?.address || 'Санкт-Петербург',

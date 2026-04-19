@@ -42,6 +42,10 @@ import {
   hasMeaningfulValue,
 } from '../../utils/projectQuestionnaire';
 import {
+  formatEnvironmentCategories,
+  localizeEnvironmentCategoryText,
+} from '../../utils/environmentLabels';
+import {
   buildLeafletBoundsFromAddressGeometry,
   hasRenderableAddressGeometry,
   ObjectLocationHighlight,
@@ -106,7 +110,7 @@ function localizeResultText(value) {
   for (const [pattern, replacement] of RESULT_TEXT_REPLACEMENTS) {
     text = text.replace(pattern, replacement);
   }
-  return text;
+  return localizeEnvironmentCategoryText(text);
 }
 
 function humanizeResultKey(key) {
@@ -573,20 +577,6 @@ const PROPERTY_TYPE_LABELS = {
   'shopping_entertainment_complex': 'Торгово-развлекательный комплекс',
 };
 
-const ENV_CATEGORY_LABELS = {
-  mixed_urban: 'смешанная городская застройка',
-  prime_business: 'деловой центр',
-  urban_business: 'городская деловая застройка',
-  residential: 'жилая застройка',
-  industrial: 'промзона',
-};
-
-const translateEnvCategory = (value) => {
-  if (!value) return '';
-  const key = String(value).trim().toLowerCase();
-  return ENV_CATEGORY_LABELS[key] || value;
-};
-
 const FLOOR_CATEGORY_LABELS = {
   first: '1-й этаж',
   second: '2-й этаж',
@@ -599,6 +589,11 @@ const FLOOR_CATEGORY_LABELS = {
 function formatFactor(value, digits = 2) {
   if (!hasMeaningfulValue(value)) return '—';
   return `×${formatNumber(value, digits)}`;
+}
+
+function formatPlainFactor(value, digits = 4) {
+  if (!hasMeaningfulValue(value)) return '—';
+  return formatNumber(value, digits);
 }
 
 function formatSignedPercent(value, digits = 2) {
@@ -620,13 +615,7 @@ function humanizeFloorCategory(value) {
 }
 
 function formatEnvironmentLabel(values = []) {
-  const normalized = values
-    .flatMap((value) => Array.isArray(value) ? value : [value])
-    .filter(Boolean)
-    .map((value) => translateEnvCategory(String(value).trim()))
-    .filter(Boolean);
-
-  return normalized.length ? normalized.join(', ') : '—';
+  return formatEnvironmentCategories(values);
 }
 
 function formatComparableAdjustmentDetails(adjustment) {
@@ -691,6 +680,76 @@ function buildComparableAdjustmentRows(comparable = {}) {
   }));
 }
 
+function getComparableAdjustmentByKey(adjustments = [], key) {
+  return (Array.isArray(adjustments) ? adjustments : []).find((item) => item.key === key);
+}
+
+function getRawComparableAdjustmentByKey(comparable = {}, key) {
+  return (Array.isArray(comparable?.adjustments) ? comparable.adjustments : []).find((item) => item.key === key);
+}
+
+function formatComparableRate(value) {
+  return hasMeaningfulValue(value) ? `${formatNumber(value, 2)} ₽/м²` : '—';
+}
+
+function buildComparableFactorLine(adjustment) {
+  if (!adjustment) {
+    return null;
+  }
+
+  const variableByKey = {
+    date: 'Кдата',
+    bargain: 'Кторг',
+    metro: 'Кметро',
+    area: 'Кs',
+    floor: 'Кэтаж',
+    environment: 'Кокружение',
+  };
+  const variable = variableByKey[adjustment.key] || 'К';
+
+  return `${adjustment.stage}: ${variable} = ${formatPlainFactor(adjustment.factor)} (${formatSignedPercent(adjustment.deltaPercent, 2)})`;
+}
+
+function ComparableMathStep({ number, title, result, formula, explanation, facts = [] }) {
+  return (
+    <Card size="small" className="project-result-comparable-step">
+      <div className="project-result-comparable-step-header">
+        <Text type="secondary" className="project-result-step-eyebrow">
+          Шаг {number}
+        </Text>
+        <Text strong>{title}</Text>
+        {result && (
+          <Text strong className="project-result-comparable-step-result">
+            {result}
+          </Text>
+        )}
+      </div>
+
+      {explanation && (
+        <Paragraph style={{ marginBottom: 10 }}>
+          {explanation}
+        </Paragraph>
+      )}
+
+      {formula && (
+        <code className="project-result-formula">
+          {formula}
+        </code>
+      )}
+
+      {facts.length > 0 && (
+        <Space direction="vertical" size={4} className="project-result-comparable-step-facts">
+          {facts.filter(Boolean).map((fact, index) => (
+            <Text key={`${number}-${index}`} type="secondary">
+              {fact}
+            </Text>
+          ))}
+        </Space>
+      )}
+    </Card>
+  );
+}
+
 function prepareReportData(projectId, project, breakdown, result) {
   const questionnaire = project?.questionnaire || {};
 
@@ -723,11 +782,11 @@ function prepareReportData(projectId, project, breakdown, result) {
     const metro = comp.metro || comp.nearestMetro || '—';
     const distance = comp.distance_to_metro ?? comp.distanceToMetro ?? comp.metro_distance ?? null;
     const terZone = comp.ter_zone || comp.territorialZone || '—';
-    const env = [
+    const env = formatEnvironmentCategories([
       comp.environment_category_1,
       comp.environment_category_2,
       comp.environment_category_3
-    ].filter(Boolean).join(', ') || '—';
+    ]);
 
     return {
       ...comp,
@@ -762,14 +821,11 @@ function prepareReportData(projectId, project, breakdown, result) {
     ?? breakdown?.summary?.cadastralValue
     ?? 0;
 
-  const nearbyEnvRaw = [
+  const nearbyEnvironment = formatEnvironmentCategories([
     questionnaire.environmentCategory1,
     questionnaire.environmentCategory2,
     questionnaire.environmentCategory3
-  ].filter(Boolean).join(', ');
-  const nearbyEnvironment = nearbyEnvRaw
-    ? nearbyEnvRaw.split(', ').map(translateEnvCategory).join(', ')
-    : '—';
+  ]);
 
   return {
     assessmentDate: questionnaire.valuationDate,
@@ -1341,10 +1397,22 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     0
   );
   const debugModeEnabled = Boolean(result?.debugModeEnabled);
+  const topComparables = Array.isArray(breakdown?.market?.topComparables)
+    ? breakdown.market.topComparables
+    : [];
+  const hasTopComparables = topComparables.length > 0;
+  const topComparablesDetailKey = 'market-top-comparables';
+  const detailCollapseKeys = hasTopComparables
+    ? [
+      ...calculationStepKeys.slice(0, 1),
+      topComparablesDetailKey,
+      ...calculationStepKeys.slice(1),
+    ]
+    : calculationStepKeys;
   const rentalRateSource = String(breakdown?.inputs?.rentalRate?.source || '').trim().toLowerCase();
   const rentalRateIsManual = rentalRateSource.startsWith('manual');
   const selectedComparableRank = selectedComparable
-    ? (breakdown?.market?.topComparables || []).findIndex((item) => {
+    ? topComparables.findIndex((item) => {
       const itemId = item?.id || item?.external_id;
       const selectedId = selectedComparable?.id || selectedComparable?.external_id;
       if (itemId && selectedId) {
@@ -1357,8 +1425,93 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     () => buildComparableAdjustmentRows(selectedComparable),
     [selectedComparable]
   );
+  const selectedComparableAdjustmentByKey = useMemo(() => ({
+    date: getComparableAdjustmentByKey(selectedComparableAdjustmentRows, 'date'),
+    bargain: getComparableAdjustmentByKey(selectedComparableAdjustmentRows, 'bargain'),
+    metro: getComparableAdjustmentByKey(selectedComparableAdjustmentRows, 'metro'),
+    area: getComparableAdjustmentByKey(selectedComparableAdjustmentRows, 'area'),
+    floor: getComparableAdjustmentByKey(selectedComparableAdjustmentRows, 'floor'),
+    environment: getComparableAdjustmentByKey(selectedComparableAdjustmentRows, 'environment'),
+  }), [selectedComparableAdjustmentRows]);
+  const selectedComparableRawAdjustmentByKey = useMemo(() => ({
+    date: getRawComparableAdjustmentByKey(selectedComparable, 'date'),
+    bargain: getRawComparableAdjustmentByKey(selectedComparable, 'bargain'),
+    metro: getRawComparableAdjustmentByKey(selectedComparable, 'metro'),
+    area: getRawComparableAdjustmentByKey(selectedComparable, 'area'),
+    floor: getRawComparableAdjustmentByKey(selectedComparable, 'floor'),
+    environment: getRawComparableAdjustmentByKey(selectedComparable, 'environment'),
+  }), [selectedComparable]);
   const selectedComparableWeight = selectedComparable?.normalized_weight ?? selectedComparable?.selection_weight ?? null;
   const selectedComparableFloorCategory = questionnaire?.floorCategory || questionnaire?.floorType || null;
+  const selectedComparableSubjectClass = questionnaire?.businessCenterClass || questionnaire?.objectClass || '—';
+  const selectedComparableSubjectArea = Number(questionnaire?.totalArea);
+  const selectedComparableAnalogArea = Number(selectedComparable?.area_total);
+  const selectedComparableAreaRatio = Number.isFinite(selectedComparableSubjectArea) && Number.isFinite(selectedComparableAnalogArea) && selectedComparableAnalogArea > 0
+    ? selectedComparableSubjectArea / selectedComparableAnalogArea
+    : null;
+  const selectedComparableCorrectedRate = selectedComparable?.corrected_rate || selectedComparable?.adjusted_rate;
+  const selectedComparableDateLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.date);
+  const selectedComparableBargainLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.bargain);
+  const selectedComparableMetroDetails = selectedComparableRawAdjustmentByKey.metro?.details || {};
+  const selectedComparableAreaDetails = selectedComparableRawAdjustmentByKey.area?.details || {};
+  const selectedComparableSecondGroupLines = [
+    buildComparableFactorLine(selectedComparableAdjustmentByKey.metro),
+    buildComparableFactorLine(selectedComparableAdjustmentByKey.area),
+    buildComparableFactorLine(selectedComparableAdjustmentByKey.floor),
+    buildComparableFactorLine(selectedComparableAdjustmentByKey.environment),
+  ].filter(Boolean);
+  const selectedComparableSelectionFormula = [
+    `Класс аналога = ${selectedComparable?.class_offer || '—'}`,
+    `Класс объекта оценки = ${selectedComparableSubjectClass}`,
+    hasMeaningfulValue(selectedComparableAreaRatio)
+      ? `So/Sa = ${formatNumber(selectedComparableSubjectArea, 2)} / ${formatNumber(selectedComparableAnalogArea, 2)} = ${formatNumber(selectedComparableAreaRatio, 3)}`
+      : 'So/Sa = нет данных',
+  ].join('\n');
+  const selectedComparableRankingFormula = [
+    hasMeaningfulValue(selectedComparable?.mahalanobisDistance)
+      ? `Dмах = ${formatNumber(selectedComparable.mahalanobisDistance, 4)}`
+      : 'Dмах = нет данных',
+    hasMeaningfulValue(selectedComparable?.relevance_score)
+      ? `Rрел = ${formatNumber(Number(selectedComparable.relevance_score) * 100, 1)}%`
+      : 'Rрел = нет данных',
+    hasMeaningfulValue(selectedComparable?.scale_similarity_score)
+      ? `Rмасштаб = ${formatNumber(Number(selectedComparable.scale_similarity_score) * 100, 1)}%`
+      : 'Rмасштаб = нет данных',
+    selectedComparableRank > 0 ? `Место в выборке = ${selectedComparableRank}` : 'Место в выборке = —',
+  ].join('\n');
+  const selectedComparableFirstGroupFormula = [
+    `Цисх = ${formatComparableRate(selectedComparable?.raw_rate || selectedComparable?.price_per_sqm_cleaned)}`,
+    selectedComparableDateLine || `Кдата = ${formatPlainFactor(selectedComparable?.first_group_factor)}`,
+    `Цдата = Цисх × Кдата = ${formatComparableRate(selectedComparable?.after_date)}`,
+    selectedComparableBargainLine || 'Кторг = —',
+    `Ц1гр = Цдата × Кторг = ${formatComparableRate(selectedComparable?.after_bargain)}`,
+    `К1гр = Кдата × Кторг = ${formatPlainFactor(selectedComparable?.first_group_factor)}`,
+  ].join('\n');
+  const selectedComparableSecondGroupFormula = [
+    `xо = ${formatDistanceKm(selectedComparableMetroDetails.subjectDistanceKm)}`,
+    `xа = ${formatDistanceKm(selectedComparableMetroDetails.analogDistanceKm)}`,
+    'y = 0.78 × x^-0.04',
+    `Кметро = yо / yа = ${formatPlainFactor(selectedComparableAdjustmentByKey.metro?.factor)}`,
+    hasMeaningfulValue(selectedComparableAreaDetails.exponentN)
+      ? `n = ${formatNumber(selectedComparableAreaDetails.exponentN, 2)}`
+      : 'n = —',
+    hasMeaningfulValue(selectedComparableAreaDetails.subjectArea) &&
+      hasMeaningfulValue(selectedComparableAreaDetails.analogArea) &&
+      hasMeaningfulValue(selectedComparableAreaDetails.exponentN)
+      ? `Кs = (So/Sa)^n = (${formatNumber(selectedComparableAreaDetails.subjectArea, 2)} / ${formatNumber(selectedComparableAreaDetails.analogArea, 2)})^${formatNumber(selectedComparableAreaDetails.exponentN, 2)} = ${formatPlainFactor(selectedComparableAdjustmentByKey.area?.factor)}`
+      : `Кs = (So/Sa)^n = ${formatPlainFactor(selectedComparableAdjustmentByKey.area?.factor)}`,
+    ...selectedComparableSecondGroupLines,
+    `Кмульт = Кметро × Кs × Кэтаж × Кокружение = ${formatPlainFactor(selectedComparable?.second_group_multi_factor)}`,
+    `Цитог = Ц1гр × Кмульт = ${formatComparableRate(selectedComparableCorrectedRate)}`,
+  ].join('\n');
+  const selectedComparableFinalFormula = [
+    `Кобщ = К1гр × Кмульт = ${formatPlainFactor(selectedComparable?.total_adjustment_factor)}`,
+    `Цитог = Цисх × Кобщ = ${formatComparableRate(selectedComparableCorrectedRate)}`,
+    hasMeaningfulValue(selectedComparableWeight)
+      ? `Вес аналога = ${formatNumber(Number(selectedComparableWeight) * 100, 1)}%`
+      : 'Вес аналога = —',
+    `Статус = ${selectedComparable?.included_in_rent_calculation === false ? 'исключён' : 'в расчёте'}`,
+  ].join('\n');
   const selectedComparableSubjectEnvironment = formatEnvironmentLabel([
     questionnaire?.environmentCategory1,
     questionnaire?.environmentCategory2,
@@ -1375,10 +1528,141 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     selectedComparable?.environment,
   ]);
 
+  const renderTopComparablesTable = () => {
+    if (!hasTopComparables) {
+      return null;
+    }
+
+    return (
+      <div className="project-result-top-comparables-inline">
+        <Text type="secondary" className="project-result-comparable-hint">
+          Нажмите на строку, чтобы открыть детали отбора и пошаговый расчет корректировок по аналогу.
+        </Text>
+        <Table
+          dataSource={topComparables}
+          scroll={{ x: 1560 }}
+          onRow={(record) => ({
+            onClick: () => setSelectedComparable(record),
+          })}
+          rowClassName={() => 'project-result-comparable-row'}
+          columns={[
+            {
+              title: <Tooltip title={getFieldTooltip('address_offer')}>Адрес</Tooltip>,
+              dataIndex: 'address_offer',
+              key: 'address_offer',
+              width: '24%',
+              render: (text) => <Text ellipsis>{localizeResultText(text) || '—'}</Text>,
+            },
+            {
+              title: <Tooltip title={getFieldTooltip('class_offer')}>Класс</Tooltip>,
+              dataIndex: 'class_offer',
+              key: 'class_offer',
+              width: '8%',
+            },
+            {
+              title: 'Квартал',
+              dataIndex: 'quarter',
+              key: 'quarter',
+              width: '10%',
+              render: (value) => value || '—',
+            },
+            {
+              title: <Tooltip title={getFieldTooltip('area_total')}>Площадь</Tooltip>,
+              dataIndex: 'area_total',
+              key: 'area_total',
+              width: '12%',
+              render: (value) => formatSqm(value, 2),
+            },
+            {
+              title: <Tooltip title={getFieldTooltip('price_per_sqm_cleaned')}>Ставка</Tooltip>,
+              dataIndex: 'price_per_sqm_cleaned',
+              key: 'price_per_sqm_cleaned',
+              width: '12%',
+              render: (value) => <Text strong>{formatNumber(value, 2)} ₽/м²</Text>,
+            },
+            {
+              title: 'Скорр. ставка',
+              dataIndex: 'adjusted_rate',
+              key: 'adjusted_rate',
+              width: '12%',
+              render: (value) => value ? <Text>{formatNumber(value, 2)} ₽/м²</Text> : '—',
+            },
+            {
+              title: 'Релевантность',
+              dataIndex: 'relevance_score',
+              key: 'relevance_score',
+              width: '8%',
+              render: (value) => value ? `${formatNumber(Number(value) * 100, 1)}%` : '—',
+            },
+            {
+              title: 'Вес',
+              dataIndex: 'normalized_weight',
+              key: 'normalized_weight',
+              width: '8%',
+              render: (_, record) => {
+                const value = record.normalized_weight ?? record.selection_weight;
+                return value ? `${formatNumber(Number(value) * 100, 1)}%` : '—';
+              },
+            },
+            {
+              title: 'Статус',
+              dataIndex: 'included_in_rent_calculation',
+              key: 'included_in_rent_calculation',
+              width: '10%',
+              render: (value, record) => (
+                <Tooltip title={localizeResultText(record.decision_reason || record.exclusion_reason || '—')}>
+                  <Tag color={value === false ? 'default' : 'green'}>
+                    {value === false ? 'Исключён' : 'В расчёте'}
+                  </Tag>
+                </Tooltip>
+              ),
+            },
+            {
+              title: <Tooltip title={getFieldTooltip('offer_date')}>Дата</Tooltip>,
+              dataIndex: 'offer_date',
+              key: 'offer_date',
+              width: '10%',
+              render: (value) => {
+                if (!value) return '—';
+                return new Date(value).toLocaleDateString('ru-RU');
+              },
+            },
+            {
+              title: <Tooltip title="Переход к источнику информации об объекте">Ссылка</Tooltip>,
+              dataIndex: 'link',
+              key: 'link',
+              width: '14%',
+              render: (link) => {
+                if (!link) return <Text type="secondary">—</Text>;
+                return (
+                  <Tooltip title={link}>
+                    <a
+                      href={link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Button type="link" icon={<LinkOutlined />} className="project-result-link-btn">
+                        Источник
+                      </Button>
+                    </a>
+                  </Tooltip>
+                );
+              },
+            },
+          ]}
+          pagination={false}
+          size="small"
+          rowKey={(record) => record.id || record.external_id}
+        />
+      </div>
+    );
+  };
+
   const handleExportPdf = async () => {
     const previousExpandedKeys = expandedStepKeys;
     const previousShowExcludedComparables = showExcludedComparables;
-    const shouldExpandAll = calculationStepKeys.some((key) => !expandedStepKeys.includes(key));
+    const shouldExpandAll = detailCollapseKeys.some((key) => !expandedStepKeys.includes(key));
     const shouldExpandExcludedComparables = (
       !showExcludedComparables &&
       (breakdown?.market?.excludedComparables?.length || 0) > 0
@@ -1388,7 +1672,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
       setExportingPdf(true);
 
       if (shouldExpandAll) {
-        setExpandedStepKeys(calculationStepKeys);
+        setExpandedStepKeys(detailCollapseKeys);
       }
 
       if (shouldExpandExcludedComparables) {
@@ -1439,10 +1723,10 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
   };
 
   useEffect(() => {
-    if (calculationStepKeys.length) {
-      setExpandedStepKeys(calculationStepKeys);
+    if (detailCollapseKeys.length) {
+      setExpandedStepKeys(detailCollapseKeys);
     }
-  }, [breakdown, calculationStepKeys.join('|')]);
+  }, [breakdown, detailCollapseKeys.join('|')]);
 
   if (!result && !loading) {
     return <Empty description="Результат пока не рассчитан" />;
@@ -1773,107 +2057,136 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       ghost
                       activeKey={expandedStepKeys}
                       onChange={(keys) => setExpandedStepKeys(Array.isArray(keys) ? keys.map(String) : [])}
-                      items={(breakdown?.calculationSteps || []).map((step) => ({
-                        key: String(step.step),
-                        label: (
-                          <div className="project-result-step-header">
+                      items={(breakdown?.calculationSteps || []).flatMap((step) => {
+                        const stepItem = {
+                          key: String(step.step),
+                          label: (
+                            <div className="project-result-step-header">
+                              <div>
+                                <Text type="secondary" className="project-result-step-eyebrow">
+                                  Шаг {step.step}
+                                </Text>
+                                <div>{localizeResultText(step.title)}</div>
+                              </div>
+                              <Text strong className="project-result-step-result">
+                                {formatStepSummary(step)}
+                              </Text>
+                            </div>
+                          ),
+                          children: (
                             <div>
-                              <Text type="secondary" className="project-result-step-eyebrow">
-                                Шаг {step.step}
-                              </Text>
-                              <div>{localizeResultText(step.title)}</div>
-                            </div>
-                            <Text strong className="project-result-step-result">
-                              {formatStepSummary(step)}
-                            </Text>
-                          </div>
-                        ),
-                        children: (
-                          <div>
-                            <div className="project-result-detail-block">
-                              <Text strong className="project-result-detail-label">
-                                Что посчитано
-                              </Text>
-                              <Paragraph style={{ marginBottom: 0 }}>
-                                {localizeResultText(step.formula)}
-                              </Paragraph>
-                            </div>
-
-                            {step.explanation && (
                               <div className="project-result-detail-block">
                                 <Text strong className="project-result-detail-label">
-                                  Почему именно так
+                                  Что посчитано
                                 </Text>
                                 <Paragraph style={{ marginBottom: 0 }}>
-                                  {renderLocalizedMultilineText(step.explanation)}
+                                  {localizeResultText(step.formula)}
                                 </Paragraph>
                               </div>
-                            )}
 
-                            {step.calculation && (
-                              <div className="project-result-detail-block">
-                                <Text strong className="project-result-detail-label">
-                                  Как посчитано
-                                </Text>
-                                <code className="project-result-formula">
-                                  {localizeResultText(step.calculation)}
-                                </code>
-                              </div>
-                            )}
+                              {step.explanation && (
+                                <div className="project-result-detail-block">
+                                  <Text strong className="project-result-detail-label">
+                                    Почему именно так
+                                  </Text>
+                                  <Paragraph style={{ marginBottom: 0 }}>
+                                    {renderLocalizedMultilineText(step.explanation)}
+                                  </Paragraph>
+                                </div>
+                              )}
 
-                            {Array.isArray(step.rows) && step.rows.length > 0 && (
-                              <Table
-                                className="project-result-step-table"
-                                size="small"
-                                pagination={false}
-                                scroll={{ x: 960 }}
-                                rowKey={(record, index) => record.label || index}
-                                dataSource={step.rows}
-                                columns={[
-                                  {
-                                    title: 'Показатель',
-                                    dataIndex: 'label',
-                                    key: 'label',
-                                    render: (value) => localizeResultText(value) || '-',
-                                  },
-                                  {
-                                    title: 'Площадь',
-                                    dataIndex: 'leasableArea',
-                                    key: 'leasableArea',
-                                    render: (value) => value !== undefined ? formatSqm(value, 2) : '-',
-                                  },
-                                  {
-                                    title: 'Ставка',
-                                    dataIndex: 'monthlyRate',
-                                    key: 'monthlyRate',
-                                    render: (value) => value !== undefined ? `${formatNumber(value, 3)} ₽/м²/мес` : '-',
-                                  },
-                                  {
-                                    title: 'Доход / Значение',
-                                    dataIndex: 'annualIncome',
-                                    key: 'annualIncome',
-                                    render: (_, record) => {
-                                      if (record.annualIncome !== undefined) {
-                                        return formatCurrency(record.annualIncome, 2);
-                                      }
+                              {step.calculation && (
+                                <div className="project-result-detail-block">
+                                  <Text strong className="project-result-detail-label">
+                                    Как посчитано
+                                  </Text>
+                                  <code className="project-result-formula">
+                                    {localizeResultText(step.calculation)}
+                                  </code>
+                                </div>
+                              )}
 
-                                      if (record.value !== undefined) {
-                                        return `${formatNumber(record.value, 3)} ${localizeResultText(step.unit)}`;
-                                      }
-
-                                      return '-';
+                              {Array.isArray(step.rows) && step.rows.length > 0 && (
+                                <Table
+                                  className="project-result-step-table"
+                                  size="small"
+                                  pagination={false}
+                                  scroll={{ x: 960 }}
+                                  rowKey={(record, index) => record.label || index}
+                                  dataSource={step.rows}
+                                  columns={[
+                                    {
+                                      title: 'Показатель',
+                                      dataIndex: 'label',
+                                      key: 'label',
+                                      render: (value) => localizeResultText(value) || '-',
                                     },
-                                  },
-                                ]}
-                              />
-                            )}
+                                    {
+                                      title: 'Площадь',
+                                      dataIndex: 'leasableArea',
+                                      key: 'leasableArea',
+                                      render: (value) => value !== undefined ? formatSqm(value, 2) : '-',
+                                    },
+                                    {
+                                      title: 'Ставка',
+                                      dataIndex: 'monthlyRate',
+                                      key: 'monthlyRate',
+                                      render: (value) => value !== undefined ? `${formatNumber(value, 3)} ₽/м²/мес` : '-',
+                                    },
+                                    {
+                                      title: 'Доход / Значение',
+                                      dataIndex: 'annualIncome',
+                                      key: 'annualIncome',
+                                      render: (_, record) => {
+                                        if (record.annualIncome !== undefined) {
+                                          return formatCurrency(record.annualIncome, 2);
+                                        }
 
-                            {!(Array.isArray(step.rows) && step.rows.length > 0 && step?.result && typeof step.result === 'object') && (
-                              renderStepResult(step)
-                            )}
-                          </div>
-                        ),
-                      }))}
+                                        if (record.value !== undefined) {
+                                          return `${formatNumber(record.value, 3)} ${localizeResultText(step.unit)}`;
+                                        }
+
+                                        return '-';
+                                      },
+                                    },
+                                  ]}
+                                />
+                              )}
+
+                              {!(Array.isArray(step.rows) && step.rows.length > 0 && step?.result && typeof step.result === 'object') && (
+                                renderStepResult(step)
+                              )}
+                            </div>
+                          ),
+                        };
+
+                        if (Number(step.step) !== 1 || !hasTopComparables) {
+                          return [stepItem];
+                        }
+
+                        return [
+                          stepItem,
+                          {
+                            key: topComparablesDetailKey,
+                            label: (
+                              <div className="project-result-step-header">
+                                <div>
+                                  <Text type="secondary" className="project-result-step-eyebrow">
+                                    После шага 1
+                                  </Text>
+                                  <div>
+                                    <LineChartOutlined /> Аналогичные объекты (топ-10)
+                                  </div>
+                                </div>
+                                <Text strong className="project-result-step-result">
+                                  {topComparables.length} аналогов
+                                </Text>
+                              </div>
+                            ),
+                            children: renderTopComparablesTable(),
+                          },
+                        ];
+                      })}
                     />
                   </div>
                 </div>
@@ -2139,146 +2452,6 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               </>
             )}
 
-            <Divider />
-
-            {breakdown?.market?.topComparables?.length > 0 && (
-              <div className="project-result-pdf-break-before">
-                <Title level={3}>
-                  <LineChartOutlined />
-                  <Tooltip title="Похожие объекты недвижимости, используемые для расчета рыночной ставки аренды">
-                    Аналогичные объекты (топ-10) <InfoCircleOutlined />
-                  </Tooltip>
-                </Title>
-                <Text type="secondary" className="project-result-comparable-hint">
-                  Нажмите на строку, чтобы открыть детали отбора и пошаговый расчет корректировок по аналогу.
-                </Text>
-                <Table
-                  dataSource={breakdown.market.topComparables}
-                  scroll={{ x: 1560 }}
-                  onRow={(record) => ({
-                    onClick: () => setSelectedComparable(record),
-                  })}
-                  rowClassName={() => 'project-result-comparable-row'}
-                  columns={[
-                    // {
-                    //   title: 'ID',
-                    //   dataIndex: 'id',
-                    //   key: 'id',
-                    //   width: '12%',
-                    //   render: (value, record) => value || record.external_id || '—',
-                    // },
-                    {
-                      title: <Tooltip title={getFieldTooltip('address_offer')}>Адрес</Tooltip>,
-                      dataIndex: 'address_offer',
-                      key: 'address_offer',
-                      width: '24%',
-                      render: (text) => <Text ellipsis>{localizeResultText(text) || '—'}</Text>,
-                    },
-                    {
-                      title: <Tooltip title={getFieldTooltip('class_offer')}>Класс</Tooltip>,
-                      dataIndex: 'class_offer',
-                      key: 'class_offer',
-                      width: '8%',
-                    },
-                    {
-                      title: 'Квартал',
-                      dataIndex: 'quarter',
-                      key: 'quarter',
-                      width: '10%',
-                      render: (value) => value || '—',
-                    },
-                    {
-                      title: <Tooltip title={getFieldTooltip('area_total')}>Площадь</Tooltip>,
-                      dataIndex: 'area_total',
-                      key: 'area_total',
-                      width: '12%',
-                      render: (value) => formatSqm(value, 2),
-                    },
-                    {
-                      title: <Tooltip title={getFieldTooltip('price_per_sqm_cleaned')}>Ставка</Tooltip>,
-                      dataIndex: 'price_per_sqm_cleaned',
-                      key: 'price_per_sqm_cleaned',
-                      width: '12%',
-                      render: (value) => <Text strong>{formatNumber(value, 2)} ₽/м²</Text>,
-                    },
-                    {
-                      title: 'Скорр. ставка',
-                      dataIndex: 'adjusted_rate',
-                      key: 'adjusted_rate',
-                      width: '12%',
-                      render: (value) => value ? <Text>{formatNumber(value, 2)} ₽/м²</Text> : '—',
-                    },
-                    {
-                      title: 'Релевантность',
-                      dataIndex: 'relevance_score',
-                      key: 'relevance_score',
-                      width: '8%',
-                      render: (value) => value ? `${formatNumber(Number(value) * 100, 1)}%` : '—',
-                    },
-                    {
-                      title: 'Вес',
-                      dataIndex: 'normalized_weight',
-                      key: 'normalized_weight',
-                      width: '8%',
-                      render: (_, record) => {
-                        const value = record.normalized_weight ?? record.selection_weight;
-                        return value ? `${formatNumber(Number(value) * 100, 1)}%` : '—';
-                      },
-                    },
-                    {
-                      title: 'Статус',
-                      dataIndex: 'included_in_rent_calculation',
-                      key: 'included_in_rent_calculation',
-                      width: '10%',
-                      render: (value, record) => (
-                        <Tooltip title={localizeResultText(record.decision_reason || record.exclusion_reason || '—')}>
-                          <Tag color={value === false ? 'default' : 'green'}>
-                            {value === false ? 'Исключён' : 'В расчёте'}
-                          </Tag>
-                        </Tooltip>
-                      ),
-                    },
-                    {
-                      title: <Tooltip title={getFieldTooltip('offer_date')}>Дата</Tooltip>,
-                      dataIndex: 'offer_date',
-                      key: 'offer_date',
-                      width: '10%',
-                      render: (value) => {
-                        if (!value) return '—';
-                        return new Date(value).toLocaleDateString('ru-RU');
-                      },
-                    },
-                    {
-                      title: <Tooltip title="Переход к источнику информации об объекте">Ссылка</Tooltip>,
-                      dataIndex: 'link',
-                      key: 'link',
-                      width: '14%',
-                      render: (link) => {
-                        if (!link) return <Text type="secondary">—</Text>;
-                        return (
-                          <Tooltip title={link}>
-                            <a
-                              href={link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <Button type="link" icon={<LinkOutlined />} className="project-result-link-btn">
-                                Источник
-                              </Button>
-                            </a>
-                          </Tooltip>
-                        );
-                      },
-                    },
-                  ]}
-                  pagination={false}
-                  size="small"
-                  rowKey={(record) => record.id || record.external_id}
-                />
-              </div>
-            )}
-
             <Modal
               open={Boolean(selectedComparable)}
               title={selectedComparable?.address_offer || 'Расчет по аналогу'}
@@ -2290,180 +2463,83 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
               {selectedComparable && (
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                   <Text type="secondary">
-                    Аналог проходит через фильтр по классу, удаление дублей, ранжирование по сходству и затем
-                    через корректировки ставки. Ниже показаны параметры именно для выбранной строки.
+                    Ниже показано не просто описание аналога, а логика его попадания в выборку:
+                    от первичных фильтров и ранжирования до математического расчета скорректированной ставки.
                   </Text>
 
-                  <Card size="small" title="Как аналог был отобран">
-                    <Descriptions column={2} size="small" bordered>
-                      <Descriptions.Item label="Место в топ-10">
-                        {selectedComparableRank > 0 ? `#${selectedComparableRank}` : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Статус">
-                        <Tag color={selectedComparable.included_in_rent_calculation === false ? 'default' : 'green'}>
-                          {selectedComparable.included_in_rent_calculation === false ? 'Исключён' : 'В расчёте'}
-                        </Tag>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Причина" span={2}>
-                        {localizeResultText(
-                          selectedComparable.decision_reason
-                          || selectedComparable.exclusion_reason
-                          || 'Оставлен в итоговой выборке после ранжирования'
-                        )}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Расстояние Махаланобиса">
-                        {hasMeaningfulValue(selectedComparable.mahalanobisDistance)
-                          ? formatNumber(selectedComparable.mahalanobisDistance, 4)
-                          : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Релевантность">
-                        {hasMeaningfulValue(selectedComparable.relevance_score)
-                          ? formatPercent(Number(selectedComparable.relevance_score) * 100, 1)
-                          : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Вес в ставке">
-                        {hasMeaningfulValue(selectedComparableWeight)
-                          ? formatPercent(Number(selectedComparableWeight) * 100, 1)
-                          : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Общая сопоставимость по масштабу">
-                        {hasMeaningfulValue(selectedComparable.scale_similarity_score)
-                          ? formatPercent(Number(selectedComparable.scale_similarity_score) * 100, 1)
-                          : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Класс объекта">
-                        {questionnaire?.businessCenterClass || questionnaire?.objectClass || '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Класс аналога">
-                        {selectedComparable.class_offer || '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Площадь объекта">
-                        {hasMeaningfulValue(questionnaire?.totalArea) ? formatSqm(questionnaire?.totalArea, 2) : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Площадь аналога">
-                        {hasMeaningfulValue(selectedComparable.area_total) ? formatSqm(selectedComparable.area_total, 2) : '—'}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Метро объекта">
-                        {formatDistanceKm(questionnaire?.metroDistance)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Метро аналога">
-                        {formatDistanceKm(selectedComparable.distance_to_metro)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Этаж объекта">
-                        {humanizeFloorCategory(selectedComparableFloorCategory)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Этаж аналога">
-                        {humanizeFloorCategory(selectedComparable.floor_location)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Дата оценки">
-                        {formatDate(questionnaire?.valuationDate)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Дата / квартал аналога">
-                        {selectedComparable.quarter || formatDate(selectedComparable.offer_date)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Окружение объекта">
-                        {selectedComparableSubjectEnvironment}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Окружение аналога">
-                        {selectedComparableAnalogEnvironment}
-                      </Descriptions.Item>
-                    </Descriptions>
-                  </Card>
+                  <ComparableMathStep
+                    number={1}
+                    title="Первичный фильтр и сопоставимость"
+                    result={selectedComparable.included_in_rent_calculation === false ? 'не прошёл итоговый фильтр' : 'допущен к ранжированию'}
+                    explanation="Аналог сначала проверяется на базовую пригодность: класс, общая площадь, наличие очищенной удельной цены и сопоставимых исходных признаков."
+                    formula={selectedComparableSelectionFormula}
+                    facts={[
+                      'So — общая площадь оцениваемого объекта; Sa — общая площадь аналогичного объекта.',
+                      `Адрес аналога: ${selectedComparable.address_offer || '—'}`,
+                      `Метро объекта: ${formatDistanceKm(questionnaire?.metroDistance)}; метро аналога: ${formatDistanceKm(selectedComparable.distance_to_metro)}`,
+                      `Этаж объекта: ${humanizeFloorCategory(selectedComparableFloorCategory)}; этаж аналога: ${humanizeFloorCategory(selectedComparable.floor_location)}`,
+                      `Окружение объекта: ${selectedComparableSubjectEnvironment}; окружение аналога: ${selectedComparableAnalogEnvironment}`,
+                    ]}
+                  />
 
-                  <Card size="small" title="Пошаговый расчет корректировок ставки">
-                    <div className="project-result-comparable-metrics">
-                      <div className="project-result-comparable-metric">
-                        <Text type="secondary">Базовая ставка</Text>
-                        <div className="project-result-comparable-metric-value">
-                          {hasMeaningfulValue(selectedComparable.raw_rate)
-                            ? `${formatNumber(selectedComparable.raw_rate, 2)} ₽/м²`
-                            : '—'}
-                        </div>
-                      </div>
-                      <div className="project-result-comparable-metric">
-                        <Text type="secondary">После даты</Text>
-                        <div className="project-result-comparable-metric-value">
-                          {hasMeaningfulValue(selectedComparable.after_date)
-                            ? `${formatNumber(selectedComparable.after_date, 2)} ₽/м²`
-                            : '—'}
-                        </div>
-                      </div>
-                      <div className="project-result-comparable-metric">
-                        <Text type="secondary">После торга</Text>
-                        <div className="project-result-comparable-metric-value">
-                          {hasMeaningfulValue(selectedComparable.after_bargain)
-                            ? `${formatNumber(selectedComparable.after_bargain, 2)} ₽/м²`
-                            : '—'}
-                        </div>
-                      </div>
-                      <div className="project-result-comparable-metric">
-                        <Text type="secondary">Итоговая ставка</Text>
-                        <div className="project-result-comparable-metric-value is-strong">
-                          {hasMeaningfulValue(selectedComparable.corrected_rate || selectedComparable.adjusted_rate)
-                            ? `${formatNumber(
-                              selectedComparable.corrected_rate || selectedComparable.adjusted_rate,
-                              2
-                            )} ₽/м²`
-                            : '—'}
-                        </div>
-                      </div>
-                    </div>
+                  <ComparableMathStep
+                    number={2}
+                    title="Ранжирование аналога"
+                    result={selectedComparableRank > 0 ? `место #${selectedComparableRank}` : 'место не определено'}
+                    explanation="После фильтров аналог ранжируется по близости к объекту оценки. Это технический слой платформы поверх методики корректировок: он определяет, какие объекты попадут в итоговую выборку."
+                    formula={selectedComparableRankingFormula}
+                    facts={[
+                      localizeResultText(
+                        selectedComparable.decision_reason
+                        || selectedComparable.exclusion_reason
+                        || 'Оставлен в итоговой выборке после ранжирования'
+                      ),
+                    ]}
+                  />
 
-                    <Descriptions column={3} size="small" bordered style={{ marginBottom: 16 }}>
-                      <Descriptions.Item label="Коэфф. 1-й группы">
-                        {formatFactor(selectedComparable.first_group_factor)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Коэфф. 2-й группы">
-                        {formatFactor(selectedComparable.second_group_multi_factor)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Общий множитель">
-                        {formatFactor(selectedComparable.total_adjustment_factor)}
-                      </Descriptions.Item>
-                    </Descriptions>
+                  <ComparableMathStep
+                    number={3}
+                    title="Корректировки 1-й группы: дата предложения и скидка на торг"
+                    result={formatComparableRate(selectedComparable?.after_bargain)}
+                    explanation="Сначала удельная цена аналога приводится к дате оценки, затем от полученной ставки применяется единая скидка на торг."
+                    formula={selectedComparableFirstGroupFormula}
+                    facts={[
+                      selectedComparableAdjustmentByKey.date?.details || null,
+                      selectedComparableAdjustmentByKey.date?.reasoning || null,
+                      selectedComparableAdjustmentByKey.bargain?.details || null,
+                      selectedComparableAdjustmentByKey.bargain?.reasoning || null,
+                    ]}
+                  />
 
-                    <Table
-                      dataSource={selectedComparableAdjustmentRows}
-                      pagination={false}
-                      size="small"
-                      rowKey="key"
-                      columns={[
-                        {
-                          title: 'Этап',
-                          dataIndex: 'stage',
-                          key: 'stage',
-                          width: '18%',
-                        },
-                        {
-                          title: 'Коэфф.',
-                          dataIndex: 'factor',
-                          key: 'factor',
-                          width: '10%',
-                          render: (value) => formatFactor(value),
-                        },
-                        {
-                          title: 'Изменение',
-                          dataIndex: 'deltaPercent',
-                          key: 'deltaPercent',
-                          width: '12%',
-                          render: (value) => formatSignedPercent(value, 2),
-                        },
-                        {
-                          title: 'Основание',
-                          dataIndex: 'reasoning',
-                          key: 'reasoning',
-                          width: '25%',
-                        },
-                        {
-                          title: 'Входные данные',
-                          dataIndex: 'details',
-                          key: 'details',
-                          width: '35%',
-                          render: (value) => value || '—',
-                        },
-                      ]}
-                      locale={{ emptyText: 'Для этого аналога нет сохраненных пошаговых корректировок' }}
-                    />
-                  </Card>
+                  <ComparableMathStep
+                    number={4}
+                    title="Корректировки 2-й группы: метро, площадь, этаж, ближайшее окружение"
+                    result={formatComparableRate(selectedComparableCorrectedRate)}
+                    explanation="Во второй группе коэффициенты перемножаются в мультикорректировку. Для метро используется y = 0.78 × x^-0.04, для площади — Кs = (So/Sa)^n."
+                    formula={selectedComparableSecondGroupFormula}
+                    facts={selectedComparableAdjustmentRows
+                      .filter((item) => ['metro', 'area', 'floor', 'environment'].includes(item.key))
+                      .flatMap((item) => [
+                        `${item.stage}: ${item.reasoning}`,
+                        item.details,
+                      ])}
+                  />
+
+                  <ComparableMathStep
+                    number={5}
+                    title="Итоговая рыночная ставка аналога"
+                    result={selectedComparable.included_in_rent_calculation === false ? 'исключён' : 'в расчёте'}
+                    explanation="Итоговая ставка аналога получается умножением ставки после первой группы на мультикорректировку второй группы. Затем аналог либо остаётся в диапазоне отбора, либо исключается как выброс."
+                    formula={selectedComparableFinalFormula}
+                    facts={[
+                      selectedComparable.included_in_rent_calculation === false
+                        ? `Причина исключения: ${localizeResultText(selectedComparable.exclusion_reason || 'не указана')}`
+                        : `В итоговую ставку передана скорректированная ставка: ${formatComparableRate(selectedComparableCorrectedRate)}`,
+                      hasMeaningfulValue(selectedComparableWeight)
+                        ? `Вес аналога в выборке: ${formatPercent(Number(selectedComparableWeight) * 100, 1)}`
+                        : 'Вес аналога не задан отдельно; используется равновесная выборка или усреднение по ставкам.',
+                    ]}
+                  />
                 </Space>
               )}
             </Modal>

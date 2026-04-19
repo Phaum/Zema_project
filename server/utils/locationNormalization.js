@@ -57,6 +57,9 @@ export function extractDistrictFromCadastralRecord(record = {}) {
         rawPayload?.match?.data?.cadastral_district,
         rawPayload?.match?.data?.details_ru?.['Кадастровый район'],
         rawPayload?.match?.raw?.html_fields?.['Кадастровый район'],
+        rawPayload?.fallback?.match?.data?.cadastral_district,
+        rawPayload?.fallback?.match?.data?.details_ru?.['Кадастровый район'],
+        rawPayload?.fallback?.match?.raw?.html_fields?.['Кадастровый район'],
         rawPayload?.fallback?.cadastral_district,
         record?.district,
     ];

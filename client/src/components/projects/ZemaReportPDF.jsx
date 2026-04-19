@@ -1,19 +1,6 @@
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-
-const ENV_CATEGORY_LABELS = {
-  mixed_urban: 'смешанная городская застройка',
-  prime_business: 'деловой центр',
-  urban_business: 'городская деловая застройка',
-  residential: 'жилая застройка',
-  industrial: 'промзона',
-};
-
-const translateEnvCategory = (value) => {
-  if (!value) return '';
-  const key = String(value).trim().toLowerCase();
-  return ENV_CATEGORY_LABELS[key] || value;
-};
+import { translateEnvironmentCategory } from '../../utils/environmentLabels';
 
 export const exportZemaReportToPDF = async (projectId, data) => {
   const {
@@ -287,7 +274,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
                 <tr><td><strong>Расстояние до метро, км</strong></td><td>${distanceToMetroKm}</td></tr>
                 <tr><td><strong>Исторический центр</strong></td><td>${formatYesNo(isHistoricalCenter)}</td></tr>
                 <tr><td><strong>Территориальная зона</strong></td><td>${territorialZone}</td></tr>
-                <tr><td><strong>Ближайшее окружение (600 м)</strong></td><td>${translateEnvCategory(nearbyEnvironment)}</td></tr>
+                <tr><td><strong>Ближайшее окружение (600 м)</strong></td><td>${translateEnvironmentCategory(nearbyEnvironment)}</td></tr>
               </table>
               ${mapImageUrl ? `<img src="${mapImageUrl}" class="map-image">` : ''}
             </div>

@@ -160,6 +160,32 @@
     color: #0f4c81;
 }
 
+.project-result-comparable-step {
+    border-color: #dce8f6;
+}
+
+.project-result-comparable-step + .project-result-comparable-step {
+    margin-top: 12px;
+}
+
+.project-result-comparable-step-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.project-result-comparable-step-result {
+    color: #0f4c81;
+    text-align: right;
+}
+
+.project-result-comparable-step-facts {
+    display: flex;
+    margin-top: 10px;
+}
+
 .project-result-map-meta {
     display: flex;
     flex-wrap: wrap;
