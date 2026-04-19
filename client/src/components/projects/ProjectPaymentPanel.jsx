@@ -141,6 +141,7 @@ export default function ProjectPaymentPanel({
     projectId,
     project,
     onBack,
+    onCalculateRequest,
     onCalculated,
     onPaymentChanged,
 }) {
@@ -250,7 +251,11 @@ export default function ProjectPaymentPanel({
             message.success('Подписка активирована');
 
             try {
-                await api.post(`/projects/${projectId}/calculate`);
+                if (onCalculateRequest) {
+                    await onCalculateRequest();
+                } else {
+                    await api.post(`/projects/${projectId}/calculate`);
+                }
                 message.success('Результат сформирован');
                 onCalculated?.();
             } catch (calculationError) {
@@ -269,7 +274,11 @@ export default function ProjectPaymentPanel({
     const handleCalculate = async () => {
         try {
             setLoading(true);
-            await api.post(`/projects/${projectId}/calculate`);
+            if (onCalculateRequest) {
+                await onCalculateRequest();
+            } else {
+                await api.post(`/projects/${projectId}/calculate`);
+            }
             message.success('Результат сформирован');
             onCalculated?.();
         } catch (error) {

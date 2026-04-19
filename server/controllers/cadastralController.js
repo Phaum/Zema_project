@@ -3,6 +3,8 @@ import { execFile } from 'child_process';
 import util from 'util';
 import axios from 'axios';
 import { Op } from 'sequelize';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { reverseGeocodeByCoords } from './geoController.js';
 import { toNumber, safeString } from '../utils/dataValidation.js';
 import { fetchCadastralFallbackData } from '../services/cadastralFallbackService.js';
@@ -18,11 +20,29 @@ const execFileAsync = util.promisify(execFile);
 const PYTHON_BIN = process.env.PYTHON_BIN;
 const NSPD_PARSER_PATH = process.env.NSPD_PARSER_PATH;
 const GEO_SERVICE_URL = process.env.GEO_SERVICE_URL;
+const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_ROOT_DIR = path.resolve(CURRENT_DIR, '..');
 
 const CADASTRAL_REGEX = /^\d{2}:\d{2}:\d{7}:\d{1,16}$/;
 
 function normalizeCadastralNumber(value) {
   return String(value || '').trim();
+}
+
+function resolveNspdParserPath() {
+  if (!NSPD_PARSER_PATH) {
+    return null;
+  }
+
+  if (path.isAbsolute(NSPD_PARSER_PATH)) {
+    return NSPD_PARSER_PATH;
+  }
+
+  return path.resolve(SERVER_ROOT_DIR, NSPD_PARSER_PATH);
+}
+
+function shouldRunPythonThroughShell() {
+  return process.platform === 'win32' && /\.(cmd|bat)$/i.test(PYTHON_BIN || '');
 }
 
 function isValidCadastralNumber(value) {
@@ -491,11 +511,13 @@ async function loadObjectFromParser(cadastralNumber) {
     throw new Error('Парсер НСПД не настроен');
   }
 
+  const parserPath = resolveNspdParserPath();
   const { stdout } = await execFileAsync(
       PYTHON_BIN,
-      [NSPD_PARSER_PATH, cadastralNumber],
+      [parserPath, cadastralNumber],
       {
         maxBuffer: 10 * 1024 * 1024,
+        shell: shouldRunPythonThroughShell(),
         env: {
           ...process.env,
           PYTHONIOENCODING: 'utf-8',
@@ -630,6 +652,14 @@ export async function getOrFetchCadastralRecord(cadastralNumber, { forceRefresh 
   });
 
   if (!isNormalizedRecordSufficient(mergedPayload)) {
+    if (cached && isNormalizedRecordSufficient(normalizeStoredRecord(cached))) {
+      cached.source_note = [
+        cached.source_note,
+        `Последнее обновление кадастровых данных не выполнено: ${parserError?.message || fallbackError?.message || 'внешний источник временно недоступен'}`,
+      ].filter(Boolean).join(' ');
+      return cached;
+    }
+
     const message =
       parserError?.message ||
       fallbackError?.message ||

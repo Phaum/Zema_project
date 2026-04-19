@@ -201,8 +201,10 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
 
             leasableArea: {
                 value: round2(leasableArea),
-                source: toNumber(questionnaire.leasableArea, 0) > 0 ? 'questionnaire' : 'derived',
-                note: `Арендопригодная площадь в расчёте: ${formatNumber(leasableArea)} м²`,
+                source: calculation.leasableAreaSource || (toNumber(questionnaire.leasableArea, 0) > 0 ? 'questionnaire' : 'derived'),
+                note: calculation.leasableAreaSource === 'derived_from_floor_sum'
+                    ? `Арендопригодная площадь в расчёте получена как сумма по этажам: ${formatNumber(leasableArea)} м²`
+                    : `Арендопригодная площадь в расчёте: ${formatNumber(leasableArea)} м²`,
             },
 
             floorInputRows,
@@ -461,7 +463,7 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
             capitalizationRate,
             capitalizationRatePercent: round2(capitalizationRatePercent),
             valueTotal: round2(valueTotal),
-            landShare: round2(landShare),
+            landShare,
             finalValue: round2(finalValue),
             estimatedValue: round2(finalValue),
             pricePerM2: round2(pricePerM2),
@@ -493,6 +495,27 @@ function formatNumber(value) {
 
 function formatMoney(value) {
     return round2(value).toLocaleString('ru-RU');
+}
+
+function formatPrecisePlain(value, maxFractionDigits = 6) {
+    const number = toNumber(value, null);
+    if (!Number.isFinite(number)) return '0';
+
+    return number.toLocaleString('ru-RU', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: maxFractionDigits,
+        useGrouping: false,
+    });
+}
+
+function formatPreciseMoney(value) {
+    const number = toNumber(value, null);
+    if (!Number.isFinite(number)) return '0';
+
+    return number.toLocaleString('ru-RU', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 6,
+    });
 }
 
 function formatPercentPlain(value) {
@@ -564,7 +587,7 @@ function buildLandInput(questionnaire, calculation, landShare) {
 
     return {
         cadastralNumber: landDetails.cadastralNumber || questionnaire.landCadastralNumber || null,
-        landCadCost: round2(toNumber(landDetails.landCadCost, questionnaire.landCadCost)),
+        landCadCost: toNumber(landDetails.landCadCost, questionnaire.landCadCost),
         landArea: round2(toNumber(landDetails.landArea, questionnaire.landArea)),
         totalOksAreaOnLand: round2(toNumber(landDetails.totalOksAreaOnLand, questionnaire.totalOksAreaOnLand)),
         objectArea: round2(toNumber(landDetails.objectArea, questionnaire.totalArea)),
@@ -572,8 +595,8 @@ function buildLandInput(questionnaire, calculation, landShare) {
         landShareRatio: round2(toNumber(landDetails.landShareRatio, toNumber(landDetails.allocationRatio, 0)) * 100),
         subjectArea: round2(toNumber(landDetails.objectArea, questionnaire.totalArea)),
         subjectLandShareRatio: round2(toNumber(landDetails.allocationRatio, 0) * 100),
-        landShare: round2(landShare),
-        landShareValue: round2(landShare),
+        landShare,
+        landShareValue: landShare,
         source: landDetails.source || 'missing',
         landCalculationMode: landDetails.calculationMode || landDetails.source || 'missing',
         isCalculated: Boolean(landDetails.isCalculated),
@@ -607,12 +630,12 @@ function buildLandStepCalculation(landInput, valueTotal, finalValue) {
     }
 
     const shareFormula = landInput.source === 'fallback_subject_exceeds_total_oks'
-        ? `${formatPlain(landInput.landCadCost)} × 1 = ${formatPlain(landInput.landShare)}`
+        ? `${formatPrecisePlain(landInput.landCadCost)} × 1 = ${formatPrecisePlain(landInput.landShare)}`
         : landInput.totalOksAreaOnLand > 0
-        ? `${formatPlain(landInput.landCadCost)} × (${formatPlain(landInput.objectArea)} / ${formatPlain(landInput.totalOksAreaOnLand)}) = ${formatPlain(landInput.landShare)}`
-        : `${formatPlain(landInput.landCadCost)} × 1 = ${formatPlain(landInput.landShare)}`;
+        ? `${formatPrecisePlain(landInput.landCadCost)} × (${formatPlain(landInput.objectArea)} / ${formatPlain(landInput.totalOksAreaOnLand)}) = ${formatPrecisePlain(landInput.landShare)}`
+        : `${formatPrecisePlain(landInput.landCadCost)} × 1 = ${formatPrecisePlain(landInput.landShare)}`;
 
-    return `${shareFormula}; ${formatPlain(valueTotal)} - ${formatPlain(landInput.landShare)} = ${formatPlain(finalValue)}`;
+    return `${shareFormula}; ${formatPlain(valueTotal)} - ${formatPrecisePlain(landInput.landShare)} = ${formatPlain(finalValue)}`;
 }
 
 function buildVacancyFormula(questionnaire, calculation = {}) {
@@ -799,8 +822,6 @@ function humanizeFieldSource(source) {
     const normalized = String(source || '').trim().toLowerCase();
 
     switch (normalized) {
-        case 'historical_project_questionnaire':
-            return 'История анкет по объекту';
         case 'market_analogs':
             return 'Рыночные аналоги';
         case 'market_offers_exact_object':
@@ -822,8 +843,15 @@ function humanizeFieldSource(source) {
             return 'Параметрический профиль';
         case 'factual':
             return 'Фактические данные объекта';
+        case 'derived_from_floor_sum':
+            return 'Сумма по этажам';
         case 'cadastral_land':
             return 'Кадастровые данные участка';
+        case 'nspd':
+        case 'nspd_land':
+        case 'nspd_building':
+        case 'reestrnet':
+            return 'Кадастровый / НСПД источник';
         default:
             return source ? String(source) : 'Источник не указан';
     }
@@ -842,7 +870,7 @@ function buildCalculationInputRegistry(questionnaire, calculation, landInput, op
             key: 'leasableArea',
             label: 'Арендопригодная площадь',
             value: round2(toNumber(calculation?.leasableArea, questionnaire?.leasableArea)),
-            source: fieldSourceHints.leasableArea || 'manual_input',
+            source: calculation?.leasableAreaSource || fieldSourceHints.leasableArea || 'manual_input',
         },
         {
             key: 'occupiedArea',
@@ -901,7 +929,7 @@ function buildCalculationInputRegistry(questionnaire, calculation, landInput, op
         {
             key: 'landCadCost',
             label: 'Кадастровая стоимость участка',
-            value: round2(toNumber(landInput?.landCadCost, questionnaire?.landCadCost)),
+            value: toNumber(landInput?.landCadCost, questionnaire?.landCadCost),
             source: fieldSourceHints.landCadCost || (landInput?.source === 'missing' ? 'fallback' : 'cadastral_land'),
         },
         {
@@ -1154,12 +1182,12 @@ function buildMethodologySummary({
                 key: 'land',
                 title: 'Как учтена земля',
                 summary: landInput.isCalculated
-                    ? `${landMethod}. Из стоимости объекта вычтена доля земли ${formatMoney(landInput.landShare)} ₽.`
+                    ? `${landMethod}. Из стоимости объекта вычтена доля земли ${formatPreciseMoney(landInput.landShare)} ₽.`
                     : 'Земельная доля не была рассчитана полноценно, поэтому результат требует ручной проверки входных данных по участку.',
                 facts: [
                     landInput.cadastralNumber ? `Участок: ${landInput.cadastralNumber}` : null,
                     landInput.landCalculationMode ? `Режим расчета земли: ${landInput.landCalculationMode}` : null,
-                    landInput.landCadCost > 0 ? `Кадастровая стоимость участка: ${formatMoney(landInput.landCadCost)} ₽` : null,
+                    landInput.landCadCost > 0 ? `Кадастровая стоимость участка: ${formatPreciseMoney(landInput.landCadCost)} ₽` : null,
                     landInput.totalOksAreaOnLand > 0 ? `Общая площадь ОКС на участке: ${formatNumber(landInput.totalOksAreaOnLand)} м²` : null,
                     landInput.objectArea > 0 ? `Площадь оцениваемого ОКС: ${formatNumber(landInput.objectArea)} м²` : null,
                     landInput.landShareRatio > 0 ? `Доля объекта в земле: ${formatNumber(landInput.landShareRatio, 2)}%` : null,

@@ -325,7 +325,7 @@ async function ensureCadastralRecordsTable() {
     });
 
     await addColumnIfMissing('cad_cost', {
-        type: sequelize.Sequelize.DECIMAL(18, 2),
+        type: sequelize.Sequelize.DECIMAL(20, 6),
         allowNull: true,
     });
 
@@ -1109,7 +1109,7 @@ async function ensureProjectQuestionnairesTable() {
     });
 
     await addColumnIfMissing('cadCost', {
-        type: sequelize.Sequelize.DECIMAL(18, 2),
+        type: sequelize.Sequelize.DECIMAL(20, 6),
         allowNull: true,
     });
 
@@ -1196,7 +1196,7 @@ async function ensureProjectQuestionnairesTable() {
     });
 
     await addColumnIfMissing('landCadCost', {
-        type: sequelize.Sequelize.DECIMAL(18, 2),
+        type: sequelize.Sequelize.DECIMAL(20, 6),
         allowNull: true,
     });
 
@@ -1300,7 +1300,7 @@ async function ensureProjectResultsTable() {
     });
 
     await addColumnIfMissing('land_share', {
-        type: sequelize.Sequelize.DECIMAL(18, 2),
+        type: sequelize.Sequelize.DECIMAL(20, 6),
         allowNull: true,
     });
 

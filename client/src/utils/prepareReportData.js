@@ -45,6 +45,8 @@ export async function prepareReportData(projectId) {
     cadastralNumber: questionnaire.buildingCadastralNumber,
     totalArea: totalArea,
     constructionYear: questionnaire.constructionYear,
+    constructionCompletionYear: questionnaire.constructionCompletionYear || questionnaire.completionYear || null,
+    commissioningYear: questionnaire.commissioningYear || questionnaire.yearCommissioning || questionnaire.year_commisioning || questionnaire.constructionYear,
     hasReconstruction: questionnaire.hasReconstruction || false,
     reconstructionYear: questionnaire.reconstructionYear,
     objectType: questionnaire.objectType,

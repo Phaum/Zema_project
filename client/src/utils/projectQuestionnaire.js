@@ -14,7 +14,6 @@ export const AUTO_BUILDING_FIELDS = [
     { name: 'landCadCost', label: 'Кадастровая стоимость участка, ₽', type: 'number' },
     { name: 'totalOksAreaOnLand', label: 'Общая площадь ОКС на участке, м²', type: 'number' },
     { name: 'leasableArea', label: 'Арендопригодная площадь, м²', type: 'number', onlyForMethods: ['actual_market'] },
-    { name: 'occupiedArea', label: 'Занятая площадь по договорам аренды, м²', type: 'number', onlyForMethods: ['actual_market'] },
 ];
 
 export const QUESTIONNAIRE_SOURCE_FIELDS = [
@@ -58,9 +57,12 @@ const LEGACY_AUTO_SOURCE_FIELDS = new Set([
     'landCadCost',
     'totalOksAreaOnLand',
     'leasableArea',
-    'occupiedArea',
     'mapPointLat',
     'mapPointLng',
+]);
+
+const MANUAL_ONLY_SOURCE_FIELDS = new Set([
+    'occupiedArea',
 ]);
 
 export function normalizeQuestionnaireFieldSourceHints(value) {
@@ -92,7 +94,6 @@ export function formatQuestionnaireFieldSourceLabel(source) {
     if (normalized === 'geocode_by_address_refined') return 'уточнено по адресу объекта';
     if (normalized === 'geocode_by_address_primary') return 'координаты определены по адресу';
     if (normalized === 'derived_from_floor_sum') return 'сумма по этажам';
-    if (normalized === 'historical_project_questionnaire') return 'история анкет по объекту';
     if (normalized === 'market_offers_exact_object') return 'рыночная база по объекту';
     if (normalized === 'market_offers_district_class') return 'рыночная база по району и классу';
     if (normalized === 'geo_service') return 'геосервис';
@@ -157,7 +158,10 @@ export function getQuestionnaireSourceEntries(questionnaire = {}) {
             return entries;
         }
 
-        const source = sourceHints[fieldName] || inferLegacyFieldSource(fieldName, questionnaire);
+        const rawSource = sourceHints[fieldName] || inferLegacyFieldSource(fieldName, questionnaire);
+        const source = MANUAL_ONLY_SOURCE_FIELDS.has(fieldName) && isAutomaticQuestionnaireSource(rawSource)
+            ? null
+            : rawSource;
 
         entries.push({
             ...descriptor,

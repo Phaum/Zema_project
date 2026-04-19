@@ -54,6 +54,38 @@ function covarianceMatrix(data) {
     return matrix;
 }
 
+function cloneMatrix(matrix) {
+    return matrix.map((row) => [...row]);
+}
+
+function determinant(matrix) {
+    const size = matrix.length;
+    if (size === 2) return det2x2(matrix);
+    if (size === 3) return det3x3(matrix);
+    return luDeterminant(matrix);
+}
+
+function regularizeCovarianceMatrix(matrix) {
+    const attempts = [0, 1e-8, 1e-6, 1e-4, 1e-3];
+
+    for (const epsilon of attempts) {
+        const candidate = cloneMatrix(matrix);
+
+        if (epsilon > 0) {
+            for (let i = 0; i < candidate.length; i += 1) {
+                candidate[i][i] += epsilon;
+            }
+        }
+
+        const det = determinant(candidate);
+        if (Math.abs(det) >= 1e-10) {
+            return { matrix: candidate, det, epsilon };
+        }
+    }
+
+    return { matrix, det: determinant(matrix), epsilon: 0 };
+}
+
 /**
  * Calculate determinant of 2x2 matrix
  */
@@ -198,17 +230,7 @@ export function mahalanobisDistance(objectVector, data) {
         throw new Error('Не удалось рассчитать ковариационную матрицу');
     }
 
-    // Check determinant
-    let det = 0;
-    if (numFeatures === 2) {
-        det = det2x2(covMatrix);
-    } else if (numFeatures === 3) {
-        det = det3x3(covMatrix);
-    } else {
-        // For larger matrices, use Gaussian elimination (simplified)
-        // Here we'll use a simplified approach - LU decomposition det
-        det = luDeterminant(covMatrix);
-    }
+    const { matrix: stabilizedCovMatrix, det } = regularizeCovarianceMatrix(covMatrix);
 
     if (Math.abs(det) < 1e-10) {
         throw new Error('Вырожденная ковариационная матрица (det=0)');
@@ -217,11 +239,11 @@ export function mahalanobisDistance(objectVector, data) {
     // Invert covariance matrix
     let invMatrix = null;
     if (numFeatures === 2) {
-        invMatrix = invert2x2(covMatrix);
+        invMatrix = invert2x2(stabilizedCovMatrix);
     } else if (numFeatures === 3) {
-        invMatrix = invert3x3(covMatrix);
+        invMatrix = invert3x3(stabilizedCovMatrix);
     } else {
-        invMatrix = invertMatrix(covMatrix);
+        invMatrix = invertMatrix(stabilizedCovMatrix);
     }
 
     if (!invMatrix) {

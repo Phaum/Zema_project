@@ -179,7 +179,7 @@ test('buildCalculationBreakdown keeps rent diagnostics and source labels human-r
             landCadastralNumber: '78:34:0413901:8',
             totalOksAreaOnLand: 18023.4,
             fieldSourceHints: {
-                totalOksAreaOnLand: 'historical_project_questionnaire',
+                totalOksAreaOnLand: 'nspd_land',
             },
         },
         {
@@ -249,7 +249,7 @@ test('buildCalculationBreakdown keeps rent diagnostics and source labels human-r
     assert.ok(rentMethodology?.facts?.includes('Аналогов до стабилизации: 10'));
     assert.ok(rentMethodology?.facts?.includes('В итоговой ставке использовано: 4'));
     assert.ok(rentMethodology?.facts?.includes('Исключено из итоговой ставки: 6'));
-    assert.equal(landSource?.sourceLabel, 'История анкет по объекту');
+    assert.equal(landSource?.sourceLabel, 'Кадастровый / НСПД источник');
 });
 
 test('buildCalculationBreakdown hides correction lines for quarter-based cap, vacancy and opex profiles', () => {

@@ -1,6 +1,11 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const serverRootDir = path.resolve(currentDir, '..');
+
+dotenv.config({ path: path.join(serverRootDir, '.env') });
 
 function readRequiredEnv(name, { trim = true } = {}) {
     const rawValue = process.env[name];

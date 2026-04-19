@@ -37,7 +37,7 @@ const CadastralData = sequelize.define('CadastralData', {
     allowNull: true,
   },
   cad_cost: {
-    type: DataTypes.DECIMAL(18, 2),
+    type: DataTypes.DECIMAL(20, 6),
     allowNull: true,
   },
   specific_cadastral_cost: {

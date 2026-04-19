@@ -27,8 +27,10 @@ import {
 } from '../services/metroFallbackService.js';
 import {
     sanitizeAutoFilledLeasableArea,
+    sanitizeAutoFilledOccupiedArea,
     sanitizeAutoFilledTotalOksAreaOnLand,
 } from '../services/questionnaireEnrichmentService.js';
+import { resolveSpatialZoneForCoords } from '../utils/spatialZoneResolver.js';
 
 function median(values = []) {
     const arr = values
@@ -48,6 +50,13 @@ function average(values = []) {
     const arr = values.map(Number).filter(Number.isFinite);
     if (!arr.length) return null;
     return arr.reduce((sum, value) => sum + value, 0) / arr.length;
+}
+
+function hasMeaningfulValue(value) {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value === 'boolean') return true;
+    return String(value).trim() !== '';
 }
 
 function toComparablePlain(row) {
@@ -729,21 +738,30 @@ function buildAnalogueClassWhere(rawClass, { allowEmptyFallback = false } = {}) 
 }
 
 async function findComparableAnalogues(questionnaire) {
+    const selectionQuestionnaireBase = await ensureSelectionSpatialContext(questionnaire);
     const objectClassRaw =
-        questionnaire.marketClassResolved ||
-        questionnaire.businessCenterClass ||
-        questionnaire.objectClass ||
+        selectionQuestionnaireBase.marketClassResolved ||
+        selectionQuestionnaireBase.businessCenterClass ||
+        selectionQuestionnaireBase.objectClass ||
         null;
 
-    const cadastralRecord = questionnaire.buildingCadastralNumber
+    const cadastralRecord = selectionQuestionnaireBase.buildingCadastralNumber
         ? await CadastralData.findOne({
-            where: { cadastral_number: questionnaire.buildingCadastralNumber },
+            where: { cadastral_number: selectionQuestionnaireBase.buildingCadastralNumber },
         })
         : null;
 
-    const districtRaw = questionnaire.district || cadastralRecord?.district || null;
-    const districtKey = normalizeDistrictKey(districtRaw);
-    const areaRange = buildAreaRangeByCalculationArea(questionnaire);
+    const districtRaw = selectionQuestionnaireBase.district || cadastralRecord?.district || null;
+    const selectionQuestionnaire = {
+        ...selectionQuestionnaireBase,
+        district: districtRaw,
+        constructionYear:
+            selectionQuestionnaireBase?.constructionYear ||
+            selectionQuestionnaireBase?.construction_year ||
+            cadastralRecord?.year_built ||
+            cadastralRecord?.year_commisioning ||
+            null,
+    };
 
     const baseWhere = {
         [Op.or]: [
@@ -753,31 +771,18 @@ async function findComparableAnalogues(questionnaire) {
         ],
     };
 
-    if (areaRange) {
-        baseWhere.total_area = areaRange;
-    }
-
-    // Excel parity: the workbook ranks the whole comparable pool by similarity
-    // and does not pre-cut candidates to the same district.
     const strictWhere = { ...baseWhere };
-    const relaxedWhere = { ...baseWhere };
 
     const strictClassWhere = buildAnalogueClassWhere(objectClassRaw, { allowEmptyFallback: false });
-    const relaxedClassWhere = buildAnalogueClassWhere(objectClassRaw, { allowEmptyFallback: true });
 
     if (strictClassWhere) {
         strictWhere.class_offer = strictClassWhere;
     }
 
-    if (relaxedClassWhere) {
-        relaxedWhere.class_offer = relaxedClassWhere;
-    }
-
     console.log('[findComparableAnalogues] objectClassRaw =', objectClassRaw);
     console.log('[findComparableAnalogues] strictClassCandidates =', buildAnalogueClassCandidates(objectClassRaw));
     console.log('[findComparableAnalogues] districtRaw =', districtRaw);
-    console.log('[findComparableAnalogues] districtKey =', districtKey);
-    console.log('[findComparableAnalogues] areaRange =', areaRange || null);
+    console.log('[findComparableAnalogues] selectionMode = strict_class_then_mahalanobis');
 
     let allRows = await Analogue.findAll({
         where: strictWhere,
@@ -785,34 +790,64 @@ async function findComparableAnalogues(questionnaire) {
     });
 
     console.log('[findComparableAnalogues] strict found before dedupe =', allRows.length);
-
     console.log('[findComparableAnalogues] filterMode = strict_exact_class');
 
-    console.log('[findComparableAnalogues] found after excel_parity_pool =', allRows.length);
-
     const normalized = await Promise.all(allRows.map(mapAnalogueToComparable));
-    const deduplicated = deduplicateAnaloguesByObject(normalized, questionnaire.valuationDate);
+    const { selected, ranked } = selectAnalogsByMahalanobis(selectionQuestionnaire, normalized);
 
     console.log('[findComparableAnalogues] normalized count =', normalized.length);
-    console.log('[findComparableAnalogues] excluded duplicates =', deduplicated.excludedDuplicates.length);
-
-    const { selected, ranked } = selectAnalogsByMahalanobis(questionnaire, deduplicated.selectedAnalogs);
-    const uniqueSelected = deduplicateRankedAnalogsByObject(
-        ranked || selected,
-        questionnaire.valuationDate,
-        10
-    );
-
     console.log('[findComparableAnalogues] selected after mahalanobis =', selected.length);
-    console.log('[findComparableAnalogues] selected after object_dedup =', uniqueSelected.length);
 
     return {
         district: districtRaw,
         allAnalogs: normalized,
-        rankingPool: deduplicated.selectedAnalogs,
-        selectedAnalogs: uniqueSelected,
-        excludedDuplicates: deduplicated.excludedDuplicates,
+        rankingPool: ranked,
+        selectedAnalogs: selected,
+        excludedDuplicates: [],
     };
+}
+
+export async function ensureSelectionSpatialContext(
+    questionnaire = {},
+    { zoneResolver = resolveSpatialZoneForCoords } = {}
+) {
+    const lat = toNumber(questionnaire?.mapPointLat, null);
+    const lng = toNumber(questionnaire?.mapPointLng, null);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return questionnaire;
+    }
+
+    let nextQuestionnaire = questionnaire;
+
+    if (!hasMeaningfulValue(questionnaire?.zoneCode)) {
+        const administrativeZone = await zoneResolver(lat, lng, {
+            zoneType: 'administrative_zone',
+        });
+
+        if (administrativeZone?.matched && hasMeaningfulValue(administrativeZone.zoneCode)) {
+            nextQuestionnaire = {
+                ...nextQuestionnaire,
+                zoneCode: administrativeZone.zoneCode,
+            };
+        }
+    }
+
+    if (!hasMeaningfulValue(nextQuestionnaire?.terZone)) {
+        const valuationDistrict = await zoneResolver(lat, lng, {
+            zoneType: 'valuation_district',
+        });
+
+        const resolvedTerZone = valuationDistrict?.zoneCode || valuationDistrict?.zoneName || null;
+        if (valuationDistrict?.matched && hasMeaningfulValue(resolvedTerZone)) {
+            nextQuestionnaire = {
+                ...nextQuestionnaire,
+                terZone: resolvedTerZone,
+            };
+        }
+    }
+
+    return nextQuestionnaire;
 }
 
 function buildComparableAdjustmentMap(adjustedRates = []) {
@@ -875,7 +910,11 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
             raw_rate: toNumber(adjustment?.rawRate, null),
             adjusted_rate: toNumber(adjustment?.adjustedRate, null),
             base_rate: toNumber(adjustment?.baseRate, null),
+            after_date: toNumber(adjustment?.afterDate, null),
+            after_bargain: toNumber(adjustment?.afterBargain, null),
             corrected_rate: toNumber(adjustment?.correctedRate, null),
+            first_group_factor: toNumber(adjustment?.firstGroupFactor, null),
+            second_group_multi_factor: toNumber(adjustment?.secondGroupMultiFactor, null),
             total_adjustment_factor: toNumber(adjustment?.totalAdjustmentFactor, null),
             area_ratio: toNumber(adjustment?.areaRatio ?? adjustment?.scaleAreaRatio, null),
             scale_similarity_score: toNumber(adjustment?.scaleSimilarityScore, null),
@@ -992,8 +1031,10 @@ export const calculateProject = async (req, res) => {
         }
 
         const questionnaire = sanitizeAutoFilledTotalOksAreaOnLand(
-            sanitizeAutoFilledLeasableArea(
-                questionnaireRecord.get ? questionnaireRecord.get({ plain: true }) : questionnaireRecord
+            sanitizeAutoFilledOccupiedArea(
+                sanitizeAutoFilledLeasableArea(
+                    questionnaireRecord.get ? questionnaireRecord.get({ plain: true }) : questionnaireRecord
+                ).questionnaire
             ).questionnaire
         ).questionnaire;
 

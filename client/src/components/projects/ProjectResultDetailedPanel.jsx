@@ -5,6 +5,7 @@ import {
   Descriptions,
   Divider,
   Empty,
+  Modal,
   Typography,
   message,
   Collapse,
@@ -157,6 +158,21 @@ function formatCurrency(value, digits = 2) {
   return `${formatNumber(value, digits)} ₽`;
 }
 
+function formatPreciseNumber(value, maxFractionDigits = 6) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+
+  return number.toLocaleString('ru-RU', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxFractionDigits,
+  });
+}
+
+function formatPreciseCurrency(value) {
+  const formatted = formatPreciseNumber(value);
+  return formatted === '—' ? formatted : `${formatted} ₽`;
+}
+
 function formatSqm(value, digits = 2) {
   return `${formatNumber(value, digits)} м²`;
 }
@@ -196,6 +212,9 @@ function formatQuestionnaireEntryValue(entry) {
     case 'distance':
       return formatValue(entry.value, 'м');
     case 'currency':
+      if (['cadCost', 'landCadCost'].includes(entry.name || entry.fieldName)) {
+        return formatPreciseCurrency(entry.value);
+      }
       return formatValue(entry.value, '₽');
     case 'yesno':
       return formatYesNo(entry.value);
@@ -389,6 +408,44 @@ function ResultMapBounds({ points, highlightBounds }) {
   return null;
 }
 
+function LeafletCaptureBridge({ captureRef, objectPoint, comparables }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const node = captureRef?.current;
+    if (!node) return undefined;
+
+    node.__leafletMap = map;
+    node.__leafletCapturePoints = {
+      objectPoint: objectPoint
+        ? {
+          lat: Number(objectPoint.lat),
+          lng: Number(objectPoint.lng),
+          address: objectPoint.address || null,
+        }
+        : null,
+      comparables: Array.isArray(comparables)
+        ? comparables
+          .filter((item) => hasValidMapCoords(item?.lat, item?.lng))
+          .map((item) => ({
+            lat: Number(item.lat),
+            lng: Number(item.lng),
+            included: item.included_in_rent_calculation !== false,
+          }))
+        : [],
+    };
+
+    return () => {
+      if (node.__leafletMap === map) {
+        delete node.__leafletMap;
+        delete node.__leafletCapturePoints;
+      }
+    };
+  }, [captureRef, comparables, map, objectPoint]);
+
+  return null;
+}
+
 function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) {
   const { data: objectGeometry } = useObjectGeometry({
     address: objectPoint?.address,
@@ -436,6 +493,11 @@ function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) 
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           crossOrigin="anonymous"
+        />
+        <LeafletCaptureBridge
+          captureRef={captureRef}
+          objectPoint={objectPoint}
+          comparables={comparables}
         />
         <ResultMapBounds points={boundsPoints} highlightBounds={highlightBounds} />
         <ObjectLocationHighlight
@@ -525,6 +587,110 @@ const translateEnvCategory = (value) => {
   return ENV_CATEGORY_LABELS[key] || value;
 };
 
+const FLOOR_CATEGORY_LABELS = {
+  first: '1-й этаж',
+  second: '2-й этаж',
+  third_plus: '3-й этаж и выше',
+  thirdplus: '3-й этаж и выше',
+  basement: 'Подвал',
+  attic: 'Мансарда',
+};
+
+function formatFactor(value, digits = 2) {
+  if (!hasMeaningfulValue(value)) return '—';
+  return `×${formatNumber(value, digits)}`;
+}
+
+function formatSignedPercent(value, digits = 2) {
+  if (!hasMeaningfulValue(value)) return '—';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '—';
+  return `${numeric > 0 ? '+' : ''}${formatNumber(numeric, digits)}%`;
+}
+
+function formatDistanceKm(value) {
+  if (!hasMeaningfulValue(value)) return '—';
+  return `${formatNumber(value, 2)} км`;
+}
+
+function humanizeFloorCategory(value) {
+  if (!value) return '—';
+  const normalized = String(value).trim().toLowerCase().replace(/\s+/g, '_');
+  return FLOOR_CATEGORY_LABELS[normalized] || localizeResultText(value);
+}
+
+function formatEnvironmentLabel(values = []) {
+  const normalized = values
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter(Boolean)
+    .map((value) => translateEnvCategory(String(value).trim()))
+    .filter(Boolean);
+
+  return normalized.length ? normalized.join(', ') : '—';
+}
+
+function formatComparableAdjustmentDetails(adjustment) {
+  const details = adjustment?.details || {};
+
+  switch (adjustment?.key) {
+    case 'date':
+      return [
+        details.valuationQuarter ? `Квартал оценки: ${details.valuationQuarter}` : null,
+        details.analogQuarter ? `Квартал аналога: ${details.analogQuarter}` : null,
+        hasMeaningfulValue(details.adjustmentPercent)
+          ? `Поправка матрицы: ${formatSignedPercent(-Number(details.adjustmentPercent), 2)}`
+          : null,
+      ].filter(Boolean).join(' • ');
+    case 'bargain':
+      return hasMeaningfulValue(details.discountPercent)
+        ? `Скидка на торг: ${formatNumber(details.discountPercent, 2)}%`
+        : 'Единая скидка без дополнительных входных параметров';
+    case 'metro':
+      return [
+        `Объект: ${formatDistanceKm(details.subjectDistanceKm)}`,
+        `Аналог: ${formatDistanceKm(details.analogDistanceKm)}`,
+      ].join(' • ');
+    case 'area':
+      return [
+        `Объект: ${hasMeaningfulValue(details.subjectArea) ? formatSqm(details.subjectArea, 2) : '—'}`,
+        `Аналог: ${hasMeaningfulValue(details.analogArea) ? formatSqm(details.analogArea, 2) : '—'}`,
+        hasMeaningfulValue(details.exponentN) ? `Показатель n: ${formatNumber(details.exponentN, 2)}` : null,
+      ].filter(Boolean).join(' • ');
+    case 'floor':
+      return [
+        `Объект: ${humanizeFloorCategory(details.subjectFloorCategory)}`,
+        `Аналог: ${humanizeFloorCategory(details.analogFloorCategory)}`,
+      ].join(' • ');
+    case 'environment':
+      return [
+        `Объект: ${formatEnvironmentLabel([details.subjectEnvironment])}`,
+        `Аналог: ${formatEnvironmentLabel([details.analogEnvironment])}`,
+        hasMeaningfulValue(details.subjectHistoricalCenter)
+          ? `Ист. центр объекта: ${formatYesNo(details.subjectHistoricalCenter)}`
+          : null,
+        hasMeaningfulValue(details.analogHistoricalCenter)
+          ? `Ист. центр аналога: ${formatYesNo(details.analogHistoricalCenter)}`
+          : null,
+      ].filter(Boolean).join(' • ');
+    default:
+      return '';
+  }
+}
+
+function buildComparableAdjustmentRows(comparable = {}) {
+  const safeComparable = comparable || {};
+  const adjustments = Array.isArray(safeComparable.adjustments) ? safeComparable.adjustments : [];
+
+  return adjustments.map((item) => ({
+    key: item.key || item.label,
+    stage: item.label || localizeResultText(item.key) || 'Корректировка',
+    factor: item.factor,
+    deltaPercent: item.deltaPercent,
+    reasoning: localizeResultText(item.reasoning) || '—',
+    details: formatComparableAdjustmentDetails(item),
+  }));
+}
+
 function prepareReportData(projectId, project, breakdown, result) {
   const questionnaire = project?.questionnaire || {};
 
@@ -611,6 +777,8 @@ function prepareReportData(projectId, project, breakdown, result) {
     cadastralNumber: questionnaire.buildingCadastralNumber || '—',
     totalArea,
     constructionYear: questionnaire.constructionYear,
+    constructionCompletionYear: questionnaire.constructionCompletionYear || questionnaire.completionYear || null,
+    commissioningYear: questionnaire.commissioningYear || questionnaire.yearCommissioning || questionnaire.year_commisioning || questionnaire.constructionYear,
     reconstructionYear: questionnaire.reconstructionYear,   
     hasReconstruction: questionnaire.hasReconstruction || false,
 
@@ -760,19 +928,233 @@ async function waitForLeafletMapReady(element, timeoutMs = 5000) {
   await new Promise((resolve) => window.setTimeout(resolve, 400));
 }
 
+function waitForAnimationFrames(count = 2) {
+  return new Promise((resolve) => {
+    const tick = (remaining) => {
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
+
+      requestAnimationFrame(() => tick(remaining - 1));
+    };
+
+    tick(count);
+  });
+}
+
+async function stabilizeLeafletMapForCapture(element) {
+  const map = element?.__leafletMap;
+  if (!element || !map) {
+    return () => {};
+  }
+
+  const rect = element.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width || element.offsetWidth || 0));
+  const height = Math.max(1, Math.round(rect.height || element.offsetHeight || 0));
+  const previousStyle = {
+    width: element.style.width,
+    height: element.style.height,
+    minWidth: element.style.minWidth,
+    maxWidth: element.style.maxWidth,
+  };
+
+  element.style.width = `${width}px`;
+  element.style.minWidth = `${width}px`;
+  element.style.maxWidth = `${width}px`;
+  element.style.height = `${height}px`;
+
+  await waitForAnimationFrames(2);
+  map.invalidateSize({ animate: false, pan: false });
+  await waitForAnimationFrames(2);
+
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  map.setView(center, zoom, { animate: false });
+  await waitForAnimationFrames(2);
+
+  return () => {
+    element.style.width = previousStyle.width;
+    element.style.height = previousStyle.height;
+    element.style.minWidth = previousStyle.minWidth;
+    element.style.maxWidth = previousStyle.maxWidth;
+    map.invalidateSize({ animate: false, pan: false });
+  };
+}
+
+function setLeafletVectorLayersVisibility(element, visible) {
+  if (!element) return [];
+
+  const layerNodes = Array.from(element.querySelectorAll([
+    '.leaflet-overlay-pane',
+    '.leaflet-marker-pane',
+    '.leaflet-tooltip-pane',
+    '.leaflet-popup-pane',
+  ].join(',')));
+
+  const previous = layerNodes.map((node) => ({
+    node,
+    visibility: node.style.visibility,
+  }));
+
+  layerNodes.forEach((node) => {
+    node.style.visibility = visible ? '' : 'hidden';
+  });
+
+  return previous;
+}
+
+function restoreLeafletVectorLayersVisibility(previous = []) {
+  previous.forEach(({ node, visibility }) => {
+    node.style.visibility = visibility;
+  });
+}
+
+function drawCircleOnCanvas(context, x, y, {
+  radius,
+  fill,
+  stroke = '#ffffff',
+  strokeWidth = 2,
+  fillOpacity = 0.9,
+}) {
+  context.save();
+  context.globalAlpha = 1;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fillStyle = fill;
+  context.globalAlpha = fillOpacity;
+  context.fill();
+  context.globalAlpha = 1;
+  context.lineWidth = strokeWidth;
+  context.strokeStyle = stroke;
+  context.stroke();
+  context.restore();
+}
+
+function drawLeafletCapturePoints(canvas, element) {
+  const map = element?.__leafletMap;
+  const capturePoints = element?.__leafletCapturePoints;
+
+  if (!map || !capturePoints || !canvas) {
+    return;
+  }
+
+  const context = canvas.getContext('2d');
+  const rect = element.getBoundingClientRect();
+  const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+  const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+
+  const drawLatLng = (point, options) => {
+    if (!hasValidMapCoords(point?.lat, point?.lng)) return;
+
+    const projected = map.latLngToContainerPoint([Number(point.lat), Number(point.lng)]);
+    drawCircleOnCanvas(context, projected.x * scaleX, projected.y * scaleY, {
+      ...options,
+      radius: options.radius * Math.max(scaleX, scaleY),
+      strokeWidth: options.strokeWidth * Math.max(scaleX, scaleY),
+    });
+  };
+
+  if (capturePoints.objectPoint) {
+    drawLatLng(capturePoints.objectPoint, {
+      radius: 7,
+      fill: '#c026d3',
+      strokeWidth: 3,
+      fillOpacity: 0.96,
+    });
+  }
+
+  capturePoints.comparables.forEach((point) => {
+    drawLatLng(point, {
+      radius: 8,
+      fill: point.included ? '#52c41a' : '#8c8c8c',
+      strokeWidth: 2,
+      fillOpacity: point.included ? 0.9 : 0.75,
+    });
+  });
+}
+
+async function captureLeafletMapAsCanvasPng(element) {
+  const map = element?.__leafletMap;
+  if (!element || !map) {
+    return null;
+  }
+
+  await waitForElementImages(element);
+  await waitForLeafletMapReady(element);
+  await waitForAnimationFrames(2);
+
+  const rect = element.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width || element.offsetWidth || 0));
+  const height = Math.max(1, Math.round(rect.height || element.offsetHeight || 0));
+  const pixelRatio = Math.max(2, Math.min(window.devicePixelRatio || 1, 3));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width * pixelRatio);
+  canvas.height = Math.round(height * pixelRatio);
+
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#f8fbff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const tileImages = Array.from(element.querySelectorAll('.leaflet-tile'));
+
+  for (const tile of tileImages) {
+    if (!tile.complete || tile.naturalWidth <= 0 || tile.naturalHeight <= 0) {
+      continue;
+    }
+
+    const tileRect = tile.getBoundingClientRect();
+    const dx = (tileRect.left - rect.left) * pixelRatio;
+    const dy = (tileRect.top - rect.top) * pixelRatio;
+    const dw = tileRect.width * pixelRatio;
+    const dh = tileRect.height * pixelRatio;
+
+    try {
+      context.drawImage(tile, dx, dy, dw, dh);
+    } catch (error) {
+      console.warn('Не удалось нарисовать тайл карты на canvas:', error);
+    }
+  }
+
+  drawLeafletCapturePoints(canvas, element);
+
+  context.save();
+  context.globalAlpha = 0.82;
+  context.fillStyle = '#ffffff';
+  context.fillRect(8 * pixelRatio, (height - 26) * pixelRatio, 190 * pixelRatio, 18 * pixelRatio);
+  context.globalAlpha = 1;
+  context.fillStyle = '#4b5563';
+  context.font = `${10 * pixelRatio}px Arial, sans-serif`;
+  context.fillText('Leaflet | © OpenStreetMap contributors', 14 * pixelRatio, (height - 13) * pixelRatio);
+  context.restore();
+
+  return canvas.toDataURL('image/png');
+}
+
 async function captureElementAsPng(element) {
   if (!element) return null;
 
   const ignoreAttribute = element.getAttribute('data-html2canvas-ignore');
+  let restoreLeafletLayout = () => {};
+  let hiddenLeafletLayers = [];
 
   if (ignoreAttribute !== null) {
     element.removeAttribute('data-html2canvas-ignore');
   }
 
-  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-  await waitForElementImages(element);
-  await waitForLeafletMapReady(element);
   try {
+    await waitForAnimationFrames(1);
+    restoreLeafletLayout = await stabilizeLeafletMapForCapture(element);
+
+    const leafletCanvasUrl = await captureLeafletMapAsCanvasPng(element);
+    if (leafletCanvasUrl) {
+      return leafletCanvasUrl;
+    }
+
+    await waitForElementImages(element);
+    await waitForLeafletMapReady(element);
+    hiddenLeafletLayers = setLeafletVectorLayersVisibility(element, false);
+
     const canvas = await html2canvas(element, {
       backgroundColor: '#ffffff',
       scale: Math.max(2, Math.min(window.devicePixelRatio || 1, 3)),
@@ -780,10 +1162,17 @@ async function captureElementAsPng(element) {
       useCORS: true,
       allowTaint: false,
       imageTimeout: 15000,
+      width: Math.ceil(element.getBoundingClientRect().width),
+      height: Math.ceil(element.getBoundingClientRect().height),
+      windowWidth: Math.max(document.documentElement.clientWidth, Math.ceil(element.getBoundingClientRect().width)),
     });
+
+    drawLeafletCapturePoints(canvas, element);
 
     return canvas.toDataURL('image/png');
   } finally {
+    restoreLeafletVectorLayersVisibility(hiddenLeafletLayers);
+    restoreLeafletLayout();
     if (ignoreAttribute !== null) {
       element.setAttribute('data-html2canvas-ignore', ignoreAttribute);
     }
@@ -799,6 +1188,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
   const [exportingPdf, setExportingPdf] = useState(false);
   const [expandedStepKeys, setExpandedStepKeys] = useState([]);
   const [showExcludedComparables, setShowExcludedComparables] = useState(false);
+  const [selectedComparable, setSelectedComparable] = useState(null);
   const comparablesMapRef = useRef(null);
   const questionnaire = project?.questionnaire || {};
 
@@ -806,6 +1196,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     try {
       if (!silent) setLoading(true);
       setShowExcludedComparables(false);
+      setSelectedComparable(null);
       const { data } = await api.get(`/projects/${projectId}/result`);
       setResult(data);
       setBreakdown(data?.calculation_breakdown_json || null);
@@ -853,18 +1244,32 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     };
   }, [loadResult, refreshProfile, result?.debugModeEnabled]);
 
-  if (!result && !loading) {
-    return <Empty description="Результат пока не рассчитан" />;
-  }
-
   const floorInputRows = breakdown?.inputs?.floorInputRows || [];
   const floorIncomeRows = breakdown?.inputs?.floorIncomeRows || [];
   const sensitivityByNoi = breakdown?.sensitivity?.byNoi || breakdown?.sensitivity?.byGrossIncome || [];
   const sourceFloorRows = Array.isArray(questionnaire?.floors) ? questionnaire.floors : [];
+  const sourceFloorLeasableTotal = sourceFloorRows.reduce(
+    (sum, floor) => sum + (Number(floor?.leasableArea) || 0),
+    0
+  );
+  const hasSourceFloorLeasableTotal = sourceFloorLeasableTotal > 0;
+  const sourceFloorLeasableFormula = sourceFloorRows
+    .map((floor) => Number(floor?.leasableArea) || 0)
+    .filter((value) => value > 0)
+    .map((value) => formatNumber(value, 2))
+    .join(' + ');
   const calculationStepKeys = (breakdown?.calculationSteps || []).map((step) => String(step.step));
   const questionnaireSourceBuckets = getQuestionnaireSourceBuckets(questionnaire);
-  const manualQuestionnaireFields = questionnaireSourceBuckets.manualFields;
-  const autoQuestionnaireFields = questionnaireSourceBuckets.autoFields;
+  const shouldShowLeasableAreaAfterFloors = sourceFloorRows.length > 0;
+    const hideLeasableAreaFromSourceCards = (field) => (
+        shouldShowLeasableAreaAfterFloors
+        && (
+            ['leasableArea', 'leasable_area'].includes(field?.name)
+            || ['leasableArea', 'leasable_area'].includes(field?.fieldName)
+        )
+    );
+  const manualQuestionnaireFields = questionnaireSourceBuckets.manualFields.filter((field) => !hideLeasableAreaFromSourceCards(field));
+  const autoQuestionnaireFields = questionnaireSourceBuckets.autoFields.filter((field) => !hideLeasableAreaFromSourceCards(field));
   const hasAutoSourceData = autoQuestionnaireFields.length > 0;
   const objectMapPoint = hasValidMapCoords(questionnaire?.mapPointLat, questionnaire?.mapPointLng)
     ? {
@@ -938,6 +1343,37 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
   const debugModeEnabled = Boolean(result?.debugModeEnabled);
   const rentalRateSource = String(breakdown?.inputs?.rentalRate?.source || '').trim().toLowerCase();
   const rentalRateIsManual = rentalRateSource.startsWith('manual');
+  const selectedComparableRank = selectedComparable
+    ? (breakdown?.market?.topComparables || []).findIndex((item) => {
+      const itemId = item?.id || item?.external_id;
+      const selectedId = selectedComparable?.id || selectedComparable?.external_id;
+      if (itemId && selectedId) {
+        return String(itemId) === String(selectedId);
+      }
+      return item?.address_offer === selectedComparable?.address_offer;
+    }) + 1
+    : 0;
+  const selectedComparableAdjustmentRows = useMemo(
+    () => buildComparableAdjustmentRows(selectedComparable),
+    [selectedComparable]
+  );
+  const selectedComparableWeight = selectedComparable?.normalized_weight ?? selectedComparable?.selection_weight ?? null;
+  const selectedComparableFloorCategory = questionnaire?.floorCategory || questionnaire?.floorType || null;
+  const selectedComparableSubjectEnvironment = formatEnvironmentLabel([
+    questionnaire?.environmentCategory1,
+    questionnaire?.environmentCategory2,
+    questionnaire?.environmentCategory3,
+    questionnaire?.environment_category_1,
+    questionnaire?.environment_category_2,
+    questionnaire?.environment_category_3,
+    questionnaire?.environment,
+  ]);
+  const selectedComparableAnalogEnvironment = formatEnvironmentLabel([
+    selectedComparable?.environment_category_1,
+    selectedComparable?.environment_category_2,
+    selectedComparable?.environment_category_3,
+    selectedComparable?.environment,
+  ]);
 
   const handleExportPdf = async () => {
     const previousExpandedKeys = expandedStepKeys;
@@ -1007,6 +1443,10 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
       setExpandedStepKeys(calculationStepKeys);
     }
   }, [breakdown, calculationStepKeys.join('|')]);
+
+  if (!result && !loading) {
+    return <Empty description="Результат пока не рассчитан" />;
+  }
 
   return (
     <Card loading={loading} className="project-result-card project-step-shell">
@@ -1110,6 +1550,25 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                       },
                     ]}
                   />
+                  <Descriptions
+                    column={1}
+                    size="small"
+                    bordered
+                    style={{ marginTop: 16 }}
+                  >
+                    <Descriptions.Item label="Итого арендопригодная площадь">
+                      <Space direction="vertical" size={0}>
+                        <Text strong>
+                          {formatSqm(sourceFloorLeasableTotal, 2)}
+                        </Text>
+                        <Text type="secondary">
+                          {hasSourceFloorLeasableTotal && sourceFloorLeasableFormula
+                            ? `${sourceFloorLeasableFormula} = ${formatNumber(sourceFloorLeasableTotal, 2)} м²`
+                            : 'Сумма считается по колонке "Арендопригодная площадь, м²"'}
+                        </Text>
+                      </Space>
+                    </Descriptions.Item>
+                  </Descriptions>
                 </Card>
               )}
             </div>
@@ -1159,7 +1618,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                 />
                 <IncomeMetricCard
                   title="Земля"
-                  value={formatCurrency(result?.land_share || 0, 2)}
+                  value={formatPreciseCurrency(result?.land_share || 0)}
                   note="Доля земли"
                   toneClass="is-land"
                 />
@@ -1690,9 +2149,16 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                     Аналогичные объекты (топ-10) <InfoCircleOutlined />
                   </Tooltip>
                 </Title>
+                <Text type="secondary" className="project-result-comparable-hint">
+                  Нажмите на строку, чтобы открыть детали отбора и пошаговый расчет корректировок по аналогу.
+                </Text>
                 <Table
                   dataSource={breakdown.market.topComparables}
                   scroll={{ x: 1560 }}
+                  onRow={(record) => ({
+                    onClick: () => setSelectedComparable(record),
+                  })}
+                  rowClassName={() => 'project-result-comparable-row'}
                   columns={[
                     // {
                     //   title: 'ID',
@@ -1791,7 +2257,12 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                         if (!link) return <Text type="secondary">—</Text>;
                         return (
                           <Tooltip title={link}>
-                            <a href={link} target="_blank" rel="noopener noreferrer">
+                            <a
+                              href={link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(event) => event.stopPropagation()}
+                            >
                               <Button type="link" icon={<LinkOutlined />} className="project-result-link-btn">
                                 Источник
                               </Button>
@@ -1807,6 +2278,195 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                 />
               </div>
             )}
+
+            <Modal
+              open={Boolean(selectedComparable)}
+              title={selectedComparable?.address_offer || 'Расчет по аналогу'}
+              onCancel={() => setSelectedComparable(null)}
+              footer={null}
+              width={980}
+              destroyOnHidden
+            >
+              {selectedComparable && (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Text type="secondary">
+                    Аналог проходит через фильтр по классу, удаление дублей, ранжирование по сходству и затем
+                    через корректировки ставки. Ниже показаны параметры именно для выбранной строки.
+                  </Text>
+
+                  <Card size="small" title="Как аналог был отобран">
+                    <Descriptions column={2} size="small" bordered>
+                      <Descriptions.Item label="Место в топ-10">
+                        {selectedComparableRank > 0 ? `#${selectedComparableRank}` : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Статус">
+                        <Tag color={selectedComparable.included_in_rent_calculation === false ? 'default' : 'green'}>
+                          {selectedComparable.included_in_rent_calculation === false ? 'Исключён' : 'В расчёте'}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Причина" span={2}>
+                        {localizeResultText(
+                          selectedComparable.decision_reason
+                          || selectedComparable.exclusion_reason
+                          || 'Оставлен в итоговой выборке после ранжирования'
+                        )}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Расстояние Махаланобиса">
+                        {hasMeaningfulValue(selectedComparable.mahalanobisDistance)
+                          ? formatNumber(selectedComparable.mahalanobisDistance, 4)
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Релевантность">
+                        {hasMeaningfulValue(selectedComparable.relevance_score)
+                          ? formatPercent(Number(selectedComparable.relevance_score) * 100, 1)
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Вес в ставке">
+                        {hasMeaningfulValue(selectedComparableWeight)
+                          ? formatPercent(Number(selectedComparableWeight) * 100, 1)
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Общая сопоставимость по масштабу">
+                        {hasMeaningfulValue(selectedComparable.scale_similarity_score)
+                          ? formatPercent(Number(selectedComparable.scale_similarity_score) * 100, 1)
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Класс объекта">
+                        {questionnaire?.businessCenterClass || questionnaire?.objectClass || '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Класс аналога">
+                        {selectedComparable.class_offer || '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Площадь объекта">
+                        {hasMeaningfulValue(questionnaire?.totalArea) ? formatSqm(questionnaire?.totalArea, 2) : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Площадь аналога">
+                        {hasMeaningfulValue(selectedComparable.area_total) ? formatSqm(selectedComparable.area_total, 2) : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Метро объекта">
+                        {formatDistanceKm(questionnaire?.metroDistance)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Метро аналога">
+                        {formatDistanceKm(selectedComparable.distance_to_metro)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Этаж объекта">
+                        {humanizeFloorCategory(selectedComparableFloorCategory)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Этаж аналога">
+                        {humanizeFloorCategory(selectedComparable.floor_location)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Дата оценки">
+                        {formatDate(questionnaire?.valuationDate)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Дата / квартал аналога">
+                        {selectedComparable.quarter || formatDate(selectedComparable.offer_date)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Окружение объекта">
+                        {selectedComparableSubjectEnvironment}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Окружение аналога">
+                        {selectedComparableAnalogEnvironment}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </Card>
+
+                  <Card size="small" title="Пошаговый расчет корректировок ставки">
+                    <div className="project-result-comparable-metrics">
+                      <div className="project-result-comparable-metric">
+                        <Text type="secondary">Базовая ставка</Text>
+                        <div className="project-result-comparable-metric-value">
+                          {hasMeaningfulValue(selectedComparable.raw_rate)
+                            ? `${formatNumber(selectedComparable.raw_rate, 2)} ₽/м²`
+                            : '—'}
+                        </div>
+                      </div>
+                      <div className="project-result-comparable-metric">
+                        <Text type="secondary">После даты</Text>
+                        <div className="project-result-comparable-metric-value">
+                          {hasMeaningfulValue(selectedComparable.after_date)
+                            ? `${formatNumber(selectedComparable.after_date, 2)} ₽/м²`
+                            : '—'}
+                        </div>
+                      </div>
+                      <div className="project-result-comparable-metric">
+                        <Text type="secondary">После торга</Text>
+                        <div className="project-result-comparable-metric-value">
+                          {hasMeaningfulValue(selectedComparable.after_bargain)
+                            ? `${formatNumber(selectedComparable.after_bargain, 2)} ₽/м²`
+                            : '—'}
+                        </div>
+                      </div>
+                      <div className="project-result-comparable-metric">
+                        <Text type="secondary">Итоговая ставка</Text>
+                        <div className="project-result-comparable-metric-value is-strong">
+                          {hasMeaningfulValue(selectedComparable.corrected_rate || selectedComparable.adjusted_rate)
+                            ? `${formatNumber(
+                              selectedComparable.corrected_rate || selectedComparable.adjusted_rate,
+                              2
+                            )} ₽/м²`
+                            : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <Descriptions column={3} size="small" bordered style={{ marginBottom: 16 }}>
+                      <Descriptions.Item label="Коэфф. 1-й группы">
+                        {formatFactor(selectedComparable.first_group_factor)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Коэфф. 2-й группы">
+                        {formatFactor(selectedComparable.second_group_multi_factor)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Общий множитель">
+                        {formatFactor(selectedComparable.total_adjustment_factor)}
+                      </Descriptions.Item>
+                    </Descriptions>
+
+                    <Table
+                      dataSource={selectedComparableAdjustmentRows}
+                      pagination={false}
+                      size="small"
+                      rowKey="key"
+                      columns={[
+                        {
+                          title: 'Этап',
+                          dataIndex: 'stage',
+                          key: 'stage',
+                          width: '18%',
+                        },
+                        {
+                          title: 'Коэфф.',
+                          dataIndex: 'factor',
+                          key: 'factor',
+                          width: '10%',
+                          render: (value) => formatFactor(value),
+                        },
+                        {
+                          title: 'Изменение',
+                          dataIndex: 'deltaPercent',
+                          key: 'deltaPercent',
+                          width: '12%',
+                          render: (value) => formatSignedPercent(value, 2),
+                        },
+                        {
+                          title: 'Основание',
+                          dataIndex: 'reasoning',
+                          key: 'reasoning',
+                          width: '25%',
+                        },
+                        {
+                          title: 'Входные данные',
+                          dataIndex: 'details',
+                          key: 'details',
+                          width: '35%',
+                          render: (value) => value || '—',
+                        },
+                      ]}
+                      locale={{ emptyText: 'Для этого аналога нет сохраненных пошаговых корректировок' }}
+                    />
+                  </Card>
+                </Space>
+              )}
+            </Modal>
 
             {debugModeEnabled && breakdown?.market?.excludedComparables?.length > 0 && (
               <>

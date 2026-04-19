@@ -81,7 +81,7 @@ const ProjectQuestionnaire = sequelize.define('ProjectQuestionnaire', {
     },
 
     cadCost: {
-        type: DataTypes.DECIMAL(18, 2),
+        type: DataTypes.DECIMAL(20, 6),
         allowNull: true,
     },
 
@@ -192,8 +192,8 @@ const ProjectQuestionnaire = sequelize.define('ProjectQuestionnaire', {
     },
 
     landCadCost: {
-    type: DataTypes.DECIMAL(18, 2),
-    allowNull: true,
+        type: DataTypes.DECIMAL(20, 6),
+        allowNull: true,
     },
 
     totalOksAreaOnLand: {

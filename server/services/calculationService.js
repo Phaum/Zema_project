@@ -1042,6 +1042,18 @@ function parseYear(value) {
     return match ? Number(match[0]) : 0;
 }
 
+function resolveQuestionnaireConstructionYear(questionnaire = {}) {
+    return parseYear(
+        questionnaire?.constructionYear ??
+        questionnaire?.construction_year ??
+        questionnaire?.yearBuilt ??
+        questionnaire?.year_built ??
+        questionnaire?.commissioningYear ??
+        questionnaire?.year_commissioning ??
+        0
+    );
+}
+
 function parseFloorCategory(value) {
     const s = String(value || '').toLowerCase();
 
@@ -1303,9 +1315,47 @@ function resolveAnalogHistoricalCenter(analog) {
     );
 }
 
-function encodeEnvironmentForVector(values = []) {
-    const score = calculateEnvironmentScore(values);
-    return Number.isFinite(score) ? score : 0;
+function normalizeEnvironmentTokenForSelection(value) {
+    const normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/[()]/g, ' ')
+        .replace(/\s+/g, ' ');
+
+    if (!normalized || normalized === '0') return null;
+    if (normalized.includes('истор') || normalized.includes('культур')) return null;
+    if (normalized.includes('обществен') || normalized.includes('делов')) return 'business';
+    if (normalized.includes('многоквартир') || normalized.includes('мкд')) return 'multifamily';
+    if (normalized.includes('среднеэтаж')) return 'midrise_residential';
+    if (normalized.includes('пром')) return 'industrial';
+    return null;
+}
+
+function encodeEnvironmentSelectionCode(values = []) {
+    const categories = new Set(
+        values
+            .map(normalizeEnvironmentTokenForSelection)
+            .filter(Boolean)
+    );
+
+    if (!categories.size) return 0;
+    if (categories.has('business') && categories.has('multifamily') && categories.has('industrial')) return 7;
+    if (categories.has('multifamily') && categories.has('industrial')) return 6;
+    if (categories.has('business') && categories.has('multifamily')) return 5;
+    if (categories.has('industrial')) return 4;
+    if (categories.has('midrise_residential')) return 3;
+    if (categories.has('business')) return 2;
+    if (categories.has('multifamily')) return 1;
+    return 0;
+}
+
+function encodeHistoricalCenterSelectionCode(value) {
+    if (value === undefined || value === null || value === '') {
+        return 0;
+    }
+
+    return encodeBooleanLike(value) === 1 ? 1 : 2;
 }
 
 function removeConstantColumns(objectVector, analogVectors) {
@@ -1379,11 +1429,13 @@ export function getCalculationArea(questionnaire) {
 function buildObjectVector(questionnaire) {
     return [
         getCalculationArea(questionnaire),
-        toNumber(questionnaire?.constructionYear, 0),
+        resolveQuestionnaireConstructionYear(questionnaire),
         normalizeMetroDistanceKm(questionnaire?.metroDistance) ?? 0,
         encodeDistrictGroup(questionnaire?.district),
         encodeTerritorialZoneCategory(resolveQuestionnaireZone(questionnaire)),
+        encodeEnvironmentSelectionCode(resolveQuestionnaireEnvironment(questionnaire)),
         encodeFloorCategoryForMahalanobis(getQuestionnaireReferenceFloorCategory(questionnaire)),
+        encodeHistoricalCenterSelectionCode(resolveQuestionnaireHistoricalCenter(questionnaire)),
     ];
 }
 
@@ -1394,7 +1446,9 @@ function buildAnalogVectors(analogs) {
         normalizeMetroDistanceKm(analog.distance_to_metro) ?? 0,
         encodeDistrictGroup(analog.district),
         encodeTerritorialZoneCategory(resolveAnalogZone(analog)),
+        encodeEnvironmentSelectionCode(resolveAnalogEnvironment(analog)),
         encodeFloorCategoryForMahalanobis(analog.floor_location),
+        encodeHistoricalCenterSelectionCode(resolveAnalogHistoricalCenter(analog)),
     ]);
 }
 
@@ -2513,9 +2567,7 @@ export async function calculateLandShareDetails(questionnaire) {
     }
 
     if (!details.landCadCost) {
-        details.landCadCost = round2(
-            toNumber(cadastralData?.specific_cadastral_cost, 0) * toNumber(cadastralData?.land_area, 0)
-        );
+        details.landCadCost = toNumber(cadastralData?.specific_cadastral_cost, 0) * toNumber(cadastralData?.land_area, 0);
     }
 
     if (!details.landArea) {
@@ -2540,7 +2592,7 @@ export async function calculateLandShareDetails(questionnaire) {
         if (details.totalOksAreaOnLand < details.objectArea) {
             details.allocationRatio = 1;
             details.landShareRatio = 1;
-            details.share = round2(details.landCadCost);
+            details.share = details.landCadCost;
             details.source = 'fallback_subject_exceeds_total_oks';
             details.calculationMode = 'controlled_fallback';
             details.isCalculated = true;
@@ -2554,7 +2606,7 @@ export async function calculateLandShareDetails(questionnaire) {
             ? 1
             : truncateTo(rawAllocationRatio, 3);
         details.landShareRatio = details.allocationRatio;
-        details.share = round2(details.landCadCost * details.allocationRatio);
+        details.share = details.landCadCost * details.allocationRatio;
         details.source = 'proportional_by_oks_area';
         details.calculationMode = 'proportional_by_oks_area';
         details.isCalculated = true;
@@ -2564,7 +2616,7 @@ export async function calculateLandShareDetails(questionnaire) {
 
     details.allocationRatio = 1;
     details.landShareRatio = 1;
-    details.share = round2(details.landCadCost);
+    details.share = details.landCadCost;
     details.source = 'fallback_single_object_assumption';
     details.calculationMode = 'controlled_fallback';
     details.isCalculated = true;
@@ -2671,7 +2723,7 @@ export function calculateIncomeValuation({
         opex: round2(opex),
         noi: round2(noi),
         valueTotal: round2(valueTotal),
-        landShare: round2(landShareNum),
+        landShare: landShareNum,
         finalValue: round2(finalValue),
         pricePerM2: round2(pricePerM2),
     };
@@ -2697,9 +2749,12 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
     const floorLeasableTotal = areaFloor1 + areaFloor2 + areaFloor3Plus;
     const actualOccupiedArea = toNumber(questionnaire?.occupiedArea, null);
     const inputLeasableArea = toNumber(questionnaire?.leasableArea, 0);
-    const effectiveLeasableArea = inputLeasableArea > 0
-        ? inputLeasableArea
-        : (floorLeasableTotal > 0 ? floorLeasableTotal : toNumber(questionnaire?.totalArea, 0));
+    const effectiveLeasableArea = floorLeasableTotal > 0
+        ? floorLeasableTotal
+        : (inputLeasableArea > 0 ? inputLeasableArea : toNumber(questionnaire?.totalArea, 0));
+    const leasableAreaSource = floorLeasableTotal > 0
+        ? 'derived_from_floor_sum'
+        : (inputLeasableArea > 0 ? 'questionnaire' : 'fallback_total_area');
     const actualVacancyRate = effectiveLeasableArea > 0
         && Number.isFinite(actualOccupiedArea)
         ? getVacancyRate(actualOccupiedArea, effectiveLeasableArea)
@@ -2856,7 +2911,7 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
             opex: round2(opex),
             noi: round2(noi),
             valueTotal: round2(valueTotal),
-            landShare: round2(landShare),
+            landShare,
             finalValue: round2(finalValue),
             pricePerM2: round2(pricePerM2),
         };
@@ -2918,6 +2973,8 @@ export async function calculateValuation(questionnaire, selectedAnalogs, userMan
         sampleSizeLevel: marketRentAnalysis.sampleSizeLevel,
         stabilityFlag: marketRentAnalysis.stabilityFlag,
         floorDetails,
+        floorLeasableAreaTotal: round2(floorLeasableTotal),
+        leasableAreaSource,
         leasableArea: round2(effectiveLeasableArea > 0 ? effectiveLeasableArea : formulaResult.leasableAreaTotal),
         occupiedArea: Number.isFinite(actualOccupiedArea) ? actualOccupiedArea : 0,
         vacancyRate: formulaResult.vacancyRate,

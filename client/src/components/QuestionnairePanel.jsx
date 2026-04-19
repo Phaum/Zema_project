@@ -130,7 +130,6 @@ const PLATFORM_AUTOFILL_FIELDS = new Set([
     'landCadCost',
     'totalOksAreaOnLand',
     'leasableArea',
-    'occupiedArea',
 ]);
 
 const QUESTIONNAIRE_SECTION_HINTS = {
@@ -289,10 +288,6 @@ function isDerivedThirdPlusFloor(floor = {}) {
 
 function hasNumericAreaValue(value) {
     return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
-}
-
-function formatAreaSourceLabel(source) {
-    return formatQuestionnaireFieldSourceLabel(source);
 }
 
 function areSourceHintsEqual(left = {}, right = {}) {
@@ -798,10 +793,6 @@ export default function QuestionnairePanel({
     const [fieldSourceHintsState, setFieldSourceHintsState] = useState({});
     const [acceptedAreaMismatchKey, setAcceptedAreaMismatchKey] = useState(null);
     const [formSnapshot, setFormSnapshot] = useState({});
-    const areaSourceHints = useMemo(() => ({
-        leasableArea: fieldSourceHintsState.leasableArea || null,
-        occupiedArea: fieldSourceHintsState.occupiedArea || null,
-    }), [fieldSourceHintsState]);
     const questionnaireSourceBuckets = useMemo(() => getQuestionnaireSourceBuckets({
         ...formSnapshot,
         fieldSourceHints: fieldSourceHintsState,
@@ -811,14 +802,12 @@ export default function QuestionnairePanel({
             [field.name, field.fieldName].filter((fieldName) => PLATFORM_AUTOFILL_FIELDS.has(fieldName))
         ))
     ), [questionnaireSourceBuckets.autoFields]);
-    const hiddenPlatformFieldCount = questionnaireSourceBuckets.autoFields.filter((field) => (
-        PLATFORM_AUTOFILL_FIELDS.has(field.name) || PLATFORM_AUTOFILL_FIELDS.has(field.fieldName)
-    )).length;
     const shouldShowDynamicField = (fieldName) => !hiddenPlatformFieldNames.has(fieldName);
     const showBuildingSubtypeField = normalizedObjectType === 'здание' && shouldShowDynamicField('actualUse');
     const showLocationSection = shouldShowDynamicField('mapPointLat')
         || shouldShowDynamicField('mapPointLng')
         || shouldShowDynamicField('objectAddress');
+
     useEffect(() => {
         const nextHints = normalizeQuestionnaireFieldSourceHints(
             form.getFieldValue('fieldSourceHints')
@@ -901,6 +890,35 @@ export default function QuestionnairePanel({
         if (markDirty) {
             setIsSaved(false);
         }
+    };
+
+    const applyEnrichmentFormPatch = (values = {}) => {
+        const nextSourceHints = normalizeQuestionnaireFieldSourceHints(values.fieldSourceHints);
+        const payload = {
+            ...values,
+            fieldSourceHints: nextSourceHints,
+        };
+        const nextValues = {
+            ...form.getFieldsValue(true),
+            ...payload,
+        };
+
+        sourceSyncInProgressRef.current = true;
+        form.setFieldsValue(nextValues);
+        form.setFields(
+            Object.entries(payload).map(([name, value]) => ({
+                name,
+                value,
+            }))
+        );
+        Promise.resolve().then(() => {
+            sourceSyncInProgressRef.current = false;
+        });
+
+        setFieldSourceHintsState(nextSourceHints);
+        setFormSnapshot(nextValues);
+        persistDraftLocally(nextValues);
+        setIsSaved(false);
     };
 
     useEffect(() => {
@@ -1129,10 +1147,8 @@ export default function QuestionnairePanel({
                 : (form.getFieldValue('valuationDate') || null),
         };
 
-        applyFormPatch(normalizedValues, {
-            replaceSourceHints: normalizedValues.fieldSourceHints,
-        });
         floorsDataRef.current = Array.isArray(normalizedValues.floors) ? normalizedValues.floors : [];
+        applyEnrichmentFormPatch(normalizedValues);
     };
 
     const runQuestionnaireEnrichment = async ({
@@ -1541,22 +1557,6 @@ export default function QuestionnairePanel({
                             )}
                         </div>
 
-                        {/* {hiddenPlatformFieldCount > 0 && (
-                            <div className="form-block">
-                                <Title level={4} className="form-block-title">
-                                    Данные платформы
-                                </Title>
-
-                                <Alert
-                                    className="questionnaire-alert"
-                                    type="info"
-                                    showIcon
-                                    message={`Автоматически определено скрытых полей: ${hiddenPlatformFieldCount}`}
-                                    description="Подтянутые значения сохраняются в проекте и участвуют в расчёте, но не показываются до этапа результата. На этом шаге видны только поля, которые нужно заполнить вручную."
-                                />
-                            </div>
-                        )} */}
-
                         {showLocationSection && (
                         <div className="form-block">
                             <Title level={4} className="form-block-title">
@@ -1739,9 +1739,6 @@ export default function QuestionnairePanel({
                                             label="Арендопригодная площадь, кв.м"
                                             name="leasableArea"
                                             rules={[{ required: true, message: 'Укажите арендопригодную площадь' }]}
-                                            extra={areaSourceHints.leasableArea
-                                                ? `Текущий источник: ${formatAreaSourceLabel(areaSourceHints.leasableArea)}`
-                                                : null}
                                         >
                                             <InputNumber
                                                 {...sqmInputProps}
@@ -1757,9 +1754,6 @@ export default function QuestionnairePanel({
                                             label="Занятая площадь по договорам аренды, м²"
                                             name="occupiedArea"
                                             rules={[{ required: true, message: 'Укажите занятую площадь' }]}
-                                            extra={areaSourceHints.occupiedArea
-                                                ? `Текущий источник: ${formatAreaSourceLabel(areaSourceHints.occupiedArea)}`
-                                                : null}
                                         >
                                             <InputNumber
                                                 {...sqmInputProps}

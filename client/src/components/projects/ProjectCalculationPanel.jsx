@@ -10,6 +10,7 @@ export default function ProjectCalculationPanel({
                                                     project,
                                                     marketContext,
                                                     onBack,
+                                                    onCalculateRequest,
                                                     onCalculated,
                                                 }) {
     const [loading, setLoading] = useState(false);
@@ -66,7 +67,11 @@ export default function ProjectCalculationPanel({
     const handleCalculate = async () => {
         try {
             setLoading(true);
-            await api.post(`/projects/${projectId}/calculate`);
+            if (onCalculateRequest) {
+                await onCalculateRequest();
+            } else {
+                await api.post(`/projects/${projectId}/calculate`);
+            }
             message.success('Расчёт выполнен');
             onCalculated?.();
         } catch (error) {

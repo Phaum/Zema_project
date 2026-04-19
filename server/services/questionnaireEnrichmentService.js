@@ -1,8 +1,8 @@
 import { getOrFetchCadastralRecord, resolveLandCadastralNumberCandidate, resolveLandRecord } from '../controllers/cadastralController.js';
 import { geocodeByAddress, reverseGeocodeByCoords } from '../controllers/geoController.js';
 import { Op } from 'sequelize';
+import CadastralData from '../models/cadastral_data.js';
 import MarketOffer from '../models/MarketOffer.js';
-import ProjectQuestionnaire from '../models/ProjectQuestionnaire.js';
 import { analyzeEnvironmentByCadastralNumber } from './environmentAnalysisService.js';
 import { msk64ToWgs84 } from '../utils/coordsConverter.js';
 import { resolveHistoricalCenterForCoords } from '../utils/historicalCenterResolver.js';
@@ -43,83 +43,6 @@ function normalizeFieldSourceHints(value) {
 
 function resolveCadastralSourceHint(record, fallback = 'nspd') {
     return normalizeText(record?.source_provider) || fallback;
-}
-
-async function findHistoricalTotalOksAreaOnLand({ buildingCadastralNumber = null, landCadastralNumber = null } = {}) {
-    const conditions = [];
-
-    if (isValidCadastralNumber(buildingCadastralNumber)) {
-        conditions.push({ buildingCadastralNumber: normalizeCadastralNumber(buildingCadastralNumber) });
-    }
-
-    if (isValidCadastralNumber(landCadastralNumber)) {
-        conditions.push({ landCadastralNumber: normalizeCadastralNumber(landCadastralNumber) });
-    }
-
-    if (!conditions.length) {
-        return null;
-    }
-
-    const row = await ProjectQuestionnaire.findOne({
-        where: {
-            totalOksAreaOnLand: {
-                [Op.ne]: null,
-            },
-            [Op.or]: conditions,
-        },
-        order: [['updated_at', 'DESC']],
-    });
-
-    if (!row || row.totalOksAreaOnLand === null || row.totalOksAreaOnLand === undefined) {
-        return null;
-    }
-
-    return Number(row.totalOksAreaOnLand);
-}
-
-async function findHistoricalActualAreaData({ buildingCadastralNumber = null, landCadastralNumber = null } = {}) {
-    const conditions = [];
-
-    if (isValidCadastralNumber(buildingCadastralNumber)) {
-        conditions.push({ buildingCadastralNumber: normalizeCadastralNumber(buildingCadastralNumber) });
-    }
-
-    if (isValidCadastralNumber(landCadastralNumber)) {
-        conditions.push({ landCadastralNumber: normalizeCadastralNumber(landCadastralNumber) });
-    }
-
-    if (!conditions.length) {
-        return null;
-    }
-
-    const row = await ProjectQuestionnaire.findOne({
-        where: {
-            [Op.or]: [
-                {
-                    leasableArea: {
-                        [Op.ne]: null,
-                    },
-                },
-                {
-                    occupiedArea: {
-                        [Op.ne]: null,
-                    },
-                },
-            ],
-            [Op.or]: conditions,
-        },
-        order: [['updated_at', 'DESC']],
-    });
-
-    if (!row) {
-        return null;
-    }
-
-    return {
-        leasableArea: row.leasableArea === null || row.leasableArea === undefined ? null : Number(row.leasableArea),
-        occupiedArea: row.occupiedArea === null || row.occupiedArea === undefined ? null : Number(row.occupiedArea),
-        occupancyRate: row.occupancyRate === null || row.occupancyRate === undefined ? null : Number(row.occupancyRate),
-    };
 }
 
 function normalizeCadastralNumber(value) {
@@ -497,12 +420,23 @@ function buildRatePayload(offers = [], { valuationDate, referenceArea, source } 
 }
 
 function pickMissing(target, key, value, source, autoFilledFields, sourceHints) {
-    if (hasMeaningfulValue(target[key]) || !hasMeaningfulValue(value)) {
+    if (!hasMeaningfulValue(value)) {
+        return;
+    }
+
+    const currentSource = resolveEffectiveFieldSource(target, key, sourceHints);
+    const canReplaceCurrentValue = hasMeaningfulValue(target[key]) &&
+        currentSource &&
+        !isManualFieldSource(currentSource);
+
+    if (hasMeaningfulValue(target[key]) && !canReplaceCurrentValue) {
         return;
     }
 
     target[key] = value;
-    autoFilledFields.push(key);
+    if (!autoFilledFields.includes(key)) {
+        autoFilledFields.push(key);
+    }
     sourceHints[key] = source;
 }
 
@@ -597,11 +531,9 @@ export function validateTotalOksAreaOnLandCandidate(value, questionnaire = {}) {
 }
 
 function buildTotalOksAreaOnLandValidationWarning(value, validation, source) {
-    const sourceLabel = source === 'historical_project_questionnaire'
-        ? 'Историческое значение'
-        : (source.includes('nspd') || source.includes('reestrnet'))
-            ? 'Кадастровое значение'
-            : 'Автозаполненное значение';
+    const sourceLabel = (source.includes('nspd') || source.includes('reestrnet'))
+        ? 'Кадастровое значение'
+        : 'Автозаполненное значение';
     const candidate = formatAreaValue(value);
     const details = validation.violations
         .filter((item) => item?.field !== 'value')
@@ -689,6 +621,35 @@ export function sanitizeAutoFilledLeasableArea(questionnaire = {}, { sourceHints
     };
 }
 
+export function sanitizeAutoFilledOccupiedArea(questionnaire = {}, { sourceHints = {} } = {}) {
+    const nextQuestionnaire = {
+        ...questionnaire,
+        fieldSourceHints: normalizeFieldSourceHints(questionnaire?.fieldSourceHints),
+    };
+    const source = resolveEffectiveFieldSource(nextQuestionnaire, 'occupiedArea', sourceHints);
+
+    if (!hasMeaningfulValue(nextQuestionnaire.occupiedArea) || !source || isManualFieldSource(source)) {
+        return {
+            questionnaire: nextQuestionnaire,
+            removed: false,
+            source: source || null,
+        };
+    }
+
+    const nextHints = { ...nextQuestionnaire.fieldSourceHints };
+    delete nextHints.occupiedArea;
+
+    return {
+        questionnaire: {
+            ...nextQuestionnaire,
+            occupiedArea: null,
+            fieldSourceHints: nextHints,
+        },
+        removed: true,
+        source,
+    };
+}
+
 export function shouldPreferCadastralTotalOksAreaOnLand({
     currentValue,
     currentSource = null,
@@ -726,9 +687,7 @@ function clearInvalidAutoFilledTotalOksAreaOnLand(target, autoFilledFields, sour
             source
         );
 
-        if (!warnings.includes(warning)) {
-            warnings.push(warning);
-        }
+        addWarningOnce(warnings, warning);
     }
 
     removeResolvedValue(target, 'totalOksAreaOnLand', autoFilledFields, sourceHints);
@@ -759,6 +718,40 @@ function buildLandMissingFields(questionnaire = {}) {
     ].filter((field) => !hasMeaningfulValue(questionnaire[field]));
 }
 
+function addWarningOnce(warnings, warning) {
+    if (Array.isArray(warnings) && warning && !warnings.includes(warning)) {
+        warnings.push(warning);
+    }
+}
+
+function hasUsableCachedCadastralRecord(record) {
+    if (!record) return false;
+
+    return [
+        record.address,
+        record.address_document,
+        record.address_display,
+        record.total_area,
+        record.cad_cost,
+        record.permitted_use,
+        record.latitude,
+        record.longitude,
+        record.district,
+    ].some(hasMeaningfulValue);
+}
+
+async function getCachedCadastralRecord(cadastralNumber) {
+    const normalized = normalizeCadastralNumber(cadastralNumber);
+    if (!isValidCadastralNumber(normalized)) return null;
+
+    const record = await CadastralData.findOne({
+        where: { cadastral_number: normalized },
+    });
+    const plain = record?.get ? record.get({ plain: true }) : record;
+
+    return hasUsableCachedCadastralRecord(plain) ? plain : null;
+}
+
 export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh = false } = {}) {
     let enriched = {
         ...questionnaire,
@@ -771,12 +764,31 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
     let buildingRecord = null;
     let landRecord = null;
 
-    enriched = sanitizeAutoFilledLeasableArea(enriched).questionnaire;
+    enriched = sanitizeAutoFilledOccupiedArea(
+        sanitizeAutoFilledLeasableArea(enriched).questionnaire
+    ).questionnaire;
     clearInvalidAutoFilledTotalOksAreaOnLand(enriched, autoFilledFields, sourceHints, warnings);
 
     if (hasMeaningfulValue(enriched.buildingCadastralNumber) && isValidCadastralNumber(enriched.buildingCadastralNumber)) {
         try {
-            const record = await getOrFetchCadastralRecord(enriched.buildingCadastralNumber, { forceRefresh });
+            let record;
+
+            try {
+                record = await getOrFetchCadastralRecord(enriched.buildingCadastralNumber, { forceRefresh });
+            } catch (error) {
+                const cachedRecord = await getCachedCadastralRecord(enriched.buildingCadastralNumber);
+
+                if (!cachedRecord) {
+                    throw error;
+                }
+
+                record = cachedRecord;
+                addWarningOnce(
+                    warnings,
+                    `Кадастровый источник временно недоступен (${error.message}). Использованы последние сохраненные данные по объекту.`
+                );
+            }
+
             buildingRecord = record?.get ? record.get({ plain: true }) : record;
             const recordSource = resolveCadastralSourceHint(record, 'nspd_building');
             const metroSource = hasMeaningfulValue(record?.source_provider) ? recordSource : 'geo_service';
@@ -833,78 +845,20 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     autoFilledFields,
                     sourceHints
                 );
+
+                if (!hasMeaningfulValue(enriched.landCadastralNumber)) {
+                    addWarningOnce(
+                        warnings,
+                        'Не удалось автоматически определить кадастровый номер земельного участка по данным кадастра. Укажите участок вручную, если он нужен для расчета земельной доли.'
+                    );
+                }
             }
         } catch (error) {
             warnings.push(`Не удалось подтянуть данные здания: ${error.message}`);
         }
     }
 
-    if (
-        (hasMeaningfulValue(enriched.buildingCadastralNumber) && isValidCadastralNumber(enriched.buildingCadastralNumber)) ||
-        (hasMeaningfulValue(enriched.landCadastralNumber) && isValidCadastralNumber(enriched.landCadastralNumber))
-    ) {
-        try {
-            const historicalActualArea = await findHistoricalActualAreaData({
-                buildingCadastralNumber: enriched.buildingCadastralNumber,
-                landCadastralNumber: enriched.landCadastralNumber,
-            });
-
-            pickMissing(
-                enriched,
-                'occupiedArea',
-                historicalActualArea?.occupiedArea ?? null,
-                'historical_project_questionnaire',
-                autoFilledFields,
-                sourceHints
-            );
-            pickMissing(
-                enriched,
-                'occupancyRate',
-                historicalActualArea?.occupancyRate ?? null,
-                'historical_project_questionnaire',
-                autoFilledFields,
-                sourceHints
-            );
-        } catch (error) {
-            warnings.push(`Не удалось подтянуть фактические площади из истории проектов: ${error.message}`);
-        }
-    }
-
     if (hasMeaningfulValue(enriched.landCadastralNumber) && isValidCadastralNumber(enriched.landCadastralNumber)) {
-        try {
-            const historicalTotalOksArea = await findHistoricalTotalOksAreaOnLand({
-                buildingCadastralNumber: enriched.buildingCadastralNumber,
-                landCadastralNumber: enriched.landCadastralNumber,
-            });
-            const historicalValidation = validateTotalOksAreaOnLandCandidate(
-                historicalTotalOksArea,
-                enriched
-            );
-
-            if (historicalValidation.isValid) {
-                pickMissing(
-                    enriched,
-                    'totalOksAreaOnLand',
-                    historicalTotalOksArea,
-                    'historical_project_questionnaire',
-                    autoFilledFields,
-                    sourceHints
-                );
-            } else if (hasMeaningfulValue(historicalTotalOksArea)) {
-                const warning = buildTotalOksAreaOnLandValidationWarning(
-                    historicalTotalOksArea,
-                    historicalValidation,
-                    'historical_project_questionnaire'
-                );
-
-                if (!warnings.includes(warning)) {
-                    warnings.push(warning);
-                }
-            }
-        } catch (error) {
-            warnings.push(`Не удалось подтянуть общую площадь ОКС на участке из истории проектов: ${error.message}`);
-        }
-
         try {
             const record = await resolveLandRecord(enriched.landCadastralNumber, {
                 forceRefresh,
@@ -960,9 +914,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     recordSource
                 );
 
-                if (!warnings.includes(warning)) {
-                    warnings.push(warning);
-                }
+                addWarningOnce(warnings, warning);
             }
             pickMissing(enriched, 'mapPointLat', record.latitude !== null ? Number(record.latitude) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'mapPointLng', record.longitude !== null ? Number(record.longitude) : null, recordSource, autoFilledFields, sourceHints);

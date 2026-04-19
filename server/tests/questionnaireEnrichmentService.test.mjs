@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
     sanitizeAutoFilledLeasableArea,
+    sanitizeAutoFilledOccupiedArea,
     sanitizeAutoFilledTotalOksAreaOnLand,
     shouldPreferCadastralTotalOksAreaOnLand,
     validateTotalOksAreaOnLandCandidate,
@@ -22,19 +23,19 @@ test('validateTotalOksAreaOnLandCandidate rejects historical land total smaller 
     );
 });
 
-test('sanitizeAutoFilledTotalOksAreaOnLand clears invalid historical value for Lakhta-like case', () => {
+test('sanitizeAutoFilledTotalOksAreaOnLand clears invalid auto-filled value for Lakhta-like case', () => {
     const result = sanitizeAutoFilledTotalOksAreaOnLand({
         totalArea: 18023.4,
         leasableArea: 12757.2,
         occupiedArea: 9697.3,
         totalOksAreaOnLand: 9697.3,
         fieldSourceHints: {
-            totalOksAreaOnLand: 'historical_project_questionnaire',
+            totalOksAreaOnLand: 'nspd_land',
         },
     });
 
     assert.equal(result.removed, true);
-    assert.equal(result.source, 'historical_project_questionnaire');
+    assert.equal(result.source, 'nspd_land');
     assert.equal(result.questionnaire.totalOksAreaOnLand, null);
     assert.equal(
         Object.prototype.hasOwnProperty.call(result.questionnaire.fieldSourceHints, 'totalOksAreaOnLand'),
@@ -57,16 +58,16 @@ test('sanitizeAutoFilledTotalOksAreaOnLand preserves manual value even when it l
     assert.equal(result.questionnaire.fieldSourceHints.totalOksAreaOnLand, 'manual_input');
 });
 
-test('sanitizeAutoFilledLeasableArea clears historical auto-filled value', () => {
+test('sanitizeAutoFilledLeasableArea clears auto-filled value', () => {
     const result = sanitizeAutoFilledLeasableArea({
         leasableArea: 12757.2,
         fieldSourceHints: {
-            leasableArea: 'historical_project_questionnaire',
+            leasableArea: 'nspd_building',
         },
     });
 
     assert.equal(result.removed, true);
-    assert.equal(result.source, 'historical_project_questionnaire');
+    assert.equal(result.source, 'nspd_building');
     assert.equal(result.questionnaire.leasableArea, null);
     assert.equal(
         Object.prototype.hasOwnProperty.call(result.questionnaire.fieldSourceHints, 'leasableArea'),
@@ -87,11 +88,41 @@ test('sanitizeAutoFilledLeasableArea preserves manual value', () => {
     assert.equal(result.questionnaire.fieldSourceHints.leasableArea, 'manual_input');
 });
 
-test('shouldPreferCadastralTotalOksAreaOnLand prefers cadastral value over historical but not over manual', () => {
+test('sanitizeAutoFilledOccupiedArea clears auto-filled value', () => {
+    const result = sanitizeAutoFilledOccupiedArea({
+        occupiedArea: 9697.3,
+        fieldSourceHints: {
+            occupiedArea: 'nspd_building',
+        },
+    });
+
+    assert.equal(result.removed, true);
+    assert.equal(result.source, 'nspd_building');
+    assert.equal(result.questionnaire.occupiedArea, null);
+    assert.equal(
+        Object.prototype.hasOwnProperty.call(result.questionnaire.fieldSourceHints, 'occupiedArea'),
+        false
+    );
+});
+
+test('sanitizeAutoFilledOccupiedArea preserves manual value', () => {
+    const result = sanitizeAutoFilledOccupiedArea({
+        occupiedArea: 9697.3,
+        fieldSourceHints: {
+            occupiedArea: 'manual_input',
+        },
+    });
+
+    assert.equal(result.removed, false);
+    assert.equal(result.questionnaire.occupiedArea, 9697.3);
+    assert.equal(result.questionnaire.fieldSourceHints.occupiedArea, 'manual_input');
+});
+
+test('shouldPreferCadastralTotalOksAreaOnLand prefers cadastral value over auto-filled but not over manual', () => {
     assert.equal(
         shouldPreferCadastralTotalOksAreaOnLand({
             currentValue: 9697.3,
-            currentSource: 'historical_project_questionnaire',
+            currentSource: 'nspd_land',
             cadastralValue: 18023.4,
         }),
         true

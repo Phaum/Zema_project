@@ -121,6 +121,45 @@
     padding-inline: 0 !important;
 }
 
+.project-result-comparable-hint {
+    display: block;
+    margin-bottom: 12px;
+}
+
+.project-result-comparable-row {
+    cursor: pointer;
+}
+
+.project-result-comparable-row:hover > td {
+    background: #f0f7ff !important;
+}
+
+.project-result-comparable-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.project-result-comparable-metric {
+    padding: 14px 16px;
+    border: 1px solid #edf1f6;
+    border-radius: 14px;
+    background: #fbfdff;
+}
+
+.project-result-comparable-metric-value {
+    margin-top: 6px;
+    color: #101828;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.project-result-comparable-metric-value.is-strong {
+    color: #0f4c81;
+}
+
 .project-result-map-meta {
     display: flex;
     flex-wrap: wrap;

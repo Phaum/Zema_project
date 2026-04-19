@@ -10,6 +10,7 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved 
     const [form] = Form.useForm();
     const [questionnaireLoading, setQuestionnaireLoading] = useState(true);
     const [questionnaireSaving, setQuestionnaireSaving] = useState(false);
+    const watchedValues = Form.useWatch([], form) || {};
 
     useEffect(() => {
         async function loadQuestionnaire() {
@@ -37,7 +38,10 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved 
     }, [projectId, form, project?.name]);
 
     const questionnaireStatus = useMemo(() => {
-        const values = form.getFieldsValue(true);
+        const values = {
+            ...form.getFieldsValue(true),
+            ...watchedValues,
+        };
         const requiredKeys = [
             'calculationMethod',
             'projectName',
@@ -64,7 +68,7 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved 
         }, 0);
 
         return { filled, total: requiredKeys.length };
-    }, [form]);
+    }, [form, watchedValues]);
 
     const saveQuestionnaire = async () => {
         try {

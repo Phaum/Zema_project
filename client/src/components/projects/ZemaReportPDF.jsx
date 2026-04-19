@@ -22,7 +22,8 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     cadastralNumber = 'не указан',
     totalArea = 0,
     constructionYear = null,
-    reconstructionYear = null,
+    constructionCompletionYear = null,
+    commissioningYear = null,
     estimatedValue = 0,
     estimatedValueMin = 0,
     estimatedValueMax = 0,
@@ -76,6 +77,18 @@ export const exportZemaReportToPDF = async (projectId, data) => {
   const formatCurrency = (num, digits = 2) =>
     (num === undefined || num === null || isNaN(num)) ? '0 ₽' : `${formatNumber(num, digits)} ₽`;
 
+  const formatPreciseNumber = (num, maxFractionDigits = 6) => {
+    if (num === undefined || num === null || isNaN(num)) return '0';
+
+    return Number(num).toLocaleString('ru-RU', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: maxFractionDigits,
+    });
+  };
+
+  const formatPreciseCurrency = (num) =>
+    (num === undefined || num === null || isNaN(num)) ? '0 ₽' : `${formatPreciseNumber(num)} ₽`;
+
   const formatDate = (date) => {
     if (!date || date === 'не указана') return 'не указана';
     const d = new Date(date);
@@ -85,13 +98,19 @@ export const exportZemaReportToPDF = async (projectId, data) => {
 
   const formatYesNo = (val) => (val === true || val === 'yes' || val === 'Да' ? 'Да' : 'Нет');
 
-  const yearDisplay = [constructionYear, reconstructionYear]
-    .map(y => y || '—')
-    .join(' / ');
+  const formatYear = (value) => {
+    if (value === undefined || value === null || value === '') return '';
+    const normalized = String(value).trim();
+    return normalized && normalized !== '0' ? normalized : '';
+  };
+
+  const completionYearDisplay = formatYear(constructionCompletionYear);
+  const commissioningYearDisplay = formatYear(commissioningYear || constructionYear);
+  const yearDisplay = `${completionYearDisplay || '—'} / ${commissioningYearDisplay || '—'}`;
 
   const cadastralDisplay = (!cadastralValue || cadastralValue === 0)
     ? 'не определена'
-    : formatCurrency(cadastralValue);
+    : formatPreciseCurrency(cadastralValue);
   const cadastralUnitDisplay = (!cadastralValue || cadastralValue === 0 || !totalArea)
     ? 'не определена'
     : formatNumber(cadastralValue / totalArea, 2);
@@ -241,7 +260,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
                 <tr><td><strong>Адрес</strong></td><td>${objectAddress}</td></tr>
                 <tr><td><strong>Завершение строительства / ввод в эксплуатацию</strong></td><td>${yearDisplay}</td></tr>
                 <tr><td><strong>Общая площадь, м²</strong></td><td>${formatNumber(totalArea)}</td></tr>
-                <tr><td><strong>Состав (этажи)</strong></td><td>${renderFloorsTable()}</td></tr>
+                <tr><td colspan="2"><strong>Состав (этажи)</strong>${renderFloorsTable()}</td></tr>
                 <tr><td><strong>Арендопригодная площадь, м² (%)</strong></td><td>${formatNumber(leasableArea)} (${formatNumber(leasableAreaPercent)}%)</td></tr>
                 <tr><td><strong>Кадастровый номер земельного участка, на котором расположен объект оценки</strong></td><td>${landCadastralNumber}</td></tr>
                 <tr><td><strong>Площадь земельного участка, м²</strong></td><td>${formatNumber(landArea)}</td></tr>

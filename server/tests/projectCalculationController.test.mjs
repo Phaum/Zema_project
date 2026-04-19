@@ -11,6 +11,7 @@ import {
     deduplicateAnaloguesByClosestDatePerQuarter,
     deduplicateAnaloguesForSelection,
     deduplicateRankedAnalogsByObject,
+    ensureSelectionSpatialContext,
     resolveComparableCoordinates,
     resolveManualRentalOverrideRate,
     resolveAnalogueQuarterKey,
@@ -290,4 +291,37 @@ test('deduplicateAnaloguesByObject excludes duplicates with reasons before ranki
     assert.equal(result.excludedDuplicates.length, 1);
     assert.equal(result.selectedAnalogs[0].id, 'best');
     assert.match(result.excludedDuplicates[0].exclusionReason, /дубль объекта/i);
+});
+
+test('ensureSelectionSpatialContext restores missing zone fields from spatial zones before selection', async () => {
+    const calls = [];
+    const questionnaire = {
+        mapPointLat: 59.9891,
+        mapPointLng: 30.2402,
+        zoneCode: null,
+        terZone: null,
+    };
+
+    const enriched = await ensureSelectionSpatialContext(questionnaire, {
+        zoneResolver: async (_lat, _lng, { zoneType } = {}) => {
+            calls.push(zoneType);
+
+            if (zoneType === 'administrative_zone') {
+                return {
+                    matched: true,
+                    zoneCode: 'ТП3',
+                };
+            }
+
+            return {
+                matched: true,
+                zoneCode: 'ТП3_1',
+                zoneName: 'ТП3_1',
+            };
+        },
+    });
+
+    assert.equal(enriched.zoneCode, 'ТП3');
+    assert.equal(enriched.terZone, 'ТП3_1');
+    assert.deepEqual(calls, ['administrative_zone', 'valuation_district']);
 });

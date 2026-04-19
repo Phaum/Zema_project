@@ -99,8 +99,6 @@ const RENT_CONFIG = {
             'промзона': 0.61,
             'район крупных автомагистралей города': 0.79,
         },
-
-        outlierRangeLimit: 0.30,
     },
 };
 
@@ -264,6 +262,11 @@ function parseQuarterKey(value) {
     const yearMatch = normalized.match(/(20\d{2}|19\d{2})/);
     if (!yearMatch) return null;
 
+    const isoQuarterMatch = normalized.match(/^(\d{4})[- ]Q([1-4])$/);
+    if (isoQuarterMatch) {
+        return `${isoQuarterMatch[1]}Q${isoQuarterMatch[2]}`;
+    }
+
     const quarterMatch =
         normalized.match(/(?:^|\s)([1-4])\s*(?:КВ\.?|КВАРТАЛ|Q)(?=\s|$)/i) ||
         normalized.match(/(?:^|\s)(?:Q|КВ\.?|КВАРТАЛ)\s*([1-4])(?=\s|$)/i);
@@ -386,7 +389,14 @@ function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
         return 1;
     }
 
-    return Math.pow(subject / analog, exponent);
+    const subjectCoefficient = Math.pow(subject / subject, exponent);
+    const analogCoefficient = Math.pow(subject / analog, exponent);
+
+    if (!Number.isFinite(subjectCoefficient) || !Number.isFinite(analogCoefficient) || analogCoefficient === 0) {
+        return 1;
+    }
+
+    return subjectCoefficient / analogCoefficient;
 }
 
 function getFloorCoefficient(floorCategory, valuationQuarter) {
@@ -409,24 +419,8 @@ function getFloorCoefficient(floorCategory, valuationQuarter) {
 // }
 
 function getFloorAdjustment(subjectFloorCategory, analogFloorCategory, valuationQuarter) {
-    const subjectCategory = parseFloorCategory(subjectFloorCategory);
-    const analogCategory = parseFloorCategory(analogFloorCategory);
-
-    const quarterMap =
-        RENT_CONFIG.adjustments.floorCoefficientsByQuarter?.[valuationQuarter]
-        || null;
-
-    if (!quarterMap) {
-        return 1;
-    }
-
-    if (subjectCategory === 'first') {
-        if (analogCategory === 'first') return 1;
-        return toNumber(quarterMap?.[analogCategory], 1);
-    }
-
-    const subjectCoeff = toNumber(quarterMap?.[subjectCategory], 1);
-    const analogCoeff = toNumber(quarterMap?.[analogCategory], 1);
+    const subjectCoeff = getFloorCoefficient(subjectFloorCategory, valuationQuarter);
+    const analogCoeff = getFloorCoefficient(analogFloorCategory, valuationQuarter);
 
     if (!Number.isFinite(subjectCoeff) || !Number.isFinite(analogCoeff) || analogCoeff === 0) {
         return 1;
@@ -862,49 +856,30 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
     }
 
     const dateRecord = calculateDateAdjustmentRecord(questionnaire, analog);
-    dateRecord.factor = roundFactor2(dateRecord.factor);
-    dateRecord.deltaPercent = round2((dateRecord.factor - 1) * 100);
-
     const afterDate = round2(rawRate * dateRecord.factor);
 
     const bargainRecord = calculateBargainAdjustmentRecord();
-    bargainRecord.factor = roundFactor2(bargainRecord.factor);
-    bargainRecord.deltaPercent = round2((bargainRecord.factor - 1) * 100);
-
     const afterBargain = round2(afterDate * bargainRecord.factor);
 
     const metroRecord = calculateMetroAdjustmentRecord(questionnaire, analog);
-    metroRecord.factor = roundFactor2(metroRecord.factor);
-    metroRecord.deltaPercent = round2((metroRecord.factor - 1) * 100);
-
     const areaRecord = calculateAreaAdjustmentRecord(questionnaire, analog);
-    areaRecord.factor = roundFactor2(areaRecord.factor);
-    areaRecord.deltaPercent = round2((areaRecord.factor - 1) * 100);
-
     const floorRecord = calculateFloorAdjustmentRecord(questionnaire, analog);
-    floorRecord.factor = roundFactor2(floorRecord.factor);
-    floorRecord.deltaPercent = round2((floorRecord.factor - 1) * 100);
-
     const environmentRecord = calculateEnvironmentAdjustmentRecord(questionnaire, analog);
-    environmentRecord.factor = roundFactor2(environmentRecord.factor);
-    environmentRecord.deltaPercent = round2((environmentRecord.factor - 1) * 100);
-
-    const secondGroupMultiFactor = roundFactor2(
+    const secondGroupMultiFactor =
         metroRecord.factor *
         areaRecord.factor *
         floorRecord.factor *
-        environmentRecord.factor
-    );
+        environmentRecord.factor;
 
     const correctedRate = round2(afterBargain * secondGroupMultiFactor);
 
-    const firstGroupFactor = roundFactor2(
+    const firstGroupFactor =
         dateRecord.factor * bargainRecord.factor
-    );
+    ;
 
-    const totalAdjustmentFactor = roundFactor2(
+    const totalAdjustmentFactor =
         firstGroupFactor * secondGroupMultiFactor
-    );
+    ;
 
     const adjustments = [
         dateRecord,
@@ -923,50 +898,50 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
         correctedRate,
         adjustedRate: correctedRate,
 
-        dateAdjustment: dateRecord.factor,
-        bargainAdjustment: bargainRecord.factor,
-        metroAdjustment: metroRecord.factor,
-        areaAdjustment: areaRecord.factor,
-        floorAdjustment: floorRecord.factor,
-        environmentAdjustment: environmentRecord.factor,
+        dateAdjustment: round4(dateRecord.factor),
+        bargainAdjustment: round4(bargainRecord.factor),
+        metroAdjustment: round4(metroRecord.factor),
+        areaAdjustment: round4(areaRecord.factor),
+        floorAdjustment: round4(floorRecord.factor),
+        environmentAdjustment: round4(environmentRecord.factor),
 
-        firstGroupFactor,
-        secondGroupMultiFactor,
-        totalAdjustmentFactor,
+        firstGroupFactor: round4(firstGroupFactor),
+        secondGroupMultiFactor: round4(secondGroupMultiFactor),
+        totalAdjustmentFactor: round4(totalAdjustmentFactor),
 
         adjustments,
         adjustmentSummary: {
             firstGroup: [
                 {
                     key: 'date',
-                    factor: dateRecord.factor,
+                    factor: round4(dateRecord.factor),
                     deltaPercent: dateRecord.deltaPercent,
                 },
                 {
                     key: 'bargain',
-                    factor: bargainRecord.factor,
+                    factor: round4(bargainRecord.factor),
                     deltaPercent: bargainRecord.deltaPercent,
                 },
             ],
             secondGroup: [
                 {
                     key: 'metro',
-                    factor: metroRecord.factor,
+                    factor: round4(metroRecord.factor),
                     deltaPercent: metroRecord.deltaPercent,
                 },
                 {
                     key: 'area',
-                    factor: areaRecord.factor,
+                    factor: round4(areaRecord.factor),
                     deltaPercent: areaRecord.deltaPercent,
                 },
                 {
                     key: 'floor',
-                    factor: floorRecord.factor,
+                    factor: round4(floorRecord.factor),
                     deltaPercent: floorRecord.deltaPercent,
                 },
                 {
                     key: 'environment',
-                    factor: environmentRecord.factor,
+                    factor: round4(environmentRecord.factor),
                     deltaPercent: environmentRecord.deltaPercent,
                 },
             ],
@@ -1015,7 +990,7 @@ function filterAnalogsBySameClass(questionnaire = {}, analogs = []) {
     };
 }
 
-function filterAnalogsByRangeLimit(rows = [], limit = 0.30) {
+function filterAnalogsByWorkbookParity(rows = []) {
     const working = rows
         .filter((row) => row.includedInRentCalculation !== false)
         .filter((row) => Number.isFinite(toNumber(row.correctedRate, null)) && toNumber(row.correctedRate, 0) > 0)
@@ -1026,44 +1001,36 @@ function filterAnalogsByRangeLimit(rows = [], limit = 0.30) {
         return {
             keptRows: working,
             removedRows: [],
-            rangeRatio: 0,
+            strategy: 'too_small_for_trim',
+        };
+    }
+
+    if (working.length >= RENT_CONFIG.selector.maxAnalogs) {
+        return {
+            keptRows: working,
+            removedRows: [],
+            strategy: 'full_sample_average',
         };
     }
 
     const removedRows = [];
+    const minimumComparableCount = Math.min(6, working.length);
 
-    while (working.length > 2) {
-        const min = toNumber(working[0]?.correctedRate, 0);
-        const max = toNumber(working.at(-1)?.correctedRate, 0);
-        const ratio = min > 0 ? (max - min) / min : 0;
-
-        if (ratio <= limit) {
-            return {
-                keptRows: working,
-                removedRows,
-                rangeRatio: ratio,
-            };
-        }
-
+    while (working.length > minimumComparableCount) {
         const avg = average(working.map((row) => toNumber(row.correctedRate, 0)));
-        const lowDiff = Math.abs(min - avg);
-        const highDiff = Math.abs(max - avg);
+        const min = toNumber(working[0]?.correctedRate, 0);
 
-        if (highDiff >= lowDiff) {
-            removedRows.push(working.pop());
-        } else {
-            removedRows.push(working.shift());
+        if (!(Number.isFinite(avg) && avg > 0) || min >= (avg * 0.8)) {
+            break;
         }
-    }
 
-    const min = toNumber(working[0]?.correctedRate, 0);
-    const max = toNumber(working.at(-1)?.correctedRate, 0);
-    const ratio = min > 0 ? (max - min) / min : 0;
+        removedRows.push(working.shift());
+    }
 
     return {
         keptRows: working,
         removedRows,
-        rangeRatio: ratio,
+        strategy: removedRows.length ? 'low_tail_trim_below_80pct_mean' : 'no_trim_needed',
     };
 }
 
@@ -1078,7 +1045,7 @@ function buildOutlierRangeCheck(rows = []) {
             min: null,
             max: null,
             ratio: null,
-            withinLimit: false,
+            withinLimit: null,
         };
     }
 
@@ -1090,9 +1057,7 @@ function buildOutlierRangeCheck(rows = []) {
         min: round2(min),
         max: round2(max),
         ratio: Number.isFinite(ratio) ? round4(ratio) : null,
-        withinLimit: Number.isFinite(ratio)
-            ? ratio <= RENT_CONFIG.adjustments.outlierRangeLimit
-            : false,
+        withinLimit: null,
     };
 }
 
@@ -1214,10 +1179,7 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
             && toNumber(row.correctedRate, 0) > 0
     );
 
-    const rangeFilterResult = filterAnalogsByRangeLimit(
-        rowsForRangeFilter,
-        RENT_CONFIG.adjustments.outlierRangeLimit
-    );
+    const rangeFilterResult = filterAnalogsByWorkbookParity(rowsForRangeFilter);
 
     const keptIds = new Set(rangeFilterResult.keptRows.map((row) => row.analogId));
     const removedIds = new Set(rangeFilterResult.removedRows.map((row) => row.analogId));
@@ -1232,7 +1194,7 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
                 ...row,
                 includedInRentCalculation: false,
                 includedInCalculation: false,
-                exclusionReason: 'Исключен по правилу диапазона 30%',
+                exclusionReason: 'Исключен при усреднении как нижний выброс относительно среднего уровня выборки',
                 normalizedWeight: 0,
                 finalWeight: 0,
             };
@@ -1341,7 +1303,8 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
         outlierRangeCheck: {
             ...outlierRangeCheck,
             removedCount: rangeFilterResult.removedRows.length,
-            rangeLimit: RENT_CONFIG.adjustments.outlierRangeLimit,
+            rangeLimit: null,
+            workbookParityFilterStrategy: rangeFilterResult.strategy || null,
         },
 
         stats: {

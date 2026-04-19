@@ -1,6 +1,5 @@
 import * as turf from '@turf/turf';
 import CadastralData from '../models/cadastral_data.js';
-import ProjectQuestionnaire from '../models/ProjectQuestionnaire.js';
 import { getOrFetchCadastralRecord } from '../controllers/cadastralController.js';
 import { geocodeByAddress } from '../controllers/geoController.js';
 import { findNearestMetroByCoords } from './metroFallbackService.js';
@@ -885,29 +884,6 @@ async function resolveCoordinatesForEnvironment(cadastralNumber) {
     }
 
     sourcesTried.push('cadastral_records');
-
-    const latestQuestionnaire = await ProjectQuestionnaire.findOne({
-        where: { buildingCadastralNumber: normalizedCad },
-        order: [['updated_at', 'DESC']],
-        raw: true,
-    });
-
-    if (hasValidCoordinates(latestQuestionnaire?.mapPointLat, latestQuestionnaire?.mapPointLng)) {
-        return {
-            latitude: Number(latestQuestionnaire.mapPointLat),
-            longitude: Number(latestQuestionnaire.mapPointLng),
-            source: 'project_questionnaires',
-            address: pickBestAddress(latestQuestionnaire.objectAddress),
-            district: normalizeText(latestQuestionnaire.district) || null,
-            metro: normalizeText(latestQuestionnaire.nearestMetro) || null,
-            metroDistance: toNumberOrNull(latestQuestionnaire.metroDistance),
-            warnings,
-            sourcesTried: [...sourcesTried, 'project_questionnaires'],
-            cadastralRecord,
-        };
-    }
-
-    sourcesTried.push('project_questionnaires');
 
     let enrichedCadastralRecord = cadastralRecord;
     try {

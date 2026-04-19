@@ -71,7 +71,7 @@ const ProjectResult = sequelize.define('ProjectResult', {
     },
 
     land_share: {
-        type: DataTypes.DECIMAL(18, 2),
+        type: DataTypes.DECIMAL(20, 6),
         allowNull: true,
         comment: 'Land value to deduct',
     },

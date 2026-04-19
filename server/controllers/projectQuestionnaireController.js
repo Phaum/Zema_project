@@ -2,6 +2,7 @@ import { ProjectQuestionnaire, ValuationProject } from '../models/index.js';
 import {
     enrichQuestionnaireData,
     sanitizeAutoFilledLeasableArea,
+    sanitizeAutoFilledOccupiedArea,
     sanitizeAutoFilledTotalOksAreaOnLand,
 } from '../services/questionnaireEnrichmentService.js';
 
@@ -93,7 +94,9 @@ function normalizeOutgoing(row) {
     };
 
     return sanitizeAutoFilledTotalOksAreaOnLand(
-        sanitizeAutoFilledLeasableArea(normalized).questionnaire
+        sanitizeAutoFilledOccupiedArea(
+            sanitizeAutoFilledLeasableArea(normalized).questionnaire
+        ).questionnaire
     ).questionnaire;
 }
 
