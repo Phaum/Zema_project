@@ -119,6 +119,41 @@ test('calculateAnalogWeight applies soft penalty to much smaller analogs', () =>
     assert.ok(smallAnalogWeight.weight < largerAnalogWeight.weight);
 });
 
+test('calculateAnalogWeight uses average room area from floors for scale comparability', () => {
+    const questionnaire = {
+        totalArea: 18850.6,
+        district: 'Московский',
+        metroDistance: 0.68,
+        valuationDate: '2025-01-01',
+        businessCenterClass: 'B+',
+        marketClassResolved: 'B+',
+        floors: [
+            {
+                floorCategory: 'first',
+                floorLocation: 'Первый этаж',
+                area: 1450,
+                leasableArea: 1205,
+                avgLeasableRoomArea: 685,
+            },
+        ],
+    };
+
+    const analog = {
+        class_offer: 'B+',
+        district: 'Московский',
+        area_total: 650,
+        distance_to_metro: 0.68,
+        offer_date: '2025-01-01',
+        floor_location: 'первый',
+        price_per_sqm_cleaned: 1000,
+    };
+
+    const weight = calculateAnalogWeight(analog, questionnaire);
+
+    assert.equal(weight.components.areaRatio, 1.05);
+    assert.equal(weight.components.scaleWeightPenalty, 1);
+});
+
 test('scoreAnalogueRelevance strongly penalizes analogs with severe scale mismatch', () => {
     const questionnaire = {
         totalArea: 18000,
@@ -279,7 +314,7 @@ test('calculateMarketRent supports advanced experimental weighted median mode', 
     assert.ok(result.analogsUsedCount >= 5);
 });
 
-test('calculateVacancyRate prioritizes market profile over factual occupancy when profile is available', () => {
+test('calculateVacancyRate uses factual occupancy when it is above the market profile', () => {
     const result = calculateVacancyRate({
         questionnaire: {
             businessCenterClass: 'B+',
@@ -299,9 +334,9 @@ test('calculateVacancyRate prioritizes market profile over factual occupancy whe
         },
     });
 
-    assert.equal(result.source, 'market');
-    assert.ok(result.rate > 0);
-    assert.equal(result.breakdown.vacancySource, 'market');
+    assert.equal(result.source, 'factual');
+    assert.equal(result.rate, 0.6);
+    assert.equal(result.breakdown.vacancySource, 'factual');
 });
 
 test('calculateValuation builds stable market-driven result for Lakhta-like case', async () => {

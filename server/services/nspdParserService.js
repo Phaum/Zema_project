@@ -4,6 +4,7 @@ import axios from 'axios';
 const NSPD_BASE_URL = process.env.NSPD_BASE_URL || 'https://nspd.gov.ru';
 const NSPD_SEARCH_PATH = '/api/geoportal/v2/search/geoportal';
 const NSPD_TAB_VALUES_PATH = '/api/geoportal/v1/tab-values-data';
+const NSPD_TAB_GROUP_PATH = '/api/geoportal/v1/tab-group-data';
 const NSPD_TIMEOUT_MS = Number(process.env.NSPD_TIMEOUT_MS || 20000);
 const NSPD_RETRIES = Number(process.env.NSPD_RETRIES || 5);
 const NSPD_RETRY_DELAY_MS = Number(process.env.NSPD_RETRY_DELAY_MS || 1000);
@@ -19,7 +20,7 @@ function toFloat(value) {
     return null;
   }
 
-  const number = Number(String(value).replace(',', '.'));
+  const number = Number(String(value).replace(/\s+/g, '').replace(',', '.'));
   return Number.isFinite(number) ? number : null;
 }
 
@@ -199,6 +200,8 @@ export function buildNspdParserResult(cadastralNumber, feature, { relatedLandCad
   const objectType = data.object_type ||
     data.type ||
     data.build_record_type_value ||
+    data.object_under_construction_record_record_type_value ||
+    data.object_under_construction_record_name ||
     data.land_record_type ||
     properties.categoryName;
   const objectKind = classifyObject(objectType);
@@ -207,6 +210,7 @@ export function buildNspdParserResult(cadastralNumber, feature, { relatedLandCad
   const address = data.readable_address || data.address || data.address_readable_address;
   const district = data.district || extractDistrictFromAddress(address);
   const totalArea = data.area || data.total_area || data.square || data.build_record_area;
+  const constructionArea = data.built_up_area || data.params_built_up_area;
   const landArea = objectKind === 'land'
     ? (data.land_area || data.parcel_area || data.area_value || data.specified_area || data.declared_area || data.area)
     : data.land_area;
@@ -232,7 +236,7 @@ export function buildNspdParserResult(cadastralNumber, feature, { relatedLandCad
     address: safeString(address),
     district: safeString(district),
     cadastral_quarter: safeString(data.quarter_cad_number || data.cadastral_quarter),
-    total_area: toFloat(totalArea),
+    total_area: toFloat(totalArea ?? constructionArea),
     land_area: toFloat(landArea),
     cad_cost: toFloat(cadCost),
     specific_cadastral_cost: toFloat(specificCadCost),
@@ -308,6 +312,41 @@ async function requestTabValues(feature, tabClass) {
   return response.data?.value || null;
 }
 
+async function requestTabGroup(feature, tabClass) {
+  const options = getFeatureOptions(feature);
+  const properties = feature?.properties || {};
+  const noCoords = Boolean(options.geocoderObject);
+  const params = noCoords
+    ? {
+      tabClass,
+      objdocId: options.objdocId,
+      registersId: options.registersId,
+    }
+    : {
+      tabClass,
+      categoryId: properties.category,
+      geomId: feature?.id,
+    };
+
+  if (!params.objdocId && !params.registersId && (!params.categoryId || !params.geomId)) {
+    return null;
+  }
+
+  const response = await axios.get(`${NSPD_BASE_URL}${NSPD_TAB_GROUP_PATH}`, {
+    params,
+    timeout: NSPD_TIMEOUT_MS,
+    httpsAgent: nspdHttpsAgent,
+    headers: {
+      accept: 'application/json',
+      referer: `${NSPD_BASE_URL}/map?thematic=PKK`,
+      'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+    },
+  });
+
+  return response.data || null;
+}
+
 async function getRelatedLandCadastralNumbers(feature) {
   try {
     return extractCadastralNumbers(await requestTabValues(feature, 'landLinks'));
@@ -318,6 +357,93 @@ async function getRelatedLandCadastralNumbers(feature) {
 
     throw error;
   }
+}
+
+async function getRelatedObjectCadastralNumbers(feature) {
+  try {
+    const tabGroup = await requestTabGroup(feature, 'objectsList');
+    const values = Array.isArray(tabGroup?.object)
+      ? tabGroup.object.flatMap((group) => group?.value || [])
+      : [];
+
+    return extractCadastralNumbers(values);
+  } catch (error) {
+    if (error?.response?.status === 404) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+export async function getRegisteredOksObjectsOnLandFromNspd(landCadastralNumber) {
+  const normalized = String(landCadastralNumber || '').trim();
+  let delay = NSPD_RETRY_DELAY_MS;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < NSPD_RETRIES; attempt += 1) {
+    try {
+      const payload = await requestSearch(normalized);
+      const features = payload?.data?.features || payload?.features || [];
+      const landFeature = pickFeature(features, normalized);
+
+      if (!landFeature) {
+        return {
+          success: false,
+          error: 'Земельный участок не найден',
+          cadastral_number: normalized,
+          objects: [],
+        };
+      }
+
+      const relatedObjectCadastralNumbers = await getRelatedObjectCadastralNumbers(landFeature);
+      const objects = [];
+
+      for (const objectCadastralNumber of relatedObjectCadastralNumbers) {
+        const parsed = await getCadastralInfoFromNspd(objectCadastralNumber);
+
+        objects.push({
+          cadastral_number: objectCadastralNumber,
+          success: parsed.success,
+          object_type: parsed.object_type || null,
+          total_area: parsed.total_area ?? null,
+          source_provider: parsed.source_provider || null,
+          error: parsed.success ? null : parsed.error,
+        });
+      }
+
+      return {
+        success: true,
+        cadastral_number: normalized,
+        objects,
+        source_provider: 'nspd-land-objects',
+      };
+    } catch (error) {
+      lastError = error;
+      const status = error?.response?.status;
+      const retryable = status === 429 || status >= 500 || error?.code === 'ECONNRESET' || error?.code === 'ETIMEDOUT';
+
+      if (retryable && attempt < NSPD_RETRIES - 1) {
+        await sleep(delay);
+        delay *= 2;
+        continue;
+      }
+
+      return {
+        success: false,
+        error: error?.response?.data?.message || error.message || 'Ошибка запроса списка ОКС на участке',
+        cadastral_number: normalized,
+        objects: [],
+      };
+    }
+  }
+
+  return {
+    success: false,
+    error: lastError?.message || 'Превышено количество попыток запроса списка ОКС на участке',
+    cadastral_number: normalized,
+    objects: [],
+  };
 }
 
 export async function getCadastralInfoFromNspd(cadastralNumber, { mode = 'auto' } = {}) {

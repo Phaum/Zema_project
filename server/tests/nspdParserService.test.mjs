@@ -87,3 +87,29 @@ test('buildNspdParserResult keeps old parser response contract for buildings', (
   assert.ok(result.raw_payload_json.nspd.feature);
   assert.deepEqual(result.raw_payload_json.nspd.related_land_plots, ['78:13:0007309:3003']);
 });
+
+test('buildNspdParserResult uses built-up area for unfinished construction objects', () => {
+  const result = buildNspdParserResult(
+    '78:14:0753001:149',
+    {
+      id: null,
+      type: 'Feature',
+      properties: {
+        category: 36384,
+        categoryName: 'Объекты незавершённого строительства',
+        descr: '78:14:0753001:149',
+        label: '78:14:0753001:149',
+        options: {
+          built_up_area: 1007,
+          cad_num: '78:14:0753001:149',
+          geocoderObject: true,
+          object_under_construction_record_record_type_value: 'Объект незавершенного строительства',
+          readable_address: 'г.Санкт-Петербург, Лиговский проспект, дом 266, литера Р',
+        },
+      },
+    },
+  );
+
+  assert.equal(result.object_type, 'Объект незавершенного строительства');
+  assert.equal(result.total_area, 1007);
+});

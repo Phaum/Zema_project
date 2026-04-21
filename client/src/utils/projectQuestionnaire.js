@@ -93,6 +93,8 @@ export function formatQuestionnaireFieldSourceLabel(source) {
     if (normalized === 'geocode_by_address') return 'геокодирование по адресу';
     if (normalized === 'geocode_by_address_refined') return 'уточнено по адресу объекта';
     if (normalized === 'geocode_by_address_primary') return 'координаты определены по адресу';
+    if (normalized === 'metro_by_coordinates') return 'геосервис по координатам';
+    if (normalized === 'js_monolith_geo_service') return 'геосервис';
     if (normalized === 'derived_from_floor_sum') return 'сумма по этажам';
     if (normalized === 'market_offers_exact_object') return 'рыночная база по объекту';
     if (normalized === 'market_offers_district_class') return 'рыночная база по району и классу';
@@ -102,7 +104,7 @@ export function formatQuestionnaireFieldSourceLabel(source) {
     if (normalized === 'derived_from_rental_rate_manual_action') return 'определено по ставке аренды';
     if (normalized === 'derived_from_occupied_and_leasable_area') return 'выведено из площадей';
     if (normalized === 'resolved_from_cadastral_quarter') return 'кадастровый квартал';
-    if (normalized === 'registered_buildings_sum') return 'сумма зарегистрированных зданий на участке';
+    if (normalized === 'registered_buildings_sum') return 'сумма зарегистрированных ОКС на участке';
     if (normalized === 'legacy_autofill_building') return 'ранее автозаполнено по зданию';
     if (normalized === 'legacy_autofill_land') return 'ранее автозаполнено по участку';
     if (normalized.includes('nspd') || normalized.includes('reestrnet')) return 'НСПД / кадастровый источник';
@@ -160,9 +162,20 @@ export function getQuestionnaireSourceEntries(questionnaire = {}) {
         }
 
         const rawSource = sourceHints[fieldName] || inferLegacyFieldSource(fieldName, questionnaire);
+        const normalizedRawSource = String(rawSource || '').trim().toLowerCase();
+        const sourceForField = (
+            ['nearestMetro', 'metroDistance'].includes(fieldName) &&
+            (
+                normalizedRawSource.includes('nspd') ||
+                normalizedRawSource.includes('reestrnet') ||
+                normalizedRawSource.includes('cadastral')
+            )
+        )
+            ? 'metro_by_coordinates'
+            : rawSource;
         const source = MANUAL_ONLY_SOURCE_FIELDS.has(fieldName) && isAutomaticQuestionnaireSource(rawSource)
             ? null
-            : rawSource;
+            : sourceForField;
 
         entries.push({
             ...descriptor,

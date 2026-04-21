@@ -293,6 +293,66 @@ test('deduplicateAnaloguesByObject excludes duplicates with reasons before ranki
     assert.match(result.excludedDuplicates[0].exclusionReason, /дубль объекта/i);
 });
 
+test('deduplicateAnaloguesByObject collapses repeated final-table analogues by object address', () => {
+    const rows = [
+        {
+            id: 'rzhovskaya-q2',
+            address_offer: 'САНКТ-ПЕТЕРБУРГ. РЖОВСКАЯ УЛИЦА. 5',
+            class_offer: 'B+',
+            quarter: '2025-Q2',
+            area_total: 812,
+            price_per_sqm_cleaned: 2199.99,
+            offer_date: '2025-06-20',
+        },
+        {
+            id: 'rzhovskaya-q1',
+            address_offer: 'САНКТ-ПЕТЕРБУРГ. РЖОВСКАЯ УЛИЦА. 5',
+            building_cadastral_number: '78:01:0000000:101',
+            class_offer: 'B+',
+            quarter: '2025-Q1',
+            area_total: 812,
+            price_per_sqm_cleaned: 2001.97,
+            offer_date: '2025-02-10',
+        },
+        {
+            id: 'sinopskaya-main',
+            address_offer: 'САНКТ-ПЕТЕРБУРГ. СИНОПСКАЯ НАБЕРЕЖНАЯ. 52',
+            class_offer: 'B+',
+            quarter: '2025-Q4',
+            area_total: 656,
+            price_per_sqm_cleaned: 1682.76,
+            offer_date: '2025-10-12',
+        },
+        {
+            id: 'sinopskaya-copy',
+            address_offer: 'САНКТ-ПЕТЕРБУРГ. СИНОПСКАЯ НАБЕРЕЖНАЯ. 52',
+            class_offer: 'B+',
+            quarter: '2025-Q4',
+            area_total: 656,
+            price_per_sqm_cleaned: 1682.76,
+            offer_date: '2025-10-12',
+        },
+        {
+            id: 'unique',
+            address_offer: 'САНКТ-ПЕТЕРБУРГ. ЛЕВАШОВСКИЙ ПРОСПЕКТ. 12',
+            class_offer: 'B+',
+            quarter: '2025-Q4',
+            area_total: 824,
+            price_per_sqm_cleaned: 1829.09,
+            offer_date: '2025-10-01',
+        },
+    ];
+
+    const result = deduplicateAnaloguesByObject(rows, '2025-10-01');
+
+    assert.equal(result.selectedAnalogs.length, 3);
+    assert.equal(result.excludedDuplicates.length, 2);
+    assert.deepEqual(
+        result.selectedAnalogs.map((row) => row.id).sort(),
+        ['rzhovskaya-q2', 'sinopskaya-main', 'unique']
+    );
+});
+
 test('ensureSelectionSpatialContext restores missing zone fields from spatial zones before selection', async () => {
     const calls = [];
     const questionnaire = {

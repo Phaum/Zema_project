@@ -365,9 +365,9 @@ function buildAnalogueDuplicateKey(rawRow) {
 function buildAnalogueObjectKey(rawRow) {
     const row = toComparablePlain(rawRow);
 
-    const cadastralKey = String(row.building_cadastral_number || row.cadastral || '').trim();
-    if (cadastralKey) {
-        return `cad__${cadastralKey}`;
+    const addressKey = normalizeAddressKey(row.address_offer || row.address);
+    if (addressKey) {
+        return `addr__${addressKey}`;
     }
 
     const buildingKey = normalizeAddressKey(row.building_name || row.building);
@@ -375,9 +375,9 @@ function buildAnalogueObjectKey(rawRow) {
         return `building__${buildingKey}`;
     }
 
-    const addressKey = normalizeAddressKey(row.address_offer || row.address);
-    if (addressKey) {
-        return `addr__${addressKey}`;
+    const cadastralKey = String(row.building_cadastral_number || row.cadastral || '').trim();
+    if (cadastralKey) {
+        return `cad__${cadastralKey}`;
     }
 
     const lat = firstFinite(row.latitude, row.lat);
@@ -803,17 +803,24 @@ async function findComparableAnalogues(questionnaire) {
     console.log('[findComparableAnalogues] filterMode = strict_exact_class');
 
     const normalized = await Promise.all(allRows.map(mapAnalogueToComparable));
-    const { selected, ranked } = selectAnalogsByMahalanobis(selectionQuestionnaire, normalized);
+    const objectDedupe = deduplicateAnaloguesByObject(
+        normalized,
+        selectionQuestionnaire.valuationDate
+    );
+    const uniqueAnalogs = objectDedupe.selectedAnalogs;
+    const { selected, ranked } = selectAnalogsByMahalanobis(selectionQuestionnaire, uniqueAnalogs);
 
     console.log('[findComparableAnalogues] normalized count =', normalized.length);
+    console.log('[findComparableAnalogues] unique after object dedupe =', uniqueAnalogs.length);
+    console.log('[findComparableAnalogues] excluded object duplicates =', objectDedupe.excludedDuplicates.length);
     console.log('[findComparableAnalogues] selected after mahalanobis =', selected.length);
 
     return {
         district: districtRaw,
-        allAnalogs: normalized,
+        allAnalogs: uniqueAnalogs,
         rankingPool: ranked,
         selectedAnalogs: selected,
-        excludedDuplicates: [],
+        excludedDuplicates: objectDedupe.excludedDuplicates,
     };
 }
 

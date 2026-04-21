@@ -144,7 +144,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     distanceToMetro: comp.distanceToMetro,
     isHistoricalCenter: comp.isHistoricalCenter,
     territorialZone: comp.territorialZone || '—',
-    nearbyEnvironment: comp.nearbyEnvironment || '—',
+    nearbyEnvironment: translateEnvironmentCategory(comp.nearbyEnvironment || comp.environment || '—'),
   }));
 
   const loadLogoDataURL = () => new Promise((resolve) => {
@@ -198,6 +198,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <th>Этаж</th>
             <th>Ставка, ₽/м²</th>
             <th>Район</th>
+            <th>Ближ. окружение</th>
             <th>Метро</th>
             <th>Расст., км</th>
           </tr>
@@ -211,6 +212,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <td>${c.floor}</td>
             <td>${formatNumber(c.rawOfferRate)}</td>
             <td>${c.district}</td>
+            <td>${c.nearbyEnvironment}</td>
             <td>${c.nearestMetro}</td>
             <td>${formatDistanceKm(c.distanceToMetro)}</td>
           </tr>`).join('')}
@@ -363,7 +365,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             </div>
             <div class="disclaimer">
               <p><strong>Обращаем Ваше внимание</strong>, что данное заключение не является Отчетом об оценке и для него не требуется соответствие Федеральному закону «Об оценочной деятельности в Российской Федерации» от 29.07.1998 № 135-ФЗ и Федеральным стандартам оценки.</p>
-              <p>Рекомендуем обратиться в компанию «АВЕРС»: <a href="https://www.avg.ru/">www.avg.ru</a>, +7 (812) 320-97-75.</p>
+              <p>Для подготовки отчета об индивидуальной рыночной оценке рекомендуем обратиться в компанию «АВЕРС»: <a href="https://www.avg.ru/">www.avg.ru</a>, +7 (812) 320-97-75.</p>
             </div>
             ${footer}
           </div>

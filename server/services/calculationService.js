@@ -2,6 +2,7 @@ import { mahalanobisDistance } from '../utils/mahalanobis.js';
 import { toNumber } from '../utils/dataValidation.js';
 import { CadastralData } from '../models/index.js';
 import { calculateMarketRentByNewAlgorithm } from './rentCalculationService.js';
+import { calculateRegisteredOksAreaOnLand } from './landOksAreaService.js';
 
 const EXCEL_PARITY_CONFIG = {
     selector: {
@@ -560,12 +561,12 @@ function round4(value) {
 }
 
 function getSubjectScaleArea(subjectLike = {}) {
-    const totalArea = toNumber(subjectLike?.totalArea, null);
-    if (Number.isFinite(totalArea) && totalArea > 0) {
-        return totalArea;
+    const calculationArea = getCalculationArea(subjectLike);
+    if (Number.isFinite(calculationArea) && calculationArea > 0) {
+        return calculationArea;
     }
 
-    return getCalculationArea(subjectLike);
+    return toNumber(subjectLike?.totalArea, 0);
 }
 
 function getAreaRatio(subjectArea, analogArea) {
@@ -974,15 +975,15 @@ export function resolveVacancyRateProfile(questionnaire, context = {}) {
         1
     );
 
-    if (Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate < marketRate) {
+    if (Number.isFinite(actualVacancyRate) && actualVacancyRate > marketRate) {
         return {
             rate: clamp(actualVacancyRate, 0, 1),
             baseRate: marketRate,
             adjustments: [],
             source: 'factual',
             sourceLabel: marketProfile.label
-                ? `Фактическая незаполняемость ниже квартального рыночного профиля (${marketProfile.label})`
-                : 'Фактическая незаполняемость ниже квартального рыночного профиля',
+                ? `Фактическая незаполняемость выше квартального рыночного профиля (${marketProfile.label})`
+                : 'Фактическая незаполняемость выше квартального рыночного профиля',
             normalizedClass,
             districtBucket,
             valuationYear,
@@ -1215,7 +1216,7 @@ function calculateEnvironmentScore(values = []) {
         .filter((value) => Number.isFinite(value) && value > 0);
 
     if (!scores.length) return null;
-    return average(scores);
+    return Math.max(...scores);
 }
 
 function getEnvironmentAdjustment(objectEnvironment, analogEnvironment) {
@@ -2107,16 +2108,16 @@ export function calculateVacancyRate({ questionnaire, subject = {}, marketContex
         ? clamp(1 - (occupiedArea / leasableArea), 0, 1)
         : null;
 
-    if (Number.isFinite(manualVacancy) && manualVacancy >= 0 && manualVacancy <= marketRate) {
+    if (Number.isFinite(manualVacancy) && manualVacancy >= 0 && manualVacancy > marketRate) {
         return {
             rate: clamp(manualVacancy, 0, 1),
             source: 'manual_input',
             sourceLabel: marketProfile.label
-                ? `Значение клиента ниже квартального рыночного профиля (${marketProfile.label})`
-                : 'Значение клиента ниже квартального рыночного профиля',
-            reasoning: 'Использовано значение незаполняемости, введенное клиентом, так как оно ниже квартального рыночного профиля.',
+                ? `Значение клиента выше квартального рыночного профиля (${marketProfile.label})`
+                : 'Значение клиента выше квартального рыночного профиля',
+            reasoning: 'Использовано значение незаполняемости, введенное клиентом, так как оно выше квартального рыночного профиля.',
             details: {
-                priority: 'client_min_market',
+                priority: 'client_max_market',
                 enteredValue: round2(manualVacancy * 100),
                 marketRate: round2(marketRate * 100),
                 valuationQuarterKey: marketProfile.key,
@@ -2135,16 +2136,16 @@ export function calculateVacancyRate({ questionnaire, subject = {}, marketContex
         };
     }
 
-    if (Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate <= marketRate) {
+    if (Number.isFinite(actualVacancyRate) && actualVacancyRate > marketRate) {
         return {
             rate: actualVacancyRate,
             source: 'factual',
             sourceLabel: marketProfile.label
-                ? `Фактическая незаполняемость ниже квартального рыночного профиля (${marketProfile.label})`
-                : 'Фактическая незаполняемость ниже квартального рыночного профиля',
-            reasoning: 'Использована фактическая незаполняемость объекта, так как она ниже квартального рыночного профиля.',
+                ? `Фактическая незаполняемость выше квартального рыночного профиля (${marketProfile.label})`
+                : 'Фактическая незаполняемость выше квартального рыночного профиля',
+            reasoning: 'Использована фактическая незаполняемость объекта, так как она выше квартального рыночного профиля.',
             details: {
-                priority: 'client_min_market',
+                priority: 'client_max_market',
                 leasableArea: round2(leasableArea),
                 occupiedArea: round2(occupiedArea),
                 actualVacancyRate: round2(actualVacancyRate * 100),
@@ -2171,9 +2172,14 @@ export function calculateVacancyRate({ questionnaire, subject = {}, marketContex
         sourceLabel: marketProfile.label
             ? `Квартальный рыночный профиль незаполняемости (${marketProfile.label})`
             : 'Квартальный рыночный профиль незаполняемости',
-        reasoning: 'Незаполняемость взята из квартального рыночного профиля без дополнительных корректировок.',
+        reasoning: Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate < marketRate
+            ? 'Фактическая незаполняемость ниже базового значения, поэтому в расчёт принято базовое значение квартального рыночного профиля.'
+            : 'Незаполняемость взята из квартального рыночного профиля без дополнительных корректировок.',
         details: {
-            priority: 'market',
+            priority: Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate < marketRate
+                ? 'base_floor_over_actual'
+                : 'market',
+            actualVacancyRate: Number.isFinite(actualVacancyRate) ? round2(actualVacancyRate * 100) : null,
             marketRate: round2(marketRate * 100),
             valuationQuarterKey: marketProfile.key,
             valuationQuarterLabel: marketProfile.label,
@@ -2544,59 +2550,36 @@ export function calculateNOI(egi, opex) {
     return toNumber(egi, 0) - toNumber(opex, 0);
 }
 
-function normalizeCadastralNumber(value) {
-    return String(value || '').trim();
+async function calculateRegisteredBuildingsTotalAreaOnLand(
+    landCadastralNumber,
+    registeredOksAreaResolver = calculateRegisteredOksAreaOnLand
+) {
+    const result = await registeredOksAreaResolver(landCadastralNumber);
+
+    return {
+        totalArea: toNumber(result?.totalArea, 0),
+        source: result?.source || null,
+        objectsCount: Array.isArray(result?.objects) ? result.objects.length : 0,
+        usedNspdObjectsList: Boolean(result?.usedNspdObjectsList),
+    };
 }
 
-async function calculateRegisteredBuildingsTotalAreaOnLand(landCadastralNumber) {
-    const normalizedLandNumber = normalizeCadastralNumber(landCadastralNumber);
-
-    if (!normalizedLandNumber) {
-        return 0;
-    }
-
-    const records = await CadastralData.findAll({
-        where: {
-            land_plot_cadastral_number: normalizedLandNumber,
-        },
-        attributes: ['cadastral_number', 'object_type', 'total_area'],
-    });
-
-    const uniqueBuildings = new Map();
-
-    for (const record of records) {
-        const plain = record?.get ? record.get({ plain: true }) : record;
-        const cadastralNumber = normalizeCadastralNumber(plain?.cadastral_number);
-        const objectType = String(plain?.object_type || '').trim().toLowerCase();
-        const area = toNumber(plain?.total_area, null);
-
-        if (!cadastralNumber || cadastralNumber === normalizedLandNumber) {
-            continue;
-        }
-
-        if (objectType.includes('земель')) {
-            continue;
-        }
-
-        if (!Number.isFinite(area) || area <= 0) {
-            continue;
-        }
-
-        uniqueBuildings.set(cadastralNumber, area);
-    }
-
-    return round2(
-        Array.from(uniqueBuildings.values()).reduce((sum, area) => sum + area, 0)
-    );
-}
-
-export async function calculateLandShareDetails(questionnaire) {
+export async function calculateLandShareDetails(
+    questionnaire,
+    { registeredOksAreaResolver = calculateRegisteredOksAreaOnLand } = {}
+) {
     const landCadNumber = questionnaire?.landCadastralNumber;
+    const initialTotalOksAreaOnLand = toNumber(questionnaire?.totalOksAreaOnLand, 0);
     const details = {
         cadastralNumber: landCadNumber || null,
         landCadCost: toNumber(questionnaire?.landCadCost, 0),
         landArea: toNumber(questionnaire?.landArea, 0),
-        totalOksAreaOnLand: toNumber(questionnaire?.totalOksAreaOnLand, 0),
+        totalOksAreaOnLand: initialTotalOksAreaOnLand,
+        totalOksAreaOnLandSource: initialTotalOksAreaOnLand > 0
+            ? (questionnaire?.fieldSourceHints?.totalOksAreaOnLand || 'questionnaire')
+            : null,
+        registeredOksObjectsCount: 0,
+        usedNspdObjectsList: false,
         objectArea: toNumber(questionnaire?.totalArea, 0),
         allocationRatio: 0,
         landShareRatio: 0,
@@ -2637,13 +2620,33 @@ export async function calculateLandShareDetails(questionnaire) {
         details.landArea = toNumber(cadastralData?.land_area, 0) || toNumber(cadastralData?.total_area, 0);
     }
 
-    const registeredBuildingsTotalArea = await calculateRegisteredBuildingsTotalAreaOnLand(landCadNumber);
-    if (registeredBuildingsTotalArea > 0) {
-        details.totalOksAreaOnLand = registeredBuildingsTotalArea;
+    const registeredBuildingsArea = await calculateRegisteredBuildingsTotalAreaOnLand(
+        landCadNumber,
+        registeredOksAreaResolver
+    );
+
+    if (registeredBuildingsArea.totalArea > 0) {
+        const previousTotalOksAreaOnLand = details.totalOksAreaOnLand;
+        details.totalOksAreaOnLand = registeredBuildingsArea.totalArea;
+        details.totalOksAreaOnLandSource = registeredBuildingsArea.source || 'registered_buildings_sum';
+        details.registeredOksObjectsCount = registeredBuildingsArea.objectsCount;
+        details.usedNspdObjectsList = registeredBuildingsArea.usedNspdObjectsList;
+
+        if (
+            previousTotalOksAreaOnLand > 0 &&
+            Math.abs(previousTotalOksAreaOnLand - registeredBuildingsArea.totalArea) > 0.01
+        ) {
+            details.warnings.push(
+                `Общая площадь ОКС на участке пересчитана по зарегистрированным объектам: ${previousTotalOksAreaOnLand} м² заменено на ${registeredBuildingsArea.totalArea} м²`
+            );
+        }
     }
 
     if (!details.totalOksAreaOnLand) {
         details.totalOksAreaOnLand = toNumber(cadastralData?.total_oks_area_on_land, 0);
+        if (details.totalOksAreaOnLand > 0) {
+            details.totalOksAreaOnLandSource = 'cadastral_land';
+        }
     }
 
     if (!details.landCadCost) {
@@ -2657,7 +2660,7 @@ export async function calculateLandShareDetails(questionnaire) {
     }
 
     if (details.totalOksAreaOnLand > 0) {
-        if (details.totalOksAreaOnLand < details.objectArea) {
+        if ((details.totalOksAreaOnLand + 0.01) < details.objectArea) {
             details.allocationRatio = 1;
             details.landShareRatio = 1;
             details.share = details.landCadCost;

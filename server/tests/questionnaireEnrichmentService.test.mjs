@@ -137,3 +137,15 @@ test('shouldPreferCadastralTotalOksAreaOnLand prefers cadastral value over auto-
         false
     );
 });
+
+test('shouldPreferCadastralTotalOksAreaOnLand treats registered buildings sum as authoritative', () => {
+    assert.equal(
+        shouldPreferCadastralTotalOksAreaOnLand({
+            currentValue: 18850.6,
+            currentSource: 'manual_input',
+            cadastralValue: 42011.2,
+            cadastralSource: 'registered_buildings_sum',
+        }),
+        true
+    );
+});

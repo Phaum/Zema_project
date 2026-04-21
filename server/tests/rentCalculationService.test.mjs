@@ -48,9 +48,10 @@ test('calculateMarketRentByNewAlgorithm aligns area and floor corrections with E
     const analog = result.adjustedRates[0];
 
     assert.equal(result.marketRentFirst, analog.correctedRate);
-    assert.ok(Math.abs(analog.areaAdjustment - 1.1411) < 0.001, `unexpected area adjustment: ${analog.areaAdjustment}`);
-    assert.ok(Math.abs(analog.floorAdjustment - 1.1364) < 0.001, `unexpected floor adjustment: ${analog.floorAdjustment}`);
-    assert.ok(Math.abs(analog.correctedRate - 906.91) < 0.5, `unexpected corrected rate: ${analog.correctedRate}`);
+    assert.equal(analog.areaAdjustment, 1.14);
+    assert.equal(analog.floorAdjustment, 1.14);
+    assert.equal(analog.secondGroupMultiFactor, 1.29);
+    assert.ok(Math.abs(analog.correctedRate - 911.77) < 0.01, `unexpected corrected rate: ${analog.correctedRate}`);
 });
 
 test('calculateMarketRentByNewAlgorithm calculates Ks directly as (So / Sa)^n', () => {
@@ -90,7 +91,7 @@ test('calculateMarketRentByNewAlgorithm calculates Ks directly as (So / Sa)^n', 
     const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
     const analog = result.adjustedRates[0];
 
-    assert.ok(Math.abs(analog.areaAdjustment - 1.1901) < 0.0001, `unexpected Ks: ${analog.areaAdjustment}`);
+    assert.equal(analog.areaAdjustment, 1.19);
 });
 
 test('calculateMarketRentByNewAlgorithm returns non-zero diagnostics for included corrected rates', () => {
@@ -227,7 +228,58 @@ test('calculateMarketRentByNewAlgorithm maps environment analysis category codes
 
     assert.ok(analog, 'expected adjusted analogue');
     assert.ok(
-        Math.abs(analog.environmentAdjustment - 1.4262) < 0.0001,
+        Math.abs(analog.environmentAdjustment - 1.49) < 0.0001,
         `unexpected environment adjustment: ${analog.environmentAdjustment}`
     );
+    assert.equal(analog.adjustments.find((item) => item.key === 'environment')?.details?.subjectCoefficient, 0.91);
+    assert.equal(analog.adjustments.find((item) => item.key === 'environment')?.details?.analogCoefficient, 0.61);
+});
+
+test('calculateMarketRentByNewAlgorithm keeps environment neutral for matching business categories', () => {
+    const questionnaire = {
+        totalArea: 1000,
+        leasableArea: 1000,
+        aboveGroundFloors: 1,
+        metroDistance: 0.8,
+        valuationDate: '2025-01-01',
+        businessCenterClass: 'B+',
+        marketClassResolved: 'B+',
+        environmentCategory1: 'mixed_urban',
+        environmentCategory2: 'prime_business',
+        environmentCategory3: 'urban_business',
+        isHistoricalCenter: false,
+        floors: [
+            {
+                id: 'first',
+                floorCategory: 'first',
+                floorLocation: 'Первый этаж',
+                leasableArea: 1000,
+                avgLeasableRoomArea: 1000,
+            },
+        ],
+    };
+
+    const analogs = [
+        {
+            id: 'same-business',
+            price_per_sqm_cleaned: 1000,
+            area_total: 1000,
+            class_offer: 'B+',
+            district: 'Приморский',
+            distance_to_metro: 0.8,
+            floor_location: 'Первый этаж',
+            offer_date: '2025-01-15',
+            quarter: '2025-Q1',
+            environment_category_1: 'центры деловой активности',
+            environment_historical_center: false,
+        },
+    ];
+
+    const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
+    const analog = result.adjustedRates[0];
+    const environmentAdjustment = analog.adjustments.find((item) => item.key === 'environment');
+
+    assert.equal(analog.environmentAdjustment, 1);
+    assert.equal(environmentAdjustment?.details?.subjectCoefficient, 0.91);
+    assert.equal(environmentAdjustment?.details?.analogCoefficient, 0.91);
 });

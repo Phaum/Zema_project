@@ -616,6 +616,9 @@ function buildLandInput(questionnaire, calculation, landShare) {
         landCadCost: toNumber(landDetails.landCadCost, questionnaire.landCadCost),
         landArea: round2(toNumber(landDetails.landArea, questionnaire.landArea)),
         totalOksAreaOnLand: round2(toNumber(landDetails.totalOksAreaOnLand, questionnaire.totalOksAreaOnLand)),
+        totalOksAreaOnLandSource: landDetails.totalOksAreaOnLandSource || null,
+        registeredOksObjectsCount: toNumber(landDetails.registeredOksObjectsCount, 0),
+        usedNspdObjectsList: Boolean(landDetails.usedNspdObjectsList),
         objectArea: round2(toNumber(landDetails.objectArea, questionnaire.totalArea)),
         allocationRatio: roundTo(toNumber(landDetails.allocationRatio, 0) * 100, 1),
         landShareRatio: roundTo(toNumber(landDetails.landShareRatio, toNumber(landDetails.allocationRatio, 0)) * 100, 1),
@@ -855,7 +858,9 @@ function humanizeFieldSource(source) {
         case 'market_offers_district_class':
             return 'Рыночные предложения по району и классу';
         case 'metro_by_coordinates':
-            return 'Метро по координатам';
+            return 'Геосервис по координатам';
+        case 'js_monolith_geo_service':
+            return 'Геосервис';
         case 'environment_analysis_cache':
             return 'Кэш анализа окружения';
         case 'manual':
@@ -871,6 +876,10 @@ function humanizeFieldSource(source) {
             return 'Фактические данные объекта';
         case 'derived_from_floor_sum':
             return 'Сумма по этажам';
+        case 'registered_buildings_sum':
+            return 'Сумма зарегистрированных ОКС на участке';
+        case 'nspd_land_objects':
+            return 'НСПД: объекты участка';
         case 'cadastral_land':
             return 'Кадастровые данные участка';
         case 'nspd':
@@ -885,6 +894,9 @@ function humanizeFieldSource(source) {
 
 function buildCalculationInputRegistry(questionnaire, calculation, landInput, opexRate) {
     const fieldSourceHints = normalizeFieldSourceHints(questionnaire?.fieldSourceHints);
+    const metroDistanceSource = classifySourceKind(fieldSourceHints.metroDistance) === 'cadastral'
+        ? 'metro_by_coordinates'
+        : (fieldSourceHints.metroDistance || 'manual_input');
     const entries = [
         {
             key: 'totalArea',
@@ -914,7 +926,7 @@ function buildCalculationInputRegistry(questionnaire, calculation, landInput, op
             key: 'metroDistance',
             label: 'Расстояние до метро',
             value: round2(toNumber(questionnaire?.metroDistance, 0)),
-            source: fieldSourceHints.metroDistance || 'manual_input',
+            source: metroDistanceSource,
         },
         {
             key: 'businessCenterClass',
@@ -962,7 +974,7 @@ function buildCalculationInputRegistry(questionnaire, calculation, landInput, op
             key: 'totalOksAreaOnLand',
             label: 'Общая площадь ОКС на участке',
             value: round2(toNumber(landInput?.totalOksAreaOnLand, questionnaire?.totalOksAreaOnLand)),
-            source: fieldSourceHints.totalOksAreaOnLand || (landInput?.isComplete ? 'cadastral_land' : 'fallback'),
+            source: landInput?.totalOksAreaOnLandSource || fieldSourceHints.totalOksAreaOnLand || (landInput?.isComplete ? 'cadastral_land' : 'fallback'),
         },
     ];
 
@@ -1178,7 +1190,9 @@ function buildMethodologySummary({
                         : null,
                     calculation.vacancyRateSourceLabel || null,
                     Number.isFinite(Number(calculation.actualVacancyRate))
-                        ? `Фактическая vacancy объекта справочно: ${formatNumber(Number(calculation.actualVacancyRate) * 100, 2)}%`
+                        ? calculation.vacancyRateSource === 'factual'
+                            ? `Фактическая незаполняемость объекта в расчёте: ${formatNumber(Number(calculation.actualVacancyRate) * 100, 2)}%`
+                            : `Фактическая незаполняемость объекта: ${formatNumber(Number(calculation.actualVacancyRate) * 100, 2)}%`
                         : null,
                 ].filter(Boolean),
             },
@@ -1215,6 +1229,7 @@ function buildMethodologySummary({
                     landInput.landCalculationMode ? `Режим расчета земли: ${landInput.landCalculationMode}` : null,
                     landInput.landCadCost > 0 ? `Кадастровая стоимость участка: ${formatPreciseMoney(landInput.landCadCost)} ₽` : null,
                     landInput.totalOksAreaOnLand > 0 ? `Общая площадь ОКС на участке: ${formatNumber(landInput.totalOksAreaOnLand)} м²` : null,
+                    landInput.registeredOksObjectsCount > 0 ? `ОКС в сумме: ${formatNumber(landInput.registeredOksObjectsCount, 0)}` : null,
                     landInput.objectArea > 0 ? `Площадь оцениваемого ОКС: ${formatNumber(landInput.objectArea)} м²` : null,
                     landInput.landShareRatio > 0 ? `Доля объекта в земле: ${formatNumber(landInput.landShareRatio, 1)}%` : null,
                     landInput.doubleSubtractionGuard ? 'Контроль двойного вычитания земли: пройден' : null,

@@ -125,6 +125,10 @@ function round4(value) {
     return Math.round((toNumber(value, 0) + Number.EPSILON) * 10000) / 10000;
 }
 
+function roundAdjustmentFactor(value) {
+    return round2(value);
+}
+
 function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
@@ -515,7 +519,7 @@ function getEnvironmentCoefficient(values = [], historicalCenter = null) {
 
     if (!coeffs.length) return 1;
 
-    return average(coeffs);
+    return Math.max(...coeffs);
 }
 
 function resolveQuestionnaireEnvironment(questionnaire = {}) {
@@ -565,12 +569,13 @@ function getEnvironmentAdjustment(questionnaire, analog) {
 
 function createAdjustmentRecord(key, label, factor, reasoning, details = {}) {
     const normalizedFactor = Number.isFinite(factor) ? factor : 1;
+    const roundedFactor = roundAdjustmentFactor(normalizedFactor);
 
     return {
         key,
         label,
-        factor: round4(normalizedFactor),
-        deltaPercent: round2((normalizedFactor - 1) * 100),
+        factor: roundedFactor,
+        deltaPercent: round2((roundedFactor - 1) * 100),
         reasoning,
         details,
     };
@@ -653,7 +658,7 @@ function calculateAreaAdjustmentRecord(questionnaire, analog) {
 
     return createAdjustmentRecord(
         'area',
-        'Общая площадь',
+        'Средняя площадь помещения',
         factor,
         'Кs = (So / Sa)^n',
         {
@@ -688,6 +693,16 @@ function calculateFloorAdjustmentRecord(questionnaire, analog) {
 function calculateEnvironmentAdjustmentRecord(questionnaire, analog) {
     const subjectHistoricalCenter = resolveQuestionnaireHistoricalCenter(questionnaire);
     const analogHistoricalCenter = resolveAnalogHistoricalCenter(analog);
+    const subjectEnvironment = resolveQuestionnaireEnvironment(questionnaire);
+    const analogEnvironment = resolveAnalogEnvironment(analog);
+    const subjectCoefficient = getEnvironmentCoefficient(
+        subjectEnvironment,
+        subjectHistoricalCenter
+    );
+    const analogCoefficient = getEnvironmentCoefficient(
+        analogEnvironment,
+        analogHistoricalCenter
+    );
     const factor = getEnvironmentAdjustment(questionnaire, analog);
 
     return createAdjustmentRecord(
@@ -696,10 +711,12 @@ function calculateEnvironmentAdjustmentRecord(questionnaire, analog) {
         factor,
         'Корректировка по отношению коэффициентов окружения',
         {
-            subjectEnvironment: resolveQuestionnaireEnvironment(questionnaire),
-            analogEnvironment: resolveAnalogEnvironment(analog),
+            subjectEnvironment,
+            analogEnvironment,
             subjectHistoricalCenter,
             analogHistoricalCenter,
+            subjectCoefficient: round4(subjectCoefficient),
+            analogCoefficient: round4(analogCoefficient),
         }
     );
 }
@@ -855,21 +872,22 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
     const areaRecord = calculateAreaAdjustmentRecord(questionnaire, analog);
     const floorRecord = calculateFloorAdjustmentRecord(questionnaire, analog);
     const environmentRecord = calculateEnvironmentAdjustmentRecord(questionnaire, analog);
-    const secondGroupMultiFactor =
+    const secondGroupMultiFactor = roundAdjustmentFactor(
         metroRecord.factor *
         areaRecord.factor *
         floorRecord.factor *
-        environmentRecord.factor;
+        environmentRecord.factor
+    );
 
     const correctedRate = round2(afterBargain * secondGroupMultiFactor);
 
-    const firstGroupFactor =
+    const firstGroupFactor = roundAdjustmentFactor(
         dateRecord.factor * bargainRecord.factor
-    ;
+    );
 
-    const totalAdjustmentFactor =
+    const totalAdjustmentFactor = roundAdjustmentFactor(
         firstGroupFactor * secondGroupMultiFactor
-    ;
+    );
 
     const adjustments = [
         dateRecord,
@@ -888,50 +906,50 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
         correctedRate,
         adjustedRate: correctedRate,
 
-        dateAdjustment: round4(dateRecord.factor),
-        bargainAdjustment: round4(bargainRecord.factor),
-        metroAdjustment: round4(metroRecord.factor),
-        areaAdjustment: round4(areaRecord.factor),
-        floorAdjustment: round4(floorRecord.factor),
-        environmentAdjustment: round4(environmentRecord.factor),
+        dateAdjustment: roundAdjustmentFactor(dateRecord.factor),
+        bargainAdjustment: roundAdjustmentFactor(bargainRecord.factor),
+        metroAdjustment: roundAdjustmentFactor(metroRecord.factor),
+        areaAdjustment: roundAdjustmentFactor(areaRecord.factor),
+        floorAdjustment: roundAdjustmentFactor(floorRecord.factor),
+        environmentAdjustment: roundAdjustmentFactor(environmentRecord.factor),
 
-        firstGroupFactor: round4(firstGroupFactor),
-        secondGroupMultiFactor: round4(secondGroupMultiFactor),
-        totalAdjustmentFactor: round4(totalAdjustmentFactor),
+        firstGroupFactor,
+        secondGroupMultiFactor,
+        totalAdjustmentFactor,
 
         adjustments,
         adjustmentSummary: {
             firstGroup: [
                 {
                     key: 'date',
-                    factor: round4(dateRecord.factor),
+                    factor: roundAdjustmentFactor(dateRecord.factor),
                     deltaPercent: dateRecord.deltaPercent,
                 },
                 {
                     key: 'bargain',
-                    factor: round4(bargainRecord.factor),
+                    factor: roundAdjustmentFactor(bargainRecord.factor),
                     deltaPercent: bargainRecord.deltaPercent,
                 },
             ],
             secondGroup: [
                 {
                     key: 'metro',
-                    factor: round4(metroRecord.factor),
+                    factor: roundAdjustmentFactor(metroRecord.factor),
                     deltaPercent: metroRecord.deltaPercent,
                 },
                 {
                     key: 'area',
-                    factor: round4(areaRecord.factor),
+                    factor: roundAdjustmentFactor(areaRecord.factor),
                     deltaPercent: areaRecord.deltaPercent,
                 },
                 {
                     key: 'floor',
-                    factor: round4(floorRecord.factor),
+                    factor: roundAdjustmentFactor(floorRecord.factor),
                     deltaPercent: floorRecord.deltaPercent,
                 },
                 {
                     key: 'environment',
-                    factor: round4(environmentRecord.factor),
+                    factor: roundAdjustmentFactor(environmentRecord.factor),
                     deltaPercent: environmentRecord.deltaPercent,
                 },
             ],

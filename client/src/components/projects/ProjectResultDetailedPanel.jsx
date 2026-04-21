@@ -605,7 +605,11 @@ function formatSignedPercent(value, digits = 2) {
 
 function formatDistanceKm(value) {
   if (!hasMeaningfulValue(value)) return '—';
-  return `${formatNumber(value, 2)} км`;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '—';
+
+  const km = numeric > 100 ? numeric / 1000 : numeric;
+  return `${formatPreciseNumber(km, 6)} км`;
 }
 
 function humanizeFloorCategory(value) {
@@ -654,6 +658,12 @@ function formatComparableAdjustmentDetails(adjustment) {
       return [
         `Объект: ${formatEnvironmentLabel([details.subjectEnvironment])}`,
         `Аналог: ${formatEnvironmentLabel([details.analogEnvironment])}`,
+        hasMeaningfulValue(details.subjectCoefficient)
+          ? `К объекта: ${formatPlainFactor(details.subjectCoefficient)}`
+          : null,
+        hasMeaningfulValue(details.analogCoefficient)
+          ? `К аналога: ${formatPlainFactor(details.analogCoefficient)}`
+          : null,
         hasMeaningfulValue(details.subjectHistoricalCenter)
           ? `Ист. центр объекта: ${formatYesNo(details.subjectHistoricalCenter)}`
           : null,
@@ -1474,10 +1484,17 @@ export default function ProjectResultDetailedPanel({
     environment: getRawComparableAdjustmentByKey(selectedComparable, 'environment'),
   }), [selectedComparable]);
   const selectedComparableWeight = selectedComparable?.normalized_weight ?? selectedComparable?.selection_weight ?? null;
-  const selectedComparableFloorCategory = questionnaire?.floorCategory || questionnaire?.floorType || null;
+  const selectedComparableFloorDetails = selectedComparableRawAdjustmentByKey.floor?.details || {};
+  const selectedComparableFloorCategory = selectedComparableFloorDetails.subjectFloorCategory
+    || questionnaire?.floorCategory
+    || questionnaire?.floorType
+    || 'first';
   const selectedComparableSubjectClass = questionnaire?.businessCenterClass || questionnaire?.objectClass || '—';
-  const selectedComparableSubjectArea = Number(questionnaire?.totalArea);
   const selectedComparableAnalogArea = Number(selectedComparable?.area_total);
+  const selectedComparableAreaDetails = selectedComparableRawAdjustmentByKey.area?.details || {};
+  const selectedComparableSubjectArea = Number(
+    selectedComparableAreaDetails.subjectArea ?? questionnaire?.totalArea
+  );
   const selectedComparableAreaRatio = Number.isFinite(selectedComparableSubjectArea) && Number.isFinite(selectedComparableAnalogArea) && selectedComparableAnalogArea > 0
     ? selectedComparableSubjectArea / selectedComparableAnalogArea
     : null;
@@ -1485,7 +1502,6 @@ export default function ProjectResultDetailedPanel({
   const selectedComparableDateLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.date);
   const selectedComparableBargainLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.bargain);
   const selectedComparableMetroDetails = selectedComparableRawAdjustmentByKey.metro?.details || {};
-  const selectedComparableAreaDetails = selectedComparableRawAdjustmentByKey.area?.details || {};
   const selectedComparableSecondGroupLines = [
     buildComparableFactorLine(selectedComparableAdjustmentByKey.metro),
     buildComparableFactorLine(selectedComparableAdjustmentByKey.area),
@@ -1618,6 +1634,19 @@ export default function ProjectResultDetailedPanel({
               key: 'adjusted_rate',
               width: '12%',
               render: (value) => value ? <Text>{formatNumber(value, 2)} ₽/м²</Text> : '—',
+            },
+            {
+              title: 'Ближ. окружение',
+              dataIndex: 'nearbyEnvironment',
+              key: 'nearbyEnvironment',
+              width: '14%',
+              render: (_, record) => formatEnvironmentCategories([
+                record.environment_category_1,
+                record.environment_category_2,
+                record.environment_category_3,
+                record.nearbyEnvironment,
+                record.environment,
+              ]),
             },
             {
               title: 'Релевантность',
@@ -2519,7 +2548,7 @@ export default function ProjectResultDetailedPanel({
                     explanation="Аналог сначала проверяется на базовую пригодность: класс, общая площадь, наличие очищенной удельной цены и сопоставимых исходных признаков."
                     formula={selectedComparableSelectionFormula}
                     facts={[
-                      'So — общая площадь оцениваемого объекта; Sa — общая площадь аналогичного объекта.',
+                      'So — средняя площадь помещения объекта оценки; Sa — площадь помещения-аналога.',
                       `Адрес аналога: ${selectedComparable.address_offer || '—'}`,
                       `Метро объекта: ${formatDistanceKm(questionnaire?.metroDistance)}; метро аналога: ${formatDistanceKm(selectedComparable.distance_to_metro)}`,
                       `Этаж объекта: ${humanizeFloorCategory(selectedComparableFloorCategory)}; этаж аналога: ${humanizeFloorCategory(selectedComparable.floor_location)}`,

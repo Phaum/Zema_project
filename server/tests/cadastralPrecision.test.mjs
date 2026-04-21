@@ -20,6 +20,42 @@ test('calculateLandShareDetails keeps cadastral cost precision in proportional l
     assert.equal(details.share, 500000.061728);
 });
 
+test('calculateLandShareDetails prefers registered OKS sum over stale questionnaire total', async () => {
+    const details = await calculateLandShareDetails(
+        {
+            buildingCadastralNumber: '78:14:0753001:178',
+            landCadastralNumber: '78:14:0753001:20',
+            landCadCost: 433631521.03,
+            totalOksAreaOnLand: 18850.6,
+            totalArea: 18850.6,
+            fieldSourceHints: {
+                totalOksAreaOnLand: 'manual_input',
+            },
+        },
+        {
+            registeredOksAreaResolver: async () => ({
+                totalArea: 42011.2,
+                source: 'nspd_land_objects',
+                usedNspdObjectsList: true,
+                objects: Array.from({ length: 11 }, (_, index) => ({
+                    cadastral_number: `78:14:0753001:${index + 1}`,
+                    object_type: 'Здание',
+                    total_area: 100,
+                })),
+            }),
+        }
+    );
+
+    assert.equal(details.totalOksAreaOnLand, 42011.2);
+    assert.equal(details.totalOksAreaOnLandSource, 'nspd_land_objects');
+    assert.equal(details.registeredOksObjectsCount, 11);
+    assert.equal(details.usedNspdObjectsList, true);
+    assert.equal(details.allocationRatio, 0.448);
+    assert.equal(details.landShareRatio, 0.448);
+    assert.equal(details.share, 194266921.42144);
+    assert.match(details.warnings[0], /пересчитана по зарегистрированным объектам/);
+});
+
 test('valuation and breakdown keep unrounded land cadastral share for output diagnostics', () => {
     const valuation = calculateIncomeValuation({
         totalArea: 1000,

@@ -4,6 +4,7 @@ import { Op } from 'sequelize';
 import CadastralData from '../models/cadastral_data.js';
 import MarketOffer from '../models/MarketOffer.js';
 import { getSavedEnvironmentAnalysis } from './environmentAnalysisService.js';
+import { calculateRegisteredOksAreaOnLand } from './landOksAreaService.js';
 import { msk64ToWgs84 } from '../utils/coordsConverter.js';
 import { resolveHistoricalCenterForCoords } from '../utils/historicalCenterResolver.js';
 import { resolveSpatialZoneForCoords } from '../utils/spatialZoneResolver.js';
@@ -514,46 +515,8 @@ function formatAreaValue(value) {
 }
 
 async function calculateRegisteredBuildingsTotalAreaOnLand(landCadastralNumber) {
-    const normalizedLandNumber = normalizeCadastralNumber(landCadastralNumber);
-
-    if (!normalizedLandNumber) {
-        return null;
-    }
-
-    const records = await CadastralData.findAll({
-        where: {
-            land_plot_cadastral_number: normalizedLandNumber,
-        },
-        attributes: ['cadastral_number', 'object_type', 'total_area'],
-    });
-
-    const uniqueBuildings = new Map();
-
-    for (const record of records) {
-        const plain = record?.get ? record.get({ plain: true }) : record;
-        const cadastralNumber = normalizeCadastralNumber(plain?.cadastral_number);
-        const objectType = normalizeText(plain?.object_type).toLowerCase();
-        const area = toNumberOrNull(plain?.total_area);
-
-        if (!cadastralNumber || cadastralNumber === normalizedLandNumber) {
-            continue;
-        }
-
-        if (objectType.includes('земель')) {
-            continue;
-        }
-
-        if (!Number.isFinite(area) || area <= 0) {
-            continue;
-        }
-
-        uniqueBuildings.set(cadastralNumber, area);
-    }
-
-    const total = Array.from(uniqueBuildings.values())
-        .reduce((sum, area) => sum + area, 0);
-
-    return total > 0 ? formatAreaValue(total) : null;
+    const result = await calculateRegisteredOksAreaOnLand(landCadastralNumber);
+    return Number.isFinite(result.totalArea) ? result.totalArea : null;
 }
 
 export function validateTotalOksAreaOnLandCandidate(value, questionnaire = {}) {
@@ -724,11 +687,16 @@ export function shouldPreferCadastralTotalOksAreaOnLand({
     currentValue,
     currentSource = null,
     cadastralValue,
+    cadastralSource = null,
 }) {
     const cadastral = toNumberOrNull(cadastralValue);
 
     if (!Number.isFinite(cadastral) || cadastral <= 0) {
         return false;
+    }
+
+    if (String(cadastralSource || '').trim() === 'registered_buildings_sum') {
+        return true;
     }
 
     if (!hasMeaningfulValue(currentValue)) {
@@ -879,7 +847,10 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
 
             buildingRecord = record?.get ? record.get({ plain: true }) : record;
             const recordSource = resolveCadastralSourceHint(record, 'nspd_building');
-            const metroSource = hasMeaningfulValue(record?.source_provider) ? recordSource : 'geo_service';
+            const metroSource = hasValidCoordinates(record.latitude, record.longitude)
+                && isPlausibleMetroDistanceMeters(record.metro_distance)
+                ? 'metro_by_coordinates'
+                : (hasMeaningfulValue(record?.source_provider) ? recordSource : 'geo_service');
             const normalizedDistrict = extractDistrictFromCadastralRecord(buildingRecord);
 
             pickMissing(enriched, 'objectType', record.object_type || 'здание', recordSource, autoFilledFields, sourceHints);
@@ -1003,6 +974,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     currentValue: enriched.totalOksAreaOnLand,
                     currentSource: currentTotalOksSource,
                     cadastralValue: totalOksAreaCandidate,
+                    cadastralSource: totalOksAreaSource,
                 })
             ) {
                 replaceResolvedValue(
