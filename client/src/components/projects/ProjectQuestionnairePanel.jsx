@@ -6,7 +6,14 @@ import QuestionnairePanel from '../QuestionnairePanel';
 import { FIXED_VALUATION_DATE, defaultQuestionnaire } from '../../utils/questionnaireDefaults';
 import { buildQuestionnaireFormValues, normalizeObjectTypeValue } from '../../utils/projectQuestionnaire';
 
-export default function ProjectQuestionnairePanel({ projectId, project, onSaved, onChanged }) {
+export default function ProjectQuestionnairePanel({
+    projectId,
+    project,
+    onSaved,
+    onChanged,
+    readOnly = false,
+    initialQuestionnaire = null,
+}) {
     const [form] = Form.useForm();
     const [questionnaireLoading, setQuestionnaireLoading] = useState(true);
     const [questionnaireSaving, setQuestionnaireSaving] = useState(false);
@@ -17,7 +24,7 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved,
             try {
                 setQuestionnaireLoading(true);
 
-                const { data } = await api.get(`/projects/${projectId}/questionnaire`);
+                const data = initialQuestionnaire || (await api.get(`/projects/${projectId}/questionnaire`)).data;
 
                 form.setFieldsValue({
                     ...defaultQuestionnaire,
@@ -36,7 +43,7 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved,
         }
 
         loadQuestionnaire();
-    }, [projectId, form, project?.name]);
+    }, [projectId, form, project, project?.name, initialQuestionnaire]);
 
     const questionnaireStatus = useMemo(() => {
         const values = {
@@ -74,6 +81,10 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved,
     const saveQuestionnaire = async () => {
         try {
             await form.validateFields();
+            if (readOnly) {
+                return true;
+            }
+
             const values = form.getFieldsValue(true);
             setQuestionnaireSaving(true);
 
@@ -119,6 +130,7 @@ export default function ProjectQuestionnairePanel({ projectId, project, onSaved,
             saveQuestionnaire={saveQuestionnaire}
             onGoNext={onSaved}
             onQuestionnaireEnriched={(questionnaire) => onChanged?.(questionnaire)}
+            readOnly={readOnly}
         />
     );
 }

@@ -28,6 +28,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     landArea = 0,
     landAreaUsed = 0,
     landAreaUsedPercent = 0,
+    landShareValue = 0,
     leasableArea = null,
     leasableAreaPercent = null,
     marketAverageRate = 0,
@@ -113,12 +114,25 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     diffPercent = 'не определен (нет кадастровой стоимости)';
   }
 
-  const distanceToMetroKm = distanceToMetro
-    ? (distanceToMetro > 100 ? (distanceToMetro / 1000).toFixed(1) : distanceToMetro.toFixed(1))
-    : '—';
+  const formatDistanceKm = (value) => {
+    if (value === undefined || value === null || value === '' || isNaN(value)) return '—';
+    const numeric = Number(value);
+    const km = numeric > 100 ? numeric / 1000 : numeric;
+    return formatPreciseNumber(km, 6);
+  };
+
+  const distanceToMetroKm = formatDistanceKm(distanceToMetro);
+  const effectiveEstimatedValueWithLand = estimatedValueWithLand
+    || ((estimatedValue || 0) + (landShareValue || 0));
+  const landAreaUsedDisplay = [
+    `${formatNumber(landAreaUsed)} м²`,
+    `${formatNumber(landAreaUsedPercent)}%`,
+    `${formatCurrency(landShareValue)}`,
+  ].join(' / ');
 
   const normalizedComparables = comparables.map(comp => ({
     ...comp,
+    rawOfferRate: comp.rawOfferRate ?? comp.price_per_sqm_month ?? comp.raw_rate ?? comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
     price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
     buildingName: comp.buildingName || comp.building_name || comp.complex_name || '—',
     class_offer: comp.class_offer || '—',
@@ -195,10 +209,10 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <td>${c.address_offer}</td>
             <td>${formatNumber(c.area_total)}</td>
             <td>${c.floor}</td>
-            <td>${formatNumber(c.price_per_sqm_cleaned)}</td>
+            <td>${formatNumber(c.rawOfferRate)}</td>
             <td>${c.district}</td>
             <td>${c.nearestMetro}</td>
-            <td>${c.distanceToMetro?.toFixed(1) || '—'}</td>
+            <td>${formatDistanceKm(c.distanceToMetro)}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -256,7 +270,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
                 <tr><td><strong>Арендопригодная площадь, м² (%)</strong></td><td>${formatNumber(leasableArea)} (${formatNumber(leasableAreaPercent)}%)</td></tr>
                 <tr><td><strong>Кадастровый номер земельного участка, на котором расположен объект оценки</strong></td><td>${landCadastralNumber}</td></tr>
                 <tr><td><strong>Площадь земельного участка, м²</strong></td><td>${formatNumber(landArea)}</td></tr>
-                <tr><td><strong>Площадь ЗУ в расчёте, м² (%)</strong></td><td>${formatNumber(landAreaUsed)} (${formatNumber(landAreaUsedPercent)}%)</td></tr>
+                <tr><td><strong>Площадь ЗУ в расчёте, м² (%)</strong></td><td>${landAreaUsedDisplay}</td></tr>
               </table>
             </div>
             ${footer}
@@ -338,7 +352,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
                 <tr><td style="width:55%"><strong>Потенциальный валовой доход (ПВД), руб./год</strong></td><td>${formatCurrency(grossIncome)}</td></tr>
                 <tr><td><strong>Действительный валовой доход (ДВД), руб./год</strong></td><td>${formatCurrency(egi)}</td></tr>
                 <tr><td><strong>Чистый операционный доход (ЧОД), руб./год</strong></td><td>${formatCurrency(noi)}</td></tr>
-                <tr><td><strong>Рыночная стоимость единого объекта недвижимости (здание + земельный участок), руб., без НДС</strong></td><td>${formatCurrency(estimatedValueWithLand)}</td></tr>
+                <tr><td><strong>Рыночная стоимость единого объекта недвижимости (здание + земельный участок), руб., без НДС</strong></td><td>${formatCurrency(effectiveEstimatedValueWithLand)}</td></tr>
                 <tr><td><strong>Рыночная стоимость объекта оценки (без стоимости земельного участка), руб., без НДС</strong></td><td class="value-highlight">${formatCurrency(estimatedValue)}</td></tr>
                 <tr><td><strong>Диапазон стоимости (без земли)</strong></td><td>${formatCurrency(estimatedValueMin)} – ${formatCurrency(estimatedValueMax)}</td></tr>
                 <tr><td><strong>Удельная стоимость (без земли), руб./м²</strong></td><td>${formatNumber(pricePerM2)}</td></tr>

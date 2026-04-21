@@ -102,6 +102,7 @@ export function formatQuestionnaireFieldSourceLabel(source) {
     if (normalized === 'derived_from_rental_rate_manual_action') return 'определено по ставке аренды';
     if (normalized === 'derived_from_occupied_and_leasable_area') return 'выведено из площадей';
     if (normalized === 'resolved_from_cadastral_quarter') return 'кадастровый квартал';
+    if (normalized === 'registered_buildings_sum') return 'сумма зарегистрированных зданий на участке';
     if (normalized === 'legacy_autofill_building') return 'ранее автозаполнено по зданию';
     if (normalized === 'legacy_autofill_land') return 'ранее автозаполнено по участку';
     if (normalized.includes('nspd') || normalized.includes('reestrnet')) return 'НСПД / кадастровый источник';

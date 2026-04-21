@@ -1164,6 +1164,19 @@ function getQuestionnaireReferenceFloorCategory(questionnaire) {
 //     return null;
 // }
 
+const ENVIRONMENT_CATEGORY_COEFFICIENTS = {
+    prime_business: 0.91,
+    urban_business: 0.91,
+    mixed_urban: 0.87,
+    residential_mixed: 0.83,
+    industrial_edge: 0.61,
+    warehouse_industrial: 0.61,
+    peripheral_low_activity: 0.79,
+    residential: 0.83,
+    industrial: 0.61,
+    business: 0.91,
+};
+
 function mapEnvironmentTokenToCoefficient(value) {
     if (value === undefined || value === null || value === '') {
         return null;
@@ -1181,6 +1194,10 @@ function mapEnvironmentTokenToCoefficient(value) {
         .replace(/\s+/g, ' ');
 
     if (!normalized || normalized === '0') return null;
+
+    if (Number.isFinite(ENVIRONMENT_CATEGORY_COEFFICIENTS[normalized])) {
+        return ENVIRONMENT_CATEGORY_COEFFICIENTS[normalized];
+    }
 
     if (normalized.includes('культур') || normalized.includes('истор')) return 1.00;
     if (normalized.includes('делов')) return 0.91;
@@ -2527,6 +2544,52 @@ export function calculateNOI(egi, opex) {
     return toNumber(egi, 0) - toNumber(opex, 0);
 }
 
+function normalizeCadastralNumber(value) {
+    return String(value || '').trim();
+}
+
+async function calculateRegisteredBuildingsTotalAreaOnLand(landCadastralNumber) {
+    const normalizedLandNumber = normalizeCadastralNumber(landCadastralNumber);
+
+    if (!normalizedLandNumber) {
+        return 0;
+    }
+
+    const records = await CadastralData.findAll({
+        where: {
+            land_plot_cadastral_number: normalizedLandNumber,
+        },
+        attributes: ['cadastral_number', 'object_type', 'total_area'],
+    });
+
+    const uniqueBuildings = new Map();
+
+    for (const record of records) {
+        const plain = record?.get ? record.get({ plain: true }) : record;
+        const cadastralNumber = normalizeCadastralNumber(plain?.cadastral_number);
+        const objectType = String(plain?.object_type || '').trim().toLowerCase();
+        const area = toNumber(plain?.total_area, null);
+
+        if (!cadastralNumber || cadastralNumber === normalizedLandNumber) {
+            continue;
+        }
+
+        if (objectType.includes('земель')) {
+            continue;
+        }
+
+        if (!Number.isFinite(area) || area <= 0) {
+            continue;
+        }
+
+        uniqueBuildings.set(cadastralNumber, area);
+    }
+
+    return round2(
+        Array.from(uniqueBuildings.values()).reduce((sum, area) => sum + area, 0)
+    );
+}
+
 export async function calculateLandShareDetails(questionnaire) {
     const landCadNumber = questionnaire?.landCadastralNumber;
     const details = {
@@ -2572,6 +2635,11 @@ export async function calculateLandShareDetails(questionnaire) {
 
     if (!details.landArea) {
         details.landArea = toNumber(cadastralData?.land_area, 0) || toNumber(cadastralData?.total_area, 0);
+    }
+
+    const registeredBuildingsTotalArea = await calculateRegisteredBuildingsTotalAreaOnLand(landCadNumber);
+    if (registeredBuildingsTotalArea > 0) {
+        details.totalOksAreaOnLand = registeredBuildingsTotalArea;
     }
 
     if (!details.totalOksAreaOnLand) {

@@ -783,9 +783,15 @@ async function findComparableAnalogues(questionnaire) {
         strictWhere.class_offer = strictClassWhere;
     }
 
+    const areaRangeWhere = buildAreaRangeByCalculationArea(selectionQuestionnaire);
+    if (areaRangeWhere) {
+        strictWhere.total_area = areaRangeWhere;
+    }
+
     console.log('[findComparableAnalogues] objectClassRaw =', objectClassRaw);
     console.log('[findComparableAnalogues] strictClassCandidates =', buildAnalogueClassCandidates(objectClassRaw));
     console.log('[findComparableAnalogues] districtRaw =', districtRaw);
+    console.log('[findComparableAnalogues] areaRange =', areaRangeWhere || null);
     console.log('[findComparableAnalogues] selectionMode = strict_class_then_mahalanobis');
 
     let allRows = await Analogue.findAll({
@@ -910,6 +916,7 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
             district: row.district || null,
             class_offer: row.class_offer || null,
             area_total: toNumber(row.area_total, null),
+            price_per_sqm_month: toNumber(row.price_per_sqm_month, null),
             price_per_sqm_cleaned: toNumber(row.price_per_sqm_cleaned, null),
             raw_rate: toNumber(adjustment?.rawRate, null),
             adjusted_rate: toNumber(adjustment?.adjustedRate, null),

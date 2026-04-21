@@ -171,6 +171,7 @@ export default function ProjectValidationPanel({
     onBack,
     onNext,
     onSaved,
+    readOnly = false,
 }) {
     const [form] = Form.useForm();
     const [saving, setSaving] = useState(false);
@@ -229,7 +230,7 @@ export default function ProjectValidationPanel({
         let cancelled = false;
 
         async function enrichMissingFields() {
-            if (!enrichmentAttemptKey) {
+            if (readOnly || !enrichmentAttemptKey) {
                 return;
             }
 
@@ -269,7 +270,7 @@ export default function ProjectValidationPanel({
         return () => {
             cancelled = true;
         };
-    }, [enrichmentAttemptKey, projectId]);
+    }, [enrichmentAttemptKey, projectId, readOnly]);
 
     const saveMissingAutoFields = async () => {
         if (!missingAutoFields.length) {
@@ -445,10 +446,10 @@ export default function ProjectValidationPanel({
                             type="info"
                             showIcon
                             message="Часть данных отсутствует на платформе"
-                            description="Заполните отсутствующие поля, чтобы они попали в расчёт."
+                            description={readOnly ? 'Ниже показаны поля, которые остались незаполненными на этапе проверки.' : 'Заполните отсутствующие поля, чтобы они попали в расчёт.'}
                         />
 
-                        <Form form={form} layout="vertical">
+                        <Form form={form} layout="vertical" disabled={readOnly}>
                             <Row gutter={16}>
                                 {missingAutoFields.map((field) => (
                                     <Col
@@ -472,6 +473,7 @@ export default function ProjectValidationPanel({
             )}
         </Space>
 
+            {!readOnly && (
             <div className="project-step-actions">
                 <div className="project-step-actions-left">
                     <Button onClick={onBack}>Назад</Button>
@@ -483,6 +485,7 @@ export default function ProjectValidationPanel({
                     </Button>
                 </div>
             </div>
+            )}
         </div>
     );
 }

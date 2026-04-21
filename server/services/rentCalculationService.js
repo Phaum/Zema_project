@@ -6,6 +6,9 @@ const RENT_CONFIG = {
         areaMinFactor: 0.35,
         areaMaxFactor: 3,
     },
+    filters: {
+        correctedRateTolerance: 0.30,
+    },
     adjustments: {
         dateAdjustmentMatrix: {
             '2025Q1': {
@@ -98,6 +101,16 @@ const RENT_CONFIG = {
             'окраины городов, промзоны': 0.61,
             'промзона': 0.61,
             'район крупных автомагистралей города': 0.79,
+            prime_business: 0.91,
+            urban_business: 0.91,
+            mixed_urban: 0.87,
+            residential_mixed: 0.83,
+            industrial_edge: 0.61,
+            warehouse_industrial: 0.61,
+            peripheral_low_activity: 0.79,
+            residential: 0.83,
+            industrial: 0.61,
+            business: 0.91,
         },
     },
 };
@@ -351,28 +364,6 @@ function getMetroAdjustment(subjectDistance, analogDistance) {
     return subjectCoeff / analogCoeff;
 }
 
-// function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
-//     const subject = toNumber(subjectArea, null);
-//     const analog = toNumber(analogArea, null);
-//     const exponent = toNumber(
-//         RENT_CONFIG.adjustments.areaExponentByQuarter?.[valuationQuarter],
-//         toNumber(RENT_CONFIG.adjustments.areaExponentByQuarter?.['2025Q1'], -0.18)
-//     );
-
-//     if (!Number.isFinite(subject) || !Number.isFinite(analog) || subject <= 0 || analog <= 0) {
-//         return 1;
-//     }
-
-//     const subjectCoefficient = Math.pow(subject / subject, exponent);
-//     const analogCoefficient = Math.pow(subject / analog, exponent);
-
-//     if (!Number.isFinite(subjectCoefficient) || !Number.isFinite(analogCoefficient) || analogCoefficient === 0) {
-//         return 1;
-//     }
-
-//     return subjectCoefficient / analogCoefficient;
-// }
-
 function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
     const subject = toNumber(subjectArea, null);
     const analog = toNumber(analogArea, null);
@@ -389,14 +380,13 @@ function getAreaAdjustment(subjectArea, analogArea, valuationQuarter) {
         return 1;
     }
 
-    const subjectCoefficient = Math.pow(subject / subject, exponent);
-    const analogCoefficient = Math.pow(subject / analog, exponent);
+    const factor = Math.pow(subject / analog, exponent);
 
-    if (!Number.isFinite(subjectCoefficient) || !Number.isFinite(analogCoefficient) || analogCoefficient === 0) {
+    if (!Number.isFinite(factor)) {
         return 1;
     }
 
-    return subjectCoefficient / analogCoefficient;
+    return factor;
 }
 
 function getFloorCoefficient(floorCategory, valuationQuarter) {
@@ -1034,7 +1024,114 @@ function filterAnalogsByWorkbookParity(rows = []) {
     };
 }
 
-function buildOutlierRangeCheck(rows = []) {
+function filterRowsByCorrectedRateTolerance(rows = [], tolerance = RENT_CONFIG.filters.correctedRateTolerance) {
+    const working = (Array.isArray(rows) ? rows : [])
+        .filter((row) => row.includedInRentCalculation !== false)
+        .filter((row) => Number.isFinite(toNumber(row.correctedRate, null)) && toNumber(row.correctedRate, 0) > 0)
+        .slice()
+        .sort((left, right) => toNumber(left.correctedRate, 0) - toNumber(right.correctedRate, 0));
+
+    if (working.length <= 2) {
+        return {
+            keptRows: working,
+            removedRows: [],
+            lowerBound: null,
+            upperBound: null,
+            medianRate: null,
+            tolerance,
+            strategy: 'too_small_for_rate_range',
+        };
+    }
+
+    const medianRate = median(working.map((row) => toNumber(row.correctedRate, 0)));
+
+    if (!Number.isFinite(medianRate) || medianRate <= 0) {
+        return {
+            keptRows: working,
+            removedRows: [],
+            lowerBound: null,
+            upperBound: null,
+            medianRate: null,
+            tolerance,
+            strategy: 'invalid_median',
+        };
+    }
+
+    let bestRows = [];
+    let bestDistanceFromMedian = Number.POSITIVE_INFINITY;
+    let bestSpan = Number.POSITIVE_INFINITY;
+
+    for (let start = 0; start < working.length; start += 1) {
+        const minRate = toNumber(working[start]?.correctedRate, 0);
+        const currentRows = [];
+
+        for (let end = start; end < working.length; end += 1) {
+            const maxRate = toNumber(working[end]?.correctedRate, 0);
+            const ratio = minRate > 0 ? (maxRate - minRate) / minRate : Number.POSITIVE_INFINITY;
+
+            if (ratio > tolerance) {
+                break;
+            }
+
+            currentRows.push(working[end]);
+        }
+
+        if (!currentRows.length) {
+            continue;
+        }
+
+        const currentMedian = median(currentRows.map((row) => toNumber(row.correctedRate, 0)));
+        const currentDistanceFromMedian = Math.abs(currentMedian - medianRate);
+        const currentSpan = toNumber(currentRows.at(-1)?.correctedRate, 0) - minRate;
+        const isBetter =
+            currentRows.length > bestRows.length ||
+            (
+                currentRows.length === bestRows.length &&
+                (
+                    currentDistanceFromMedian < bestDistanceFromMedian ||
+                    (
+                        currentDistanceFromMedian === bestDistanceFromMedian &&
+                        currentSpan < bestSpan
+                    )
+                )
+            );
+
+        if (isBetter) {
+            bestRows = currentRows;
+            bestDistanceFromMedian = currentDistanceFromMedian;
+            bestSpan = currentSpan;
+        }
+    }
+
+    if (bestRows.length < 2) {
+        return {
+            keptRows: working,
+            removedRows: [],
+            lowerBound: null,
+            upperBound: null,
+            medianRate,
+            tolerance,
+            strategy: 'rate_range_has_no_stable_cluster',
+        };
+    }
+
+    const keptIds = new Set(bestRows.map((row) => row.analogId));
+    const removedRows = working.filter((row) => !keptIds.has(row.analogId));
+    const lowerBound = toNumber(bestRows[0]?.correctedRate, null);
+    const upperBound = toNumber(bestRows.at(-1)?.correctedRate, null);
+
+    return {
+        keptRows: bestRows,
+        removedRows,
+        lowerBound,
+        upperBound,
+        medianRate,
+        tolerance,
+        strategy: removedRows.length ? 'corrected_rate_30pct_range' : 'no_rate_range_outliers',
+    };
+}
+
+function buildOutlierRangeCheck(rows = [], rangeLimit = RENT_CONFIG.filters.correctedRateTolerance) {
     const valid = rows
         .map((row) => toNumber(row?.correctedRate, null))
         .filter((value) => Number.isFinite(value) && value > 0)
@@ -1057,7 +1154,7 @@ function buildOutlierRangeCheck(rows = []) {
         min: round2(min),
         max: round2(max),
         ratio: Number.isFinite(ratio) ? round4(ratio) : null,
-        withinLimit: null,
+        withinLimit: Number.isFinite(ratio) ? ratio <= rangeLimit : null,
     };
 }
 
@@ -1179,22 +1276,35 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
             && toNumber(row.correctedRate, 0) > 0
     );
 
-    const rangeFilterResult = filterAnalogsByWorkbookParity(rowsForRangeFilter);
+    const workbookFilterResult = filterAnalogsByWorkbookParity(rowsForRangeFilter);
+    const toleranceFilterResult = filterRowsByCorrectedRateTolerance(workbookFilterResult.keptRows);
 
-    const keptIds = new Set(rangeFilterResult.keptRows.map((row) => row.analogId));
-    const removedIds = new Set(rangeFilterResult.removedRows.map((row) => row.analogId));
+    const keptIds = new Set(toleranceFilterResult.keptRows.map((row) => row.analogId));
+    const workbookRemovedIds = new Set(workbookFilterResult.removedRows.map((row) => row.analogId));
+    const toleranceRemovedIds = new Set(toleranceFilterResult.removedRows.map((row) => row.analogId));
 
     const finalRows = preparedRows.map((row) => {
         if (!Number.isFinite(toNumber(row.correctedRate, null)) || toNumber(row.correctedRate, 0) <= 0) {
             return row;
         }
 
-        if (removedIds.has(row.analogId)) {
+        if (workbookRemovedIds.has(row.analogId)) {
             return {
                 ...row,
                 includedInRentCalculation: false,
                 includedInCalculation: false,
                 exclusionReason: 'Исключен при усреднении как нижний выброс относительно среднего уровня выборки',
+                normalizedWeight: 0,
+                finalWeight: 0,
+            };
+        }
+
+        if (toleranceRemovedIds.has(row.analogId)) {
+            return {
+                ...row,
+                includedInRentCalculation: false,
+                includedInCalculation: false,
+                exclusionReason: 'Исключен как выброс: скорректированная ставка выходит за диапазон ±30% от медианы выборки',
                 normalizedWeight: 0,
                 finalWeight: 0,
             };
@@ -1302,9 +1412,13 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
 
         outlierRangeCheck: {
             ...outlierRangeCheck,
-            removedCount: rangeFilterResult.removedRows.length,
-            rangeLimit: null,
-            workbookParityFilterStrategy: rangeFilterResult.strategy || null,
+            removedCount: workbookFilterResult.removedRows.length + toleranceFilterResult.removedRows.length,
+            rangeLimit: RENT_CONFIG.filters.correctedRateTolerance,
+            medianRate: Number.isFinite(toleranceFilterResult.medianRate) ? round2(toleranceFilterResult.medianRate) : null,
+            lowerBound: Number.isFinite(toleranceFilterResult.lowerBound) ? round2(toleranceFilterResult.lowerBound) : null,
+            upperBound: Number.isFinite(toleranceFilterResult.upperBound) ? round2(toleranceFilterResult.upperBound) : null,
+            workbookParityFilterStrategy: workbookFilterResult.strategy || null,
+            correctedRateRangeFilterStrategy: toleranceFilterResult.strategy || null,
         },
 
         stats: {

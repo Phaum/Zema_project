@@ -513,6 +513,49 @@ function formatAreaValue(value) {
     return Number(numeric.toFixed(2));
 }
 
+async function calculateRegisteredBuildingsTotalAreaOnLand(landCadastralNumber) {
+    const normalizedLandNumber = normalizeCadastralNumber(landCadastralNumber);
+
+    if (!normalizedLandNumber) {
+        return null;
+    }
+
+    const records = await CadastralData.findAll({
+        where: {
+            land_plot_cadastral_number: normalizedLandNumber,
+        },
+        attributes: ['cadastral_number', 'object_type', 'total_area'],
+    });
+
+    const uniqueBuildings = new Map();
+
+    for (const record of records) {
+        const plain = record?.get ? record.get({ plain: true }) : record;
+        const cadastralNumber = normalizeCadastralNumber(plain?.cadastral_number);
+        const objectType = normalizeText(plain?.object_type).toLowerCase();
+        const area = toNumberOrNull(plain?.total_area);
+
+        if (!cadastralNumber || cadastralNumber === normalizedLandNumber) {
+            continue;
+        }
+
+        if (objectType.includes('земель')) {
+            continue;
+        }
+
+        if (!Number.isFinite(area) || area <= 0) {
+            continue;
+        }
+
+        uniqueBuildings.set(cadastralNumber, area);
+    }
+
+    const total = Array.from(uniqueBuildings.values())
+        .reduce((sum, area) => sum + area, 0);
+
+    return total > 0 ? formatAreaValue(total) : null;
+}
+
 export function validateTotalOksAreaOnLandCandidate(value, questionnaire = {}) {
     const candidate = toNumberOrNull(value);
 
@@ -934,11 +977,18 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
 
             pickMissing(enriched, 'landArea', record.land_area !== null ? Number(record.land_area) : null, recordSource, autoFilledFields, sourceHints);
             pickMissing(enriched, 'landCadCost', record.cad_cost !== null ? Number(record.cad_cost) : null, recordSource, autoFilledFields, sourceHints);
+            const registeredBuildingsTotalArea = await calculateRegisteredBuildingsTotalAreaOnLand(enriched.landCadastralNumber);
             const cadastralTotalOksArea = record.total_oks_area_on_land !== null
                 ? Number(record.total_oks_area_on_land)
                 : null;
+            const totalOksAreaCandidate = Number.isFinite(registeredBuildingsTotalArea)
+                ? registeredBuildingsTotalArea
+                : cadastralTotalOksArea;
+            const totalOksAreaSource = Number.isFinite(registeredBuildingsTotalArea)
+                ? 'registered_buildings_sum'
+                : recordSource;
             const cadastralValidation = validateTotalOksAreaOnLandCandidate(
-                cadastralTotalOksArea,
+                totalOksAreaCandidate,
                 enriched
             );
             const currentTotalOksSource = resolveEffectiveFieldSource(
@@ -952,22 +1002,22 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                 shouldPreferCadastralTotalOksAreaOnLand({
                     currentValue: enriched.totalOksAreaOnLand,
                     currentSource: currentTotalOksSource,
-                    cadastralValue: cadastralTotalOksArea,
+                    cadastralValue: totalOksAreaCandidate,
                 })
             ) {
                 replaceResolvedValue(
                     enriched,
                     'totalOksAreaOnLand',
-                    cadastralTotalOksArea,
-                    recordSource,
+                    totalOksAreaCandidate,
+                    totalOksAreaSource,
                     autoFilledFields,
                     sourceHints
                 );
-            } else if (hasMeaningfulValue(cadastralTotalOksArea) && !cadastralValidation.isValid) {
+            } else if (hasMeaningfulValue(totalOksAreaCandidate) && !cadastralValidation.isValid) {
                 const warning = buildTotalOksAreaOnLandValidationWarning(
-                    cadastralTotalOksArea,
+                    totalOksAreaCandidate,
                     cadastralValidation,
-                    recordSource
+                    totalOksAreaSource
                 );
 
                 addWarningOnce(warnings, warning);

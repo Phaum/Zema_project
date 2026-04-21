@@ -97,6 +97,13 @@ const OBJECT_TYPE_OPTIONS = [
     { value: 'помещение', label: 'Помещение' },
 ];
 
+const PREMISES_PURPOSE_OPTIONS = [
+    { value: 'офисные', label: 'Офисные' },
+    { value: 'торгово-сервисные', label: 'Торгово-сервисные' },
+    { value: 'производственно-складские', label: 'Производственно-складские' },
+    { value: 'паркинг', label: 'Паркинг' },
+];
+
 const YES_NO_OPTIONS = [
     { value: 'yes', label: 'Да' },
     { value: 'no', label: 'Нет' },
@@ -323,6 +330,19 @@ function hasNumericAreaValue(value) {
     return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 }
 
+function calculateFloorsLeasableSum(floors = []) {
+    const floorRows = Array.isArray(floors) ? floors : [];
+    const hasFloorAreaValues = floorRows.some((floor) => Number(floor?.leasableArea) > 0);
+
+    if (!hasFloorAreaValues) {
+        return null;
+    }
+
+    return roundAreaValue(
+        floorRows.reduce((sum, floor) => sum + (Number(floor?.leasableArea) || 0), 0)
+    );
+}
+
 function areSourceHintsEqual(left = {}, right = {}) {
     const leftKeys = Object.keys(left);
     const rightKeys = Object.keys(right);
@@ -391,7 +411,7 @@ function QuestionnaireHintPanel({ title, items, compact = false }) {
     );
 }
 
-const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
+const FloorDataSection = ({ form, onFloorsChange, showHints, readOnly = false }) => {
     const aboveGroundFloors = Form.useWatch('aboveGroundFloors', form) || 0;
     const undergroundFloors = Form.useWatch('undergroundFloors', form) || 0;
     const hasBasementFloor = Form.useWatch('hasBasementFloor', form) || 'no';
@@ -405,6 +425,11 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
     );
 
     useEffect(() => {
+        if (readOnly) {
+            onFloorsChange?.(floors);
+            return;
+        }
+
         const currentFloors = Array.isArray(form.getFieldValue('floors'))
             ? form.getFieldValue('floors')
             : [];
@@ -436,9 +461,15 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
         watchedFloors,
         form,
         onFloorsChange,
+        readOnly,
+        floors,
     ]);
 
     const addFloor = () => {
+        if (readOnly) {
+            return;
+        }
+
         const currentFloors = Array.isArray(form.getFieldValue('floors'))
             ? form.getFieldValue('floors')
             : [];
@@ -462,6 +493,10 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
     };
 
     const removeFloor = (floorId) => {
+        if (readOnly) {
+            return;
+        }
+
         const currentFloors = Array.isArray(form.getFieldValue('floors'))
             ? form.getFieldValue('floors')
             : [];
@@ -472,6 +507,10 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
     };
 
     const updateFloor = (floorId, field, value) => {
+        if (readOnly) {
+            return;
+        }
+
         const currentFloors = Array.isArray(form.getFieldValue('floors'))
             ? form.getFieldValue('floors')
             : [];
@@ -506,7 +545,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                     style={{ marginBottom: 16 }}
                     title={<span>{index + 1}. {floor.floorLocation || floor.name || 'Этаж'}</span>}
                     extra={
-                        !floor.isGenerated && (
+                        !readOnly && !floor.isGenerated && (
                             <Button
                                 type="text"
                                 danger
@@ -518,8 +557,8 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                         )
                     }
                 >
-                    <Row gutter={[16, 16]} className="questionnaire-floor-row">
-                        <Col xs={24} sm={12} md={24} lg={6}>
+                    <div className="questionnaire-floor-grid">
+                        <div className="questionnaire-floor-grid-cell">
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Площадь, м²"
@@ -528,14 +567,15 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                                 <InputNumber
                                     {...sqmInputProps}
                                     placeholder="Введите площадь"
+                                    disabled={readOnly}
                                     // disabled={isDerivedThirdPlusFloor(floor)}
                                     value={floor.area}
                                     onChange={(value) => updateFloor(floor.id, 'area', value)}
                                 />
                             </Form.Item>
-                        </Col>
+                        </div>
 
-                        <Col xs={24} sm={12} md={24} lg={6}>
+                        <div className="questionnaire-floor-grid-cell">
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Арендопригодная площадь, м²"
@@ -544,13 +584,14 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                                 <InputNumber
                                     {...sqmInputProps}
                                     placeholder="Введите арендопригодную площадь"
+                                    disabled={readOnly}
                                     value={floor.leasableArea}
                                     onChange={(value) => updateFloor(floor.id, 'leasableArea', value)}
                                 />
                             </Form.Item>
-                        </Col>
+                        </div>
 
-                        <Col xs={24} sm={12} md={24} lg={6}>
+                        <div className="questionnaire-floor-grid-cell">
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Средняя площадь помещения, м²"
@@ -558,26 +599,29 @@ const FloorDataSection = ({ form, onFloorsChange, showHints }) => {
                                 <InputNumber
                                     {...sqmInputProps}
                                     placeholder="Введите среднюю площадь"
+                                    disabled={readOnly}
                                     value={floor.avgLeasableRoomArea}
                                     onChange={(value) => updateFloor(floor.id, 'avgLeasableRoomArea', value)}
                                 />
                             </Form.Item>
-                        </Col>
+                        </div>
 
-                        <Col xs={24} sm={12} md={24} lg={6}>
+                        <div className="questionnaire-floor-grid-cell">
                             <Form.Item
                                 className="questionnaire-floor-item"
                                 label="Назначение помещений"
                             >
-                                <Input
-                                    className="sharp-input"
-                                    placeholder="Например: офисы, торговля"
-                                    value={floor.premisesPurpose || ''}
-                                    onChange={(event) => updateFloor(floor.id, 'premisesPurpose', event.target.value)}
+                                <Select
+                                    className="full-width"
+                                    placeholder="Выберите назначение"
+                                    options={PREMISES_PURPOSE_OPTIONS}
+                                    disabled={readOnly}
+                                    value={floor.premisesPurpose || undefined}
+                                    onChange={(value) => updateFloor(floor.id, 'premisesPurpose', value)}
                                 />
                             </Form.Item>
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                 </Card>
             ))}
 
@@ -821,6 +865,7 @@ export default function QuestionnairePanel({
                                                clearQuestionnaire,
                                                onGoNext,
                                                onQuestionnaireEnriched,
+                                               readOnly = false,
                                            }) {
     const { settings, user } = useAuth();
     const [buildingLoading, setBuildingLoading] = useState(false);
@@ -1072,10 +1117,8 @@ export default function QuestionnairePanel({
 
     const floorAreaComparison = useMemo(() => {
         const floors = Array.isArray(watchedFloors) ? watchedFloors : [];
-        const leasableSum = roundAreaValue(
-            floors.reduce((sum, floor) => sum + (Number(floor?.leasableArea) || 0), 0)
-        );
         const hasFloorAreaValues = floors.some((floor) => Number(floor?.leasableArea) > 0);
+        const leasableSum = calculateFloorsLeasableSum(floors);
         const currentLeasable = hasNumericAreaValue(leasableAreaWatch)
             ? roundAreaValue(leasableAreaWatch)
             : null;
@@ -1505,7 +1548,33 @@ export default function QuestionnairePanel({
 
     const handleFloorsChange = useCallback((floors) => {
         floorsDataRef.current = floors;
-    }, []);
+
+        if (readOnly) {
+            return;
+        }
+
+        const leasableSum = calculateFloorsLeasableSum(floors);
+        if (leasableSum === null) {
+            return;
+        }
+
+        const currentLeasable = hasNumericAreaValue(form.getFieldValue('leasableArea'))
+            ? roundAreaValue(form.getFieldValue('leasableArea'))
+            : null;
+
+        if (currentLeasable !== null && Math.abs(currentLeasable - leasableSum) <= 0.01) {
+            return;
+        }
+
+        applyFormPatch(
+            {
+                leasableArea: leasableSum,
+            },
+            {
+                sourceUpdates: { leasableArea: 'derived_from_floor_sum' },
+            }
+        );
+    }, [applyFormPatch, form, readOnly]);
 
     return (
         <>
@@ -1536,7 +1605,8 @@ export default function QuestionnairePanel({
                     <Form
                         form={form}
                         layout="vertical"
-                        onValuesChange={handleValuesChange}
+                        disabled={readOnly}
+                        onValuesChange={readOnly ? undefined : handleValuesChange}
                     >
                         {showQuestionnaireHints && (
                             <QuestionnaireHintPanel
@@ -1626,8 +1696,8 @@ export default function QuestionnairePanel({
                                         <Input
                                             className="sharp-input questionnaire-cadastral-input"
                                             placeholder="00:00:0000000:0"
-                                            onBlur={handleBuildingCadBlur}
-                                            addonAfter={(
+                                            onBlur={readOnly ? undefined : handleBuildingCadBlur}
+                                            addonAfter={!readOnly ? (
                                                 <Button
                                                     type="text"
                                                     icon={<DatabaseOutlined />}
@@ -1638,7 +1708,7 @@ export default function QuestionnairePanel({
                                                 >
                                                     Заполнить данные по кадастровому номеру
                                                 </Button>
-                                            )}
+                                            ) : null}
                                         />
                                     </Form.Item>
                                 </Col>
@@ -1731,9 +1801,11 @@ export default function QuestionnairePanel({
 
                                     <Col xs={24} lg={12} className="form-action-col">
                                         <Space wrap>
-                                            <Button onClick={inferBcClassByRate}>
-                                                Определить класс по ставке
-                                            </Button>
+                                            {!readOnly && (
+                                                <Button onClick={inferBcClassByRate}>
+                                                    Определить класс по ставке
+                                                </Button>
+                                            )}
 
                                             {marketClassResolved && (
                                                 <Tag color="green">
@@ -1785,7 +1857,7 @@ export default function QuestionnairePanel({
                                     </Col>
                                 )}
 
-                                {(shouldShowDynamicField('mapPointLat') || shouldShowDynamicField('mapPointLng') || shouldShowDynamicField('objectAddress')) && (
+                                {!readOnly && (shouldShowDynamicField('mapPointLat') || shouldShowDynamicField('mapPointLng') || shouldShowDynamicField('objectAddress')) && (
                                     <Col xs={24} lg={8}>
                                         <Form.Item
                                             label=" "
@@ -1920,39 +1992,6 @@ export default function QuestionnairePanel({
                                 </Col>
                             </Row>
 
-                            {showActualDataFields && (
-                                <Row gutter={[20, 0]}>
-                                    {shouldShowDynamicField('leasableArea') && (
-                                        <Col xs={24} md={12}>
-                                        <Form.Item
-                                            label="Арендопригодная площадь, кв.м"
-                                            name="leasableArea"
-                                            rules={[{ required: true, message: 'Укажите арендопригодную площадь' }]}
-                                        >
-                                            <InputNumber
-                                                {...sqmInputProps}
-                                                placeholder="Введите значение"
-                                            />
-                                        </Form.Item>
-                                        </Col>
-                                    )}
-
-                                    {shouldShowDynamicField('occupiedArea') && (
-                                        <Col xs={24} md={12}>
-                                        <Form.Item
-                                            label="Занятая площадь по договорам аренды, м²"
-                                            name="occupiedArea"
-                                            rules={[{ required: true, message: 'Укажите занятую площадь' }]}
-                                        >
-                                            <InputNumber
-                                                {...sqmInputProps}
-                                                placeholder="Введите площадь"
-                                            />
-                                        </Form.Item>
-                                        </Col>
-                                    )}
-                                </Row>
-                            )}
                         </div>
 
                         <div className="form-block">
@@ -1976,18 +2015,20 @@ export default function QuestionnairePanel({
                                     message="Арендопригодная площадь по этажам не совпадает с основным полем"
                                     description={(
                                         <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                            <Space wrap>
-                                                <Button onClick={applyFloorAreasToObjectFields}>
-                                                    Пересчитать по этажам
-                                                </Button>
-                                                <Button
-                                                    type={acceptedAreaMismatchKey === floorAreaComparison.signature ? 'default' : 'primary'}
-                                                    ghost={acceptedAreaMismatchKey !== floorAreaComparison.signature}
-                                                    onClick={acceptAreaMismatch}
-                                                >
-                                                    Согласиться с несоответствием
-                                                </Button>
-                                            </Space>
+                                            {!readOnly ? (
+                                                <Space wrap>
+                                                    <Button onClick={applyFloorAreasToObjectFields}>
+                                                        Пересчитать по этажам
+                                                    </Button>
+                                                    <Button
+                                                        type={acceptedAreaMismatchKey === floorAreaComparison.signature ? 'default' : 'primary'}
+                                                        ghost={acceptedAreaMismatchKey !== floorAreaComparison.signature}
+                                                        onClick={acceptAreaMismatch}
+                                                    >
+                                                        Согласиться с несоответствием
+                                                    </Button>
+                                                </Space>
+                                            ) : null}
                                         </Space>
                                     )}
                                 />
@@ -1999,13 +2040,51 @@ export default function QuestionnairePanel({
                                 form={form}
                                 showHints={showQuestionnaireHints}
                                 onFloorsChange={handleFloorsChange}
+                                readOnly={readOnly}
                             />
+
+                            {showActualDataFields && (
+                                <Row gutter={[20, 0]} className="questionnaire-actual-area-row">
+                                    {shouldShowDynamicField('leasableArea') && (
+                                        <Col xs={24} md={12}>
+                                            <Form.Item
+                                                className="questionnaire-actual-area-item"
+                                                label="Арендопригодная площадь, кв.м"
+                                                name="leasableArea"
+                                                rules={[{ required: true, message: 'Укажите арендопригодную площадь' }]}
+                                            >
+                                                <InputNumber
+                                                    {...sqmInputProps}
+                                                    placeholder="Введите значение"
+                                                />
+                                            </Form.Item>
+                                        </Col>
+                                    )}
+
+                                    {shouldShowDynamicField('occupiedArea') && (
+                                        <Col xs={24} md={12}>
+                                            <Form.Item
+                                                className="questionnaire-actual-area-item"
+                                                label="Занятая площадь по договорам аренды, м²"
+                                                name="occupiedArea"
+                                                rules={[{ required: true, message: 'Укажите занятую площадь' }]}
+                                            >
+                                                <InputNumber
+                                                    {...sqmInputProps}
+                                                    placeholder="Введите площадь"
+                                                />
+                                            </Form.Item>
+                                        </Col>
+                                    )}
+                                </Row>
+                            )}
                         </div>
 
                         <Divider className="sharp-divider" />
                     </Form>
                 </Spin>
 
+                {!readOnly && (
                 <div className="project-step-actions">
                     <div className="project-step-actions-left">
                         <Button icon={<EyeOutlined />} onClick={() => setVerificationOpen(true)}>
@@ -2027,14 +2106,21 @@ export default function QuestionnairePanel({
                         </Button>
                     </div>
                 </div>
+                )}
+                
+                <div className="form-block">
+
+                </div>
             </Card>
 
+            {!readOnly && (
             <MapPickerModal
                 open={mapPickerOpen}
                 initialValue={currentPoint}
                 onCancel={() => setMapPickerOpen(false)}
                 onConfirm={handleMapConfirm}
             />
+            )}
 
             {verificationOpen && (
                 <VerificationSection

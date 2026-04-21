@@ -249,7 +249,7 @@ test('buildCalculationBreakdown keeps rent diagnostics and source labels human-r
     assert.ok(rentMethodology?.facts?.includes('Аналогов до стабилизации: 10'));
     assert.ok(rentMethodology?.facts?.includes('В итоговой ставке использовано: 4'));
     assert.ok(rentMethodology?.facts?.includes('Исключено из итоговой ставки: 6'));
-    assert.equal(landSource?.sourceLabel, 'Кадастровый / НСПД источник');
+    assert.equal(landSource?.sourceLabel, 'НСПД');
 });
 
 test('buildCalculationBreakdown hides correction lines for quarter-based cap, vacancy and opex profiles', () => {

@@ -796,6 +796,7 @@ function prepareReportData(projectId, project, breakdown, result) {
       address_offer: comp.address_offer || '—',
       area_total: comp.area_total || 0,
       floor: comp.floor || comp.floor_location || '—',
+      rawOfferRate: comp.price_per_sqm_month ?? comp.raw_rate ?? comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
       price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
       district: comp.district || '—',
       nearestMetro: metro,
@@ -807,15 +808,22 @@ function prepareReportData(projectId, project, breakdown, result) {
   });
 
   const totalArea = questionnaire.totalArea || 0;
-  const landArea = questionnaire.landArea || 0;
-  const landAreaUsed = breakdown?.inputs?.landArea?.value ?? questionnaire.landAreaUsed ?? 0;
-  const landAreaUsedPercent = landArea > 0 ? (landAreaUsed / landArea) * 100 : 0;
+  const landInput = breakdown?.inputs?.land || {};
+  const landArea = landInput.landArea ?? questionnaire.landArea ?? 0;
+  const landAreaUsedPercent = landInput.landShareRatio ?? landInput.allocationRatio ?? (
+    landArea > 0 && questionnaire.landAreaUsed ? (questionnaire.landAreaUsed / landArea) * 100 : 0
+  );
+  const landAreaUsed = landArea > 0 && landAreaUsedPercent > 0
+    ? (landArea * landAreaUsedPercent) / 100
+    : (questionnaire.landAreaUsed ?? 0);
+  const landShareValue = landInput.landShareValue ?? landInput.landShare ?? breakdown?.summary?.landShare ?? result?.land_share ?? 0;
 
   const leasableAreaValue = breakdown?.inputs?.leasableArea?.value ?? questionnaire.leasableArea ?? 0;
   const leasablePercent = totalArea > 0 ? (leasableAreaValue / totalArea) * 100 : 0;
 
   const estimatedValueWithLand = result?.estimated_value_with_land
-    ?? (result?.estimated_value || 0) + (result?.land_share || 0);
+    ?? breakdown?.summary?.valueTotal
+    ?? ((result?.estimated_value || 0) + landShareValue);
 
   const cadastralValue = project?.cadastralValue
     ?? questionnaire.cadCost
@@ -862,7 +870,8 @@ function prepareReportData(projectId, project, breakdown, result) {
     landCadastralNumber: questionnaire.landCadastralNumber || '—',
     landArea,
     landAreaUsed,
-    landAreaUsedPercent,   
+    landAreaUsedPercent,
+    landShareValue,
 
     leasableArea: leasableAreaValue,
     leasableAreaPercent: leasablePercent,
@@ -1242,11 +1251,18 @@ async function captureElementAsPng(element) {
 }
 
 // ========== ОСНОВНОЙ КОМПОНЕНТ ==========
-export default function ProjectResultDetailedPanel({ projectId, project, marketContext, onBack }) {
+export default function ProjectResultDetailedPanel({
+  projectId,
+  project,
+  marketContext,
+  onBack,
+  initialResult = null,
+  readOnly = false,
+}) {
   const { user, refreshProfile } = useAuth();
-  const [result, setResult] = useState(null);
-  const [breakdown, setBreakdown] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState(initialResult);
+  const [breakdown, setBreakdown] = useState(initialResult?.calculation_breakdown_json || null);
+  const [loading, setLoading] = useState(!initialResult);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [expandedStepKeys, setExpandedStepKeys] = useState([]);
   const [showExcludedComparables, setShowExcludedComparables] = useState(false);
@@ -1255,6 +1271,13 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
   const questionnaire = project?.questionnaire || {};
 
   const loadResult = useCallback(async ({ showError = true, silent = false } = {}) => {
+    if (initialResult) {
+      setResult(initialResult);
+      setBreakdown(initialResult?.calculation_breakdown_json || null);
+      setLoading(false);
+      return initialResult;
+    }
+
     try {
       if (!silent) setLoading(true);
       setShowExcludedComparables(false);
@@ -1269,20 +1292,23 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [projectId]);
+  }, [initialResult, projectId]);
 
   useEffect(() => {
     loadResult();
   }, [loadResult]);
 
   useEffect(() => {
+    if (initialResult || readOnly) return;
     if (user?.debugMode === undefined || result === null) return;
     if (Boolean(user.debugMode) !== Boolean(result?.debugModeEnabled)) {
       loadResult({ showError: false, silent: true });
     }
-  }, [loadResult, result, user?.debugMode]);
+  }, [initialResult, loadResult, readOnly, result, user?.debugMode]);
 
   useEffect(() => {
+    if (initialResult || readOnly) return undefined;
+
     let active = true;
     const syncDebugState = async () => {
       if (!active || document.visibilityState === 'hidden') return;
@@ -1304,7 +1330,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
       window.removeEventListener('focus', syncDebugState);
       document.removeEventListener('visibilitychange', syncDebugState);
     };
-  }, [loadResult, refreshProfile, result?.debugModeEnabled]);
+  }, [initialResult, loadResult, readOnly, refreshProfile, result?.debugModeEnabled]);
 
   const floorInputRows = breakdown?.inputs?.floorInputRows || [];
   const floorIncomeRows = breakdown?.inputs?.floorIncomeRows || [];
@@ -1914,7 +1940,7 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
                 />
                 <IncomeMetricCard
                   title="Земля"
-                  value={formatPreciseCurrency(result?.land_share || 0)}
+                  value={formatCurrency(result?.land_share || 0, 1)}
                   note="Доля земли"
                   toneClass="is-land"
                 />
@@ -2853,22 +2879,26 @@ export default function ProjectResultDetailedPanel({ projectId, project, marketC
       </Space>
       </div>
 
-      <div className="project-result-actions project-step-actions">
-        <Space wrap className="project-step-actions-left">
-          <Button onClick={onBack} type="primary">
-            Назад к оплате
-          </Button>
-        </Space>
-        <Space wrap className="project-step-actions-right">
-          <Button
-            icon={<FilePdfOutlined />}
-            loading={exportingPdf}
-            onClick={handleExportZemaReport}
-          >
-            Справка ЗЕМА
-          </Button>
-        </Space>
-      </div>
+      {!readOnly && (
+        <div className="project-result-actions project-step-actions">
+          <Space wrap className="project-step-actions-left">
+            {onBack && (
+              <Button onClick={onBack} type="primary">
+                Назад к оплате
+              </Button>
+            )}
+          </Space>
+          <Space wrap className="project-step-actions-right">
+            <Button
+              icon={<FilePdfOutlined />}
+              loading={exportingPdf}
+              onClick={handleExportZemaReport}
+            >
+              Справка ЗЕМА
+            </Button>
+          </Space>
+        </div>
+      )}
     </Card>
   );
 }

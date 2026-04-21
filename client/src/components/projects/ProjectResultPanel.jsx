@@ -170,7 +170,8 @@ export default function ProjectResultPanel({ projectId, onBack }) {
                     <Tooltip title={getFieldTooltip('land_share')}>
                         <Statistic
                             title="Доля земли в стоимости"
-                            value={Math.round(Number(result?.land_share || 0))}
+                            value={Number(result?.land_share || 0)}
+                            precision={1}
                             suffix="₽"
                         />
                     </Tooltip>

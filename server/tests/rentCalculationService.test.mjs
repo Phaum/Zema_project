@@ -48,9 +48,49 @@ test('calculateMarketRentByNewAlgorithm aligns area and floor corrections with E
     const analog = result.adjustedRates[0];
 
     assert.equal(result.marketRentFirst, analog.correctedRate);
-    assert.ok(Math.abs(analog.areaAdjustment - 0.8763) < 0.001, `unexpected area adjustment: ${analog.areaAdjustment}`);
+    assert.ok(Math.abs(analog.areaAdjustment - 1.1411) < 0.001, `unexpected area adjustment: ${analog.areaAdjustment}`);
     assert.ok(Math.abs(analog.floorAdjustment - 1.1364) < 0.001, `unexpected floor adjustment: ${analog.floorAdjustment}`);
-    assert.ok(Math.abs(analog.correctedRate - 696.6) < 0.5, `unexpected corrected rate: ${analog.correctedRate}`);
+    assert.ok(Math.abs(analog.correctedRate - 906.91) < 0.5, `unexpected corrected rate: ${analog.correctedRate}`);
+});
+
+test('calculateMarketRentByNewAlgorithm calculates Ks directly as (So / Sa)^n', () => {
+    const questionnaire = {
+        totalArea: 1000,
+        leasableArea: 1000,
+        aboveGroundFloors: 1,
+        metroDistance: 1,
+        valuationDate: '2025-01-01',
+        businessCenterClass: 'B+',
+        marketClassResolved: 'B+',
+        floors: [
+            {
+                id: 'first',
+                floorCategory: 'first',
+                floorLocation: 'Первый этаж',
+                leasableArea: 1000,
+                avgLeasableRoomArea: 183,
+            },
+        ],
+    };
+
+    const analogs = [
+        {
+            id: 'area_481_2',
+            price_per_sqm_cleaned: 1000,
+            area_total: 481.2,
+            class_offer: 'B+',
+            distance_to_metro: 1,
+            floor_location: 'Первый этаж',
+            offer_date: '2025-01-15',
+            quarter: '2025-Q1',
+            environment_historical_center: false,
+        },
+    ];
+
+    const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
+    const analog = result.adjustedRates[0];
+
+    assert.ok(Math.abs(analog.areaAdjustment - 1.1901) < 0.0001, `unexpected Ks: ${analog.areaAdjustment}`);
 });
 
 test('calculateMarketRentByNewAlgorithm returns non-zero diagnostics for included corrected rates', () => {
@@ -140,4 +180,54 @@ test('calculateMarketRentByNewAlgorithm returns non-zero diagnostics for include
     assert.equal(result.sampleSizeLevel, 'small');
     assert.equal(result.stabilityFlag, 'unstable');
     assert.ok(result.correctedRateIQR > 0);
+});
+
+test('calculateMarketRentByNewAlgorithm maps environment analysis category codes to coefficients', () => {
+    const questionnaire = {
+        totalArea: 1000,
+        leasableArea: 1000,
+        aboveGroundFloors: 1,
+        metroDistance: 0.8,
+        valuationDate: '2025-01-01',
+        businessCenterClass: 'B+',
+        marketClassResolved: 'B+',
+        environmentCategory1: 'mixed_urban',
+        environmentCategory2: 'residential_mixed',
+        environmentCategory3: 'prime_business',
+        isHistoricalCenter: false,
+        floors: [
+            {
+                id: 'first',
+                floorCategory: 'first',
+                floorLocation: 'Первый этаж',
+                leasableArea: 1000,
+                avgLeasableRoomArea: 1000,
+            },
+        ],
+    };
+
+    const analogs = [
+        {
+            id: 'industrial-edge',
+            price_per_sqm_cleaned: 1000,
+            area_total: 1000,
+            class_offer: 'B+',
+            district: 'Приморский',
+            distance_to_metro: 0.8,
+            floor_location: 'Первый этаж',
+            offer_date: '2025-01-15',
+            quarter: '2025-Q1',
+            environment_category_1: 'industrial_edge',
+            environment_historical_center: false,
+        },
+    ];
+
+    const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
+    const analog = result.adjustedRates[0];
+
+    assert.ok(analog, 'expected adjusted analogue');
+    assert.ok(
+        Math.abs(analog.environmentAdjustment - 1.4262) < 0.0001,
+        `unexpected environment adjustment: ${analog.environmentAdjustment}`
+    );
 });

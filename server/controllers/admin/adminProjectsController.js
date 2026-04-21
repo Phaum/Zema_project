@@ -1,7 +1,13 @@
 import { Op } from 'sequelize';
-import ValuationProject from '../../models/ValuationProject.js';
+import {
+    ProjectQuestionnaire,
+    ProjectResult,
+    User,
+    ValuationProject,
+} from '../../models/index.js';
 import { writeAdminAudit } from '../../utils/adminAudit.js';
-import { sendOk, sendError, sendNotFound, sendServerError } from '../../utils/responseHelpers.js';
+import { sendOk, sendNotFound, sendServerError } from '../../utils/responseHelpers.js';
+import { shapeProjectResultForViewer } from '../../utils/projectResultVisibility.js';
 
 const ALLOWED_PROJECT_UPDATE_FIELDS = [
     'name',
@@ -26,6 +32,13 @@ export async function getAdminProjects(req, res) {
 
         const { rows, count } = await ValuationProject.findAndCountAll({
             where,
+            include: [
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'email', 'first_name', 'last_name'],
+                },
+            ],
             order: [['created_at', 'DESC']],
             offset: (page - 1) * pageSize,
             limit: pageSize,
@@ -45,13 +58,36 @@ export async function getAdminProjects(req, res) {
 
 export async function getAdminProjectById(req, res) {
     try {
-        const item = await ValuationProject.findByPk(req.params.id);
+        const item = await ValuationProject.findByPk(req.params.id, {
+            include: [
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'email', 'first_name', 'last_name'],
+                },
+                {
+                    model: ProjectQuestionnaire,
+                    as: 'questionnaire',
+                },
+                {
+                    model: ProjectResult,
+                    as: 'result',
+                },
+            ],
+        });
 
         if (!item) {
             return sendNotFound(res, 'Проект');
         }
 
-        return sendOk(res, item);
+        const plain = item.get({ plain: true });
+
+        return sendOk(res, {
+            ...plain,
+            result: shapeProjectResultForViewer(plain.result, {
+                debugModeEnabled: true,
+            }),
+        });
     } catch (error) {
         console.error('getAdminProjectById error:', error);
         return sendServerError(res, 'загрузки проекта');

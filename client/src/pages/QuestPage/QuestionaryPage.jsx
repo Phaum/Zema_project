@@ -111,9 +111,10 @@ const QuestionaryPage = () => {
           value={text}
           onChange={(value) => handlePurposeChange(record.key, value)}
         >
-          <Option value="office">Офисное</Option>
-          <Option value="retail">Торговое</Option>
-          <Option value="warehouse">Складское</Option>
+          <Option value="офисные">Офисные</Option>
+          <Option value="торгово-сервисные">Торгово-сервисные</Option>
+          <Option value="производственно-складские">Производственно-складские</Option>
+          <Option value="паркинг">Паркинг</Option>
         </Select>
       ),
     },

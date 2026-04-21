@@ -499,16 +499,23 @@ function toNumber(value, fallback = 0) {
     return Number.isFinite(num) ? num : fallback;
 }
 
+function roundTo(value, digits = 2) {
+    const factor = 10 ** digits;
+    return Math.round((toNumber(value, 0) + Number.EPSILON) * factor) / factor;
+}
+
 function round2(value) {
-    return Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
+    return roundTo(value, 2);
 }
 
 function formatPlain(value) {
     return String(round2(value));
 }
 
-function formatNumber(value) {
-    return round2(value).toLocaleString('ru-RU');
+function formatNumber(value, maximumFractionDigits = 2) {
+    return roundTo(value, maximumFractionDigits).toLocaleString('ru-RU', {
+        maximumFractionDigits,
+    });
 }
 
 function formatMoney(value) {
@@ -610,10 +617,10 @@ function buildLandInput(questionnaire, calculation, landShare) {
         landArea: round2(toNumber(landDetails.landArea, questionnaire.landArea)),
         totalOksAreaOnLand: round2(toNumber(landDetails.totalOksAreaOnLand, questionnaire.totalOksAreaOnLand)),
         objectArea: round2(toNumber(landDetails.objectArea, questionnaire.totalArea)),
-        allocationRatio: round2(toNumber(landDetails.allocationRatio, 0) * 100),
-        landShareRatio: round2(toNumber(landDetails.landShareRatio, toNumber(landDetails.allocationRatio, 0)) * 100),
+        allocationRatio: roundTo(toNumber(landDetails.allocationRatio, 0) * 100, 1),
+        landShareRatio: roundTo(toNumber(landDetails.landShareRatio, toNumber(landDetails.allocationRatio, 0)) * 100, 1),
         subjectArea: round2(toNumber(landDetails.objectArea, questionnaire.totalArea)),
-        subjectLandShareRatio: round2(toNumber(landDetails.allocationRatio, 0) * 100),
+        subjectLandShareRatio: roundTo(toNumber(landDetails.allocationRatio, 0) * 100, 1),
         landShare,
         landShareValue: landShare,
         source: landDetails.source || 'missing',
@@ -640,7 +647,7 @@ function buildLandExplanation(landInput) {
 
     const warnings = landInput.warnings?.length ? ` ${landInput.warnings.join(' ')}` : '';
 
-    return `${sourceText} Итоговая доля объекта в земле: ${formatNumber(landInput.allocationRatio)}%.${warnings}`.trim();
+    return `${sourceText} Итоговая доля объекта в земле: ${formatNumber(landInput.allocationRatio, 1)}%.${warnings}`.trim();
 }
 
 function buildLandStepCalculation(landInput, valueTotal, finalValue) {
@@ -724,7 +731,7 @@ function buildActualOccupancyReference(calculation, occupiedArea, leasableArea) 
         return '';
     }
 
-    return `Фактическая незаполняемость объекта рассчитана справочно: 1 - ${formatPlain(occupiedArea)} / ${formatPlain(leasableArea)} = ${round2(actualRate * 100)}%`;
+    return `Фактическая незаполняемость объекта рассчитана: 1 - ${formatPlain(occupiedArea)} / ${formatPlain(leasableArea)} = ${round2(actualRate * 100)}%`;
 }
 
 function buildCapitalizationRateExplanation(baseRate, adjustments, sourceLabel = null, capRateBreakdown = null) {
@@ -825,7 +832,7 @@ function humanizeSourceKind(kind) {
         case 'factual':
             return 'Фактические данные объекта';
         case 'cadastral':
-            return 'Кадастровый / НСПД источник';
+            return 'НСПД';
         case 'profile':
             return 'Рыночный профиль модели';
         case 'default':
@@ -870,7 +877,7 @@ function humanizeFieldSource(source) {
         case 'nspd_land':
         case 'nspd_building':
         case 'reestrnet':
-            return 'Кадастровый / НСПД источник';
+            return 'НСПД';
         default:
             return source ? String(source) : 'Источник не указан';
     }
@@ -1209,7 +1216,7 @@ function buildMethodologySummary({
                     landInput.landCadCost > 0 ? `Кадастровая стоимость участка: ${formatPreciseMoney(landInput.landCadCost)} ₽` : null,
                     landInput.totalOksAreaOnLand > 0 ? `Общая площадь ОКС на участке: ${formatNumber(landInput.totalOksAreaOnLand)} м²` : null,
                     landInput.objectArea > 0 ? `Площадь оцениваемого ОКС: ${formatNumber(landInput.objectArea)} м²` : null,
-                    landInput.landShareRatio > 0 ? `Доля объекта в земле: ${formatNumber(landInput.landShareRatio, 2)}%` : null,
+                    landInput.landShareRatio > 0 ? `Доля объекта в земле: ${formatNumber(landInput.landShareRatio, 1)}%` : null,
                     landInput.doubleSubtractionGuard ? 'Контроль двойного вычитания земли: пройден' : null,
                     ...(Array.isArray(landInput.warnings) ? landInput.warnings : []),
                 ].filter(Boolean),
