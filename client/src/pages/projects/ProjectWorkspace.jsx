@@ -7,6 +7,17 @@ import ProjectPaymentPanel from '../../components/projects/ProjectPaymentPanel';
 import ProjectResultDetailedPanel from '../../components/projects/ProjectResultDetailedPanel';
 import './ProjectWorkspace.css';
 
+const WORKSPACE_TRANSITION_COPY = {
+    validation: {
+        title: 'Готовим проверку',
+        text: 'Сохраняем опросный лист и обновляем данные проекта перед следующим шагом.',
+    },
+    result: {
+        title: 'Выполняем расчёт',
+        text: 'Подбираем аналоги и формируем итоговый результат. Это может занять некоторое время.',
+    },
+};
+
 function buildWorkspaceSteps(subscriptionActive) {
     const items = [
         { title: 'Опросный лист' },
@@ -45,7 +56,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
     const [loading, setLoading] = useState(true);
     const [activeStep, setActiveStep] = useState(0);
     const [marketContext, setMarketContext] = useState(null);
-    const [calculationLoading, setCalculationLoading] = useState(false);
+    const [workspaceTransition, setWorkspaceTransition] = useState(null);
 
     const loadProject = useCallback(async () => {
         setLoading(true);
@@ -81,12 +92,16 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
         loadProject();
     }, [loadProject]);
 
-    const runProjectCalculation = useCallback(async () => {
-        setCalculationLoading(true);
+    const runProjectCalculation = useCallback(async ({ manageTransition = true } = {}) => {
+        if (manageTransition) {
+            setWorkspaceTransition('result');
+        }
         try {
             await api.post(`/projects/${projectId}/calculate`);
         } finally {
-            setCalculationLoading(false);
+            if (manageTransition) {
+                setWorkspaceTransition(null);
+            }
         }
     }, [projectId]);
 
@@ -101,6 +116,10 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
         onProjectChanged?.();
         setActiveStep(1);
     };
+
+    const handleQuestionnaireTransitionChange = useCallback((isActive) => {
+        setWorkspaceTransition(isActive ? 'validation' : null);
+    }, []);
 
     const handleQuestionnaireChanged = useCallback((questionnaire) => {
         if (!questionnaire) {
@@ -123,11 +142,28 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
         onProjectChanged?.();
     }, [onProjectChanged]);
 
-    const handleCalculated = async () => {
-        await loadProject();
-        onProjectChanged?.();
-        setActiveStep(resultStepIndex);
+    const handleCalculated = async ({ manageTransition = true } = {}) => {
+        if (manageTransition) {
+            setWorkspaceTransition('result');
+        }
+        try {
+            await loadProject();
+            onProjectChanged?.();
+            setActiveStep(resultStepIndex);
+        } finally {
+            if (manageTransition) {
+                setWorkspaceTransition(null);
+            }
+        }
     };
+
+    const handleResultTransitionChange = useCallback((isActive) => {
+        setWorkspaceTransition(isActive ? 'result' : null);
+    }, []);
+
+    const transitionCopy = workspaceTransition
+        ? WORKSPACE_TRANSITION_COPY[workspaceTransition]
+        : null;
 
     if (!projectId) {
         return (
@@ -143,15 +179,15 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
         <div className="project-workspace-wrap">
             <Card loading={loading} className="project-workspace-card">
                 <div className="project-workspace-stage">
-                    {calculationLoading && (
-                        <div className="project-workspace-calculation-overlay">
-                            <div className="project-workspace-calculation-dialog">
+                    {transitionCopy && (
+                        <div className="project-workspace-transition-overlay">
+                            <div className="project-workspace-transition-dialog">
                                 <Spin size="large" />
-                                <div className="project-workspace-calculation-title">
-                                    Выполняем расчёт
+                                <div className="project-workspace-transition-title">
+                                    {transitionCopy.title}
                                 </div>
-                                <div className="project-workspace-calculation-text">
-                                    Подбираем аналоги и формируем итоговый результат. Это может занять некоторое время.
+                                <div className="project-workspace-transition-text">
+                                    {transitionCopy.text}
                                 </div>
                             </div>
                         </div>
@@ -173,6 +209,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                                 project={project}
                                 onSaved={handleQuestionnaireSaved}
                                 onChanged={handleQuestionnaireChanged}
+                                onTransitionChange={handleQuestionnaireTransitionChange}
                             />
                         )}
 
@@ -182,13 +219,14 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                                 project={project}
                                 onBack={() => setActiveStep(0)}
                                 onSaved={loadProject}
+                                onTransitionChange={handleResultTransitionChange}
                                 onNext={async () => {
                                     try {
                                         await api.patch(`/projects/${projectId}`, { status: 'calculation' });
 
                                         if (subscriptionActive) {
-                                            await runProjectCalculation();
-                                            await handleCalculated();
+                                            await runProjectCalculation({ manageTransition: false });
+                                            await handleCalculated({ manageTransition: false });
                                             return;
                                         }
 

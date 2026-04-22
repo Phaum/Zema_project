@@ -13,7 +13,6 @@ async function startServer() {
       console.log(`Сервер запущен на порту ${env.PORT}`);
     });
 
-    // Handle port already in use
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
         console.error(`Порт ${env.PORT} уже в использовании`);
@@ -22,7 +21,6 @@ async function startServer() {
       throw error;
     });
 
-    // Handle graceful shutdown
     process.on('SIGTERM', () => {
       console.log('SIGTERM получен, завершаю работу...');
       server.close(() => {

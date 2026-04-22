@@ -171,6 +171,7 @@ export default function ProjectValidationPanel({
     onBack,
     onNext,
     onSaved,
+    onTransitionChange,
     readOnly = false,
 }) {
     const [form] = Form.useForm();
@@ -310,9 +311,14 @@ export default function ProjectValidationPanel({
     };
 
     const handleNext = async () => {
-        const ok = await saveMissingAutoFields();
-        if (!ok) return;
-        onNext?.();
+        try {
+            onTransitionChange?.(true);
+            const ok = await saveMissingAutoFields();
+            if (!ok) return;
+            await onNext?.();
+        } finally {
+            onTransitionChange?.(false);
+        }
     };
 
     return (

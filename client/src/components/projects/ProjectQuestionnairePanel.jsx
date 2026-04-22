@@ -11,6 +11,7 @@ export default function ProjectQuestionnairePanel({
     project,
     onSaved,
     onChanged,
+    onTransitionChange,
     readOnly = false,
     initialQuestionnaire = null,
 }) {
@@ -87,6 +88,7 @@ export default function ProjectQuestionnairePanel({
 
             const values = form.getFieldsValue(true);
             setQuestionnaireSaving(true);
+            onTransitionChange?.(true);
 
             const response = await api.post(`/projects/${projectId}/questionnaire`, {
                 ...values,
@@ -100,7 +102,7 @@ export default function ProjectQuestionnairePanel({
                 message.info(`Автоматически дополнено полей: ${autoFilledFields.length}`);
             }
 
-            onSaved?.();
+            await onSaved?.();
             return true;
         } catch (error) {
             if (!error?.errorFields) {
@@ -109,6 +111,7 @@ export default function ProjectQuestionnairePanel({
             return false;
         } finally {
             setQuestionnaireSaving(false);
+            onTransitionChange?.(false);
         }
     };
 
