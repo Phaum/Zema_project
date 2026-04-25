@@ -1,0 +1,304 @@
+.contacts-page-container {
+    min-height: calc(100vh - 70px);
+    margin-top: 70px;
+    background: #ffffff;
+}
+
+.contacts-page-hero {
+    min-height: 360px;
+    background:
+        linear-gradient(90deg, rgba(24, 144, 255, 0.78) 0%, rgba(24, 144, 255, 0.52) 0%),
+        url('../../images/zema_background.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    display: flex;
+    align-items: center;
+    padding: 0 50px;
+}
+
+.contacts-page-hero-content {
+    max-width: 1200px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.contacts-page-badge {
+    display: inline-block;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border: 2px solid rgba(255, 255, 255, 0.65);
+    padding: 6px 12px;
+    margin-bottom: 20px;
+}
+
+.contacts-page-title {
+    color: #ffffff !important;
+    font-size: 48px !important;
+    line-height: 1.12 !important;
+    font-weight: 800 !important;
+    margin-bottom: 20px !important;
+}
+
+.contacts-page-description {
+    color: #ffffff !important;
+    font-size: 20px !important;
+    line-height: 1.7 !important;
+    margin-bottom: 0 !important;
+}
+
+.contacts-page-section {
+    padding: 70px 50px;
+}
+
+.contacts-page-section-muted {
+    background: #fafafa;
+    border-top: 2px solid #f0f0f0;
+}
+
+.contacts-page-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.contacts-page-card {
+    border-radius: 0 !important;
+    border: 2px solid #f0f0f0 !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
+    height: 100%;
+}
+
+.contacts-page-card .ant-card-body {
+    padding: 30px !important;
+}
+
+.contacts-page-form-card .ant-card-body,
+.contacts-page-info-card .ant-card-body {
+    padding: 34px !important;
+}
+
+.contacts-page-section-title {
+    color: #1890ff !important;
+    font-size: 30px !important;
+    font-weight: 700 !important;
+    margin-bottom: 18px !important;
+}
+
+.contacts-page-form-description {
+    color: #595959 !important;
+    font-size: 16px !important;
+    line-height: 1.8 !important;
+    margin-bottom: 28px !important;
+}
+
+.contacts-page-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.contacts-page-info-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.contacts-page-info-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.contacts-page-info-icon {
+    font-size: 20px !important;
+    color: #1890ff !important;
+    margin-top: 3px;
+}
+
+.contacts-page-info-label {
+    color: #8c8c8c !important;
+    font-size: 13px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.contacts-page-info-value {
+    color: #262626 !important;
+    font-size: 16px !important;
+    margin: 4px 0 0 0 !important;
+    line-height: 1.6 !important;
+    font-weight: 500 !important;
+}
+
+.contacts-page-note {
+    margin-top: 28px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: #f0f7ff;
+    border-left: 3px solid #1890ff;
+    padding: 16px 18px;
+}
+
+.contacts-page-note-icon {
+    color: #1890ff !important;
+    font-size: 18px !important;
+    margin-top: 3px;
+}
+
+.contacts-page-note-text {
+    color: #262626 !important;
+    font-size: 15px !important;
+    line-height: 1.7 !important;
+    margin: 0 !important;
+}
+
+.contacts-page-form .ant-form-item-label > label {
+    font-weight: 600;
+    color: #262626;
+}
+
+.contacts-page-input,
+.contacts-page-textarea {
+    border-radius: 0 !important;
+}
+
+.contacts-page-input:hover,
+.contacts-page-textarea:hover,
+.contacts-page-input:focus,
+.contacts-page-textarea:focus,
+.contacts-page-input.ant-input-focused,
+.contacts-page-textarea.ant-input-focused {
+    border-color: #1890ff !important;
+    box-shadow: none !important;
+}
+
+.contacts-page-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.contacts-page-primary-btn {
+    height: 50px !important;
+    border-radius: 0 !important;
+    padding: 0 28px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    background: #1890ff !important;
+    border: 2px solid #1890ff !important;
+}
+
+.contacts-page-primary-btn:hover {
+    background: #096dd9 !important;
+    border-color: #096dd9 !important;
+    box-shadow: none !important;
+}
+
+.contacts-page-secondary-btn {
+    height: 50px !important;
+    border-radius: 0 !important;
+    padding: 0 28px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    background: #ffffff !important;
+    color: #1890ff !important;
+    border: 2px solid #1890ff !important;
+}
+
+.contacts-page-secondary-btn:hover {
+    color: #096dd9 !important;
+    border-color: #096dd9 !important;
+    box-shadow: none !important;
+}
+
+.contacts-page-small-title {
+    color: #1890ff !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    margin-bottom: 12px !important;
+}
+
+.contacts-page-small-text {
+    color: #595959 !important;
+    font-size: 15px !important;
+    line-height: 1.7 !important;
+    margin-bottom: 0 !important;
+}
+
+@media (max-width: 1200px) {
+    .contacts-page-hero,
+    .contacts-page-section {
+        padding-left: 30px;
+        padding-right: 30px;
+    }
+
+    .contacts-page-title {
+        font-size: 40px !important;
+    }
+}
+
+@media (max-width: 992px) {
+    .contacts-page-title {
+        font-size: 34px !important;
+    }
+
+    .contacts-page-description {
+        font-size: 18px !important;
+    }
+
+    .contacts-page-section-title {
+        font-size: 26px !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .contacts-page-container {
+        margin-top: 60px;
+        min-height: calc(100vh - 60px);
+    }
+
+    .contacts-page-hero,
+    .contacts-page-section {
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    .contacts-page-hero {
+        min-height: 320px;
+    }
+
+    .contacts-page-title {
+        font-size: 28px !important;
+    }
+
+    .contacts-page-description {
+        font-size: 16px !important;
+    }
+
+    .contacts-page-card .ant-card-body,
+    .contacts-page-form-card .ant-card-body,
+    .contacts-page-info-card .ant-card-body {
+        padding: 22px !important;
+    }
+
+    .contacts-page-primary-btn,
+    .contacts-page-secondary-btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .contacts-page-title {
+        font-size: 25px !important;
+    }
+
+    .contacts-page-section-title {
+        font-size: 22px !important;
+    }
+}

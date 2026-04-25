@@ -1,0 +1,202 @@
+.questionary-container {
+  min-height: calc(100vh - 70px);
+  background: 
+    linear-gradient(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.9)),
+    url('/zema-project/zema-platform/src/images/zema_background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  padding: 40px 50px;
+  margin-top: 70px;
+}
+
+.questionary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.header-content h2 {
+  color: #1890ff !important;
+  font-weight: 700 !important;
+  margin-bottom: 8px !important;
+}
+
+.header-progress {
+  padding: 8px 24px;
+  background: #f0f7ff;
+  border-left: 4px solid #1890ff;
+  border-radius: 4px;
+}
+
+.header-progress .ant-typography {
+  color: #1890ff;
+  font-size: 16px;
+}
+
+.questionary-form {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.form-card {
+  margin-bottom: 24px;
+  border: 2px solid #f0f0f0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.form-card .ant-card-head {
+  background: #fafafa;
+  border-bottom: 2px solid #f0f0f0;
+  border-radius: 0;
+  padding: 0 24px;
+}
+
+.form-card .ant-card-head-title {
+  color: #1890ff;
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.form-card .ant-card-body {
+  padding: 24px;
+}
+
+.form-navigation {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 2px solid #f0f0f0;
+}
+
+.form-navigation .ant-btn {
+  height: 44px;
+  padding: 0 32px;
+  font-size: 16px;
+  border-radius: 0;
+}
+
+.form-navigation .ant-btn-primary {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.form-navigation .ant-btn-primary:hover {
+  background: #096dd9;
+  border-color: #096dd9;
+}
+
+.map-container {
+  min-height: 400px;
+  padding: 20px;
+}
+
+.map-placeholder {
+  height: 300px;
+  background: #f5f5f5;
+  border: 2px dashed #d9d9d9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.map-placeholder:hover {
+  border-color: #1890ff;
+  background: #f0f7ff;
+}
+
+/* Стили для таблицы */
+.ant-table-wrapper {
+  margin-top: 16px;
+}
+
+.ant-table {
+  border: 2px solid #f0f0f0;
+}
+
+.ant-table-thead > tr > th {
+  background: #fafafa;
+  color: #1890ff;
+  font-weight: 600;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ant-table-summary {
+  background: #fafafa;
+  border-top: 2px solid #f0f0f0;
+}
+
+.ant-table-summary .ant-table-cell {
+  font-weight: 600;
+  color: #1890ff;
+}
+
+/* Результаты */
+.result-section {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.result-card {
+  border: 2px solid #f0f0f0;
+  border-radius: 0;
+  height: 100%;
+}
+
+.warning-card {
+  background: #fff7e6;
+  border-color: #ffd591;
+}
+
+.warning-message {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+}
+
+.warning-message .ant-typography {
+  font-size: 16px;
+  color: #873800;
+}
+
+/* Адаптивность */
+@media (max-width: 1200px) {
+  .questionary-container {
+    padding: 40px 30px;
+  }
+}
+
+@media (max-width: 992px) {
+  .questionary-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .questionary-container {
+    padding: 40px 20px;
+  }
+  
+  .form-card .ant-card-body {
+    padding: 16px;
+  }
+  
+  .form-navigation {
+    justify-content: center;
+  }
+}
