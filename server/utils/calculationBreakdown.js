@@ -854,9 +854,9 @@ function humanizeFieldSource(source) {
         case 'market_analogs':
             return 'Рыночные аналоги';
         case 'market_offers_exact_object':
-            return 'Рыночные предложения по точному объекту';
+            return 'Рыночные предложения по точному объекту (База данных)';
         case 'market_offers_district_class':
-            return 'Рыночные предложения по району и классу';
+            return 'Рыночные предложения по району и классу (База данных)';
         case 'metro_by_coordinates':
             return 'Геосервис по координатам';
         case 'js_monolith_geo_service':

@@ -1410,6 +1410,7 @@ export default function ProjectResultDetailedPanel({
   const manualQuestionnaireFields = questionnaireSourceBuckets.manualFields.filter((field) => !hideLeasableAreaFromSourceCards(field));
   const autoQuestionnaireFields = questionnaireSourceBuckets.autoFields.filter((field) => !hideLeasableAreaFromSourceCards(field));
   const hasAutoSourceData = autoQuestionnaireFields.length > 0;
+  const hasObjectPhoto = Boolean(objectPhoto?.imageDataUrl || objectPhoto?.imageUrl);
   const objectMapPoint = hasValidMapCoords(questionnaire?.mapPointLat, questionnaire?.mapPointLng)
     ? {
       lat: Number(questionnaire.mapPointLat),
@@ -1914,7 +1915,7 @@ export default function ProjectResultDetailedPanel({
                 </Col>
               </Row>
 
-              {(!readOnly || objectPhotoLoading || objectPhoto) && (
+              {(objectPhotoLoading || hasObjectPhoto) && (
                 <Card
                   title="Фотография объекта"
                   size="small"
@@ -1922,7 +1923,7 @@ export default function ProjectResultDetailedPanel({
                   className="project-result-section-card"
                   style={{ marginTop: 16 }}
                 >
-                  {objectPhoto?.imageDataUrl || objectPhoto?.imageUrl ? (
+                  {hasObjectPhoto && (
                     <div className="project-result-object-photo">
                       <img
                         src={objectPhoto.imageDataUrl || objectPhoto.imageUrl}
@@ -1935,15 +1936,11 @@ export default function ProjectResultDetailedPanel({
                         </Text>
                         {objectPhoto.pageUrl && (
                           <a href={objectPhoto.pageUrl} target="_blank" rel="noopener noreferrer">
-                            Источник
+                            Источник фото
                           </a>
                         )}
                       </div>
                     </div>
-                  ) : (
-                    <Text type="secondary">
-                      Фото по адресу не найдено.
-                    </Text>
                   )}
                 </Card>
               )}

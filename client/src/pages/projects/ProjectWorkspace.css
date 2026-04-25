@@ -12,9 +12,9 @@
 }
 
 .project-workspace-transition-overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
-    z-index: 40;
+    z-index: 5000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -24,6 +24,8 @@
 }
 
 .project-workspace-transition-dialog {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
