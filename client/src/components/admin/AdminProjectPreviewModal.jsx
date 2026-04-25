@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Alert, Descriptions, Modal, Spin, Tag, Typography } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Descriptions, Modal, Spin, Tabs, Tag, Typography } from 'antd';
 import ProjectQuestionnairePanel from '../projects/ProjectQuestionnairePanel';
 import ProjectValidationPanel from '../projects/ProjectValidationPanel';
 import ProjectResultDetailedPanel from '../projects/ProjectResultDetailedPanel';
@@ -7,6 +7,12 @@ import '../projects/projects.css';
 import '../../pages/projects/ProjectWorkspace.css';
 
 const { Text } = Typography;
+
+const PROJECT_PREVIEW_STAGES = [
+    { key: 'questionnaire', label: 'Опросный лист' },
+    { key: 'validation', label: 'Проверка' },
+    { key: 'result', label: 'Результат' },
+];
 
 function resolveProjectPreviewStage(project) {
     const status = String(project?.status || '').trim().toLowerCase();
@@ -32,12 +38,111 @@ function formatStageLabel(stage) {
     return labels[stage] || stage;
 }
 
+function resolveCalculationDate(project) {
+    return (
+        project?.result?.calculated_at ||
+        project?.result?.calculatedAt ||
+        project?.result?.updated_at ||
+        project?.result?.updatedAt ||
+        project?.result?.created_at ||
+        project?.result?.createdAt ||
+        null
+    );
+}
+
+function formatDateTime(value) {
+    if (!value) {
+        return '—';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '—';
+    }
+
+    return date.toLocaleString('ru-RU', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+        timeZone: 'Europe/Moscow',
+    });
+}
+
 function AdminProjectPreviewContent({ project }) {
     const stage = useMemo(() => resolveProjectPreviewStage(project), [project]);
+    const calculationDate = useMemo(() => resolveCalculationDate(project), [project]);
+    const [activeStage, setActiveStage] = useState(stage);
+
+    useEffect(() => {
+        setActiveStage(stage);
+    }, [project?.id, stage]);
 
     if (!project) {
         return null;
     }
+
+    const renderStageContent = (stageKey) => {
+        if (stageKey === 'questionnaire') {
+            return project.questionnaire ? (
+                <ProjectQuestionnairePanel
+                    projectId={project.id}
+                    project={project}
+                    initialQuestionnaire={project.questionnaire}
+                    readOnly
+                />
+            ) : (
+                <Alert
+                    type="info"
+                    showIcon
+                    message="Опросный лист еще не заполнен"
+                    description="Для проекта пока нет сохраненных данных опросного листа."
+                />
+            );
+        }
+
+        if (stageKey === 'validation') {
+            return project.questionnaire ? (
+                <ProjectValidationPanel
+                    projectId={project.id}
+                    project={project}
+                    readOnly
+                />
+            ) : (
+                <Alert
+                    type="info"
+                    showIcon
+                    message="Нет данных для проверки"
+                    description="Для проекта еще не найден сохраненный опросный лист."
+                />
+            );
+        }
+
+        if (stageKey === 'result') {
+            return project.result ? (
+                <ProjectResultDetailedPanel
+                    projectId={project.id}
+                    project={project}
+                    initialResult={project.result}
+                    marketContext={project.result?.market_snapshot_json || null}
+                    readOnly
+                />
+            ) : (
+                <Alert
+                    type="warning"
+                    showIcon
+                    message="Результат еще не рассчитан"
+                    description="Запись результата появится после выполнения расчета проекта."
+                />
+            );
+        }
+
+        return null;
+    };
+
+    const tabItems = PROJECT_PREVIEW_STAGES.map((item) => ({
+        key: item.key,
+        label: item.label,
+        children: renderStageContent(item.key),
+    }));
 
     return (
         <div className="admin-project-preview">
@@ -51,67 +156,22 @@ function AdminProjectPreviewContent({ project }) {
                 <Descriptions.Item label="Статус">
                     <Tag color="blue">{project.status || '—'}</Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="Стадия просмотра">
+                <Descriptions.Item label="Стадия проекта">
                     {formatStageLabel(stage)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Дата расчета">
+                    {formatDateTime(calculationDate)}
                 </Descriptions.Item>
                 <Descriptions.Item label="Пользователь">
                     {project.user?.email || project.user_id || '—'}
                 </Descriptions.Item>
             </Descriptions>
 
-            {stage === 'questionnaire' && (
-                project.questionnaire ? (
-                    <ProjectQuestionnairePanel
-                        projectId={project.id}
-                        project={project}
-                        initialQuestionnaire={project.questionnaire}
-                        readOnly
-                    />
-                ) : (
-                    <Alert
-                        type="info"
-                        showIcon
-                        message="Опросный лист еще не заполнен"
-                        description="Проект находится на стадии анкеты, но сохраненных данных опросного листа пока нет."
-                    />
-                )
-            )}
-
-            {stage === 'validation' && (
-                project.questionnaire ? (
-                    <ProjectValidationPanel
-                        projectId={project.id}
-                        project={project}
-                        readOnly
-                    />
-                ) : (
-                    <Alert
-                        type="info"
-                        showIcon
-                        message="Нет данных для проверки"
-                        description="Для проекта еще не найден сохраненный опросный лист."
-                    />
-                )
-            )}
-
-            {stage === 'result' && (
-                project.result ? (
-                    <ProjectResultDetailedPanel
-                        projectId={project.id}
-                        project={project}
-                        initialResult={project.result}
-                        marketContext={project.result?.market_snapshot_json || null}
-                        readOnly
-                    />
-                ) : (
-                    <Alert
-                        type="warning"
-                        showIcon
-                        message="Результат еще не рассчитан"
-                        description="Проект находится на финальной стадии или в архиве, но запись результата отсутствует."
-                    />
-                )
-            )}
+            <Tabs
+                activeKey={activeStage}
+                items={tabItems}
+                onChange={setActiveStage}
+            />
         </div>
     );
 }

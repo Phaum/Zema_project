@@ -314,7 +314,7 @@ test('calculateMarketRent supports advanced experimental weighted median mode', 
     assert.ok(result.analogsUsedCount >= 5);
 });
 
-test('calculateVacancyRate uses factual occupancy when it is above the market profile', () => {
+test('calculateVacancyRate uses market profile when factual occupancy is above the market profile', () => {
     const result = calculateVacancyRate({
         questionnaire: {
             businessCenterClass: 'B+',
@@ -334,9 +334,9 @@ test('calculateVacancyRate uses factual occupancy when it is above the market pr
         },
     });
 
-    assert.equal(result.source, 'factual');
-    assert.equal(result.rate, 0.6);
-    assert.equal(result.breakdown.vacancySource, 'factual');
+    assert.equal(result.source, 'quarter_profile');
+    assert.equal(result.rate, 0.09);
+    assert.equal(result.breakdown.vacancySource, 'quarter_profile');
 });
 
 test('calculateValuation builds stable market-driven result for Lakhta-like case', async () => {
@@ -751,7 +751,8 @@ test('calculateValuation keeps explainable output for Premier Liga-like case', a
     const valuation = await calculateValuation(questionnaire, selectedAnalogs, 0);
 
     assert.ok(valuation.marketRentFirst > 0);
-    assert.equal(valuation.vacancyRateSource, 'market');
+    assert.equal(valuation.vacancyRateSource, 'factual');
+    assert.ok(Math.abs(valuation.vacancyRate - 0.04751) < 0.0001);
     assert.equal(valuation.rentalRateSelectionMethod, 'stable_trimmed_mean');
     assert.equal(valuation.opexRateSource, 'profile');
     assert.equal(valuation.capitalizationRateSource, 'rule_based_profile');

@@ -760,7 +760,7 @@ function ComparableMathStep({ number, title, result, formula, explanation, facts
   );
 }
 
-function prepareReportData(projectId, project, breakdown, result) {
+function prepareReportData(projectId, project, breakdown, result, objectPhoto = null) {
   const questionnaire = project?.questionnaire || {};
 
   const floorRows = (breakdown?.inputs?.floorInputRows || []).map(floor => ({
@@ -907,7 +907,10 @@ function prepareReportData(projectId, project, breakdown, result) {
     quarterlyDistribution: breakdown?.analytics?.quarterlyDistribution || [],
     marketDynamics: breakdown?.analytics?.marketDynamics || [],
 
-    photoUrls: project?.photos || [],
+    photoUrls: [
+      objectPhoto?.imageDataUrl || objectPhoto?.imageUrl,
+      ...(project?.photos || []),
+    ].filter(Boolean),
     mapImageUrl: null,
     comparablesMapImageUrl: null,
     quarterlyChartUrl: null,
@@ -1277,6 +1280,8 @@ export default function ProjectResultDetailedPanel({
   const [expandedStepKeys, setExpandedStepKeys] = useState([]);
   const [showExcludedComparables, setShowExcludedComparables] = useState(false);
   const [selectedComparable, setSelectedComparable] = useState(null);
+  const [objectPhoto, setObjectPhoto] = useState(null);
+  const [objectPhotoLoading, setObjectPhotoLoading] = useState(false);
   const comparablesMapRef = useRef(null);
   const questionnaire = project?.questionnaire || {};
 
@@ -1307,6 +1312,42 @@ export default function ProjectResultDetailedPanel({
   useEffect(() => {
     loadResult();
   }, [loadResult]);
+
+  useEffect(() => {
+    if (readOnly || !projectId || !questionnaire?.objectAddress) {
+      setObjectPhoto(null);
+      return undefined;
+    }
+
+    let active = true;
+    const loadObjectPhoto = async () => {
+      try {
+        setObjectPhotoLoading(true);
+        const { data } = await api.get(`/projects/${projectId}/object-photo`, {
+          params: { address: questionnaire.objectAddress },
+        });
+
+        if (active) {
+          setObjectPhoto(data?.photo || null);
+        }
+      } catch (error) {
+        console.error('Не удалось загрузить фото объекта с Rekorb:', error);
+        if (active) {
+          setObjectPhoto(null);
+        }
+      } finally {
+        if (active) {
+          setObjectPhotoLoading(false);
+        }
+      }
+    };
+
+    loadObjectPhoto();
+
+    return () => {
+      active = false;
+    };
+  }, [projectId, questionnaire?.objectAddress, readOnly]);
 
   useEffect(() => {
     if (initialResult || readOnly) return;
@@ -1588,17 +1629,30 @@ export default function ProjectResultDetailedPanel({
         </Text>
         <Table
           dataSource={topComparables}
-          scroll={{ x: 1560 }}
+          scroll={{ x: 1720 }}
           onRow={(record) => ({
             onClick: () => setSelectedComparable(record),
           })}
           rowClassName={() => 'project-result-comparable-row'}
           columns={[
             {
+              title: <Tooltip title={getFieldTooltip('building_name')}>Название</Tooltip>,
+              dataIndex: 'building_name',
+              key: 'building_name',
+              width: '16%',
+              render: (_, record) => (
+                <Text ellipsis>
+                  {localizeResultText(
+                    record.building_name || record.buildingName || record.complex_name || record.building
+                  ) || '—'}
+                </Text>
+              ),
+            },
+            {
               title: <Tooltip title={getFieldTooltip('address_offer')}>Адрес</Tooltip>,
               dataIndex: 'address_offer',
               key: 'address_offer',
-              width: '24%',
+              width: '22%',
               render: (text) => <Text ellipsis>{localizeResultText(text) || '—'}</Text>,
             },
             {
@@ -1762,7 +1816,7 @@ export default function ProjectResultDetailedPanel({
   const handleExportZemaReport = async () => {
     try {
       setExportingPdf(true);
-      const reportData = prepareReportData(projectId, project, breakdown, result);
+      const reportData = prepareReportData(projectId, project, breakdown, result, objectPhoto);
       const comparablesMapImageUrl = await captureElementAsPng(comparablesMapRef.current)
         .catch((error) => {
           console.error('Не удалось сделать снимок карты аналогов:', error);
@@ -1859,6 +1913,40 @@ export default function ProjectResultDetailedPanel({
                   </Card>
                 </Col>
               </Row>
+
+              {(!readOnly || objectPhotoLoading || objectPhoto) && (
+                <Card
+                  title="Фотография объекта"
+                  size="small"
+                  loading={objectPhotoLoading}
+                  className="project-result-section-card"
+                  style={{ marginTop: 16 }}
+                >
+                  {objectPhoto?.imageDataUrl || objectPhoto?.imageUrl ? (
+                    <div className="project-result-object-photo">
+                      <img
+                        src={objectPhoto.imageDataUrl || objectPhoto.imageUrl}
+                        alt={objectPhoto.title || 'Фотография объекта'}
+                      />
+                      <div className="project-result-object-photo-meta">
+                        <Text strong>{objectPhoto.title || 'Объект оценки'}</Text>
+                        <Text type="secondary">
+                          {objectPhoto.matchedAddress || objectPhoto.address || questionnaire.objectAddress}
+                        </Text>
+                        {objectPhoto.pageUrl && (
+                          <a href={objectPhoto.pageUrl} target="_blank" rel="noopener noreferrer">
+                            Источник
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <Text type="secondary">
+                      Фото по адресу не найдено.
+                    </Text>
+                  )}
+                </Card>
+              )}
 
               {sourceFloorRows.length > 0 && (
                 <Card title="Введённые данные по этажам" size="small" style={{ marginTop: 16 }} className="project-result-section-card">
@@ -2913,7 +3001,7 @@ export default function ProjectResultDetailedPanel({
           <Space wrap className="project-step-actions-left">
             {onBack && (
               <Button onClick={onBack} type="primary">
-                Назад к оплате
+                Назад
               </Button>
             )}
           </Space>

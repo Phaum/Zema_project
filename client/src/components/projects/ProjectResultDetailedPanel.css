@@ -121,6 +121,34 @@
     padding-inline: 0 !important;
 }
 
+.project-result-object-photo {
+    display: grid;
+    grid-template-columns: minmax(220px, 360px) 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+.project-result-object-photo img {
+    width: 100%;
+    aspect-ratio: 10 / 7;
+    border-radius: 12px;
+    object-fit: cover;
+    background: #f3f6fa;
+}
+
+.project-result-object-photo-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+@media (max-width: 767px) {
+    .project-result-object-photo {
+        grid-template-columns: 1fr;
+    }
+}
+
 .project-result-comparable-hint {
     display: block;
     margin-bottom: 12px;

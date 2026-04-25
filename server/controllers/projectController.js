@@ -8,6 +8,10 @@ import { sequelize } from '../config/db.js';
 import { PAYMENT_STATUS, hasActiveSubscription } from '../constants/payment.js';
 import { AppError } from '../utils/errorHandler.js';
 import { asyncHandler, sendJson } from '../utils/http.js';
+import {
+    fetchRekorbImageDataUrl,
+    findRekorbObjectPhotoByAddress,
+} from '../services/rekorbPhotoService.js';
 
 const PROJECT_ATTRIBUTES = [
     'id',
@@ -174,6 +178,37 @@ export const getProjectById = asyncHandler(async (req, res) => {
     ]);
 
     return sendJson(res, attachProjectAccess(project, subscriptionActive));
+});
+
+export const getProjectObjectPhoto = asyncHandler(async (req, res) => {
+    const project = await getOwnedProjectOrThrow(req.params.projectId, req.user.id, {
+        includeDetails: true,
+    });
+    const plain = typeof project?.toJSON === 'function' ? project.toJSON() : project;
+    const queryAddress = String(req.query?.address || '').trim();
+    const address = queryAddress || plain?.questionnaire?.objectAddress || '';
+
+    if (!address) {
+        return sendJson(res, {
+            photo: null,
+            reason: 'address_missing',
+        });
+    }
+
+    const photo = await findRekorbObjectPhotoByAddress(address);
+
+    if (photo?.imageUrl) {
+        try {
+            photo.imageDataUrl = await fetchRekorbImageDataUrl(photo.imageUrl);
+        } catch (error) {
+            console.warn('Не удалось загрузить фото Rekorb как data URL:', error.message);
+        }
+    }
+
+    return sendJson(res, {
+        photo,
+        reason: photo ? null : 'not_found',
+    });
 });
 
 export const updateProject = asyncHandler(async (req, res) => {

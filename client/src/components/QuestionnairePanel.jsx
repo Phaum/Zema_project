@@ -104,6 +104,13 @@ const PREMISES_PURPOSE_OPTIONS = [
     { value: 'паркинг', label: 'Паркинг' },
 ];
 
+// Temporary expert-review mode: switch to false to restore all premises purpose options.
+const FLOOR_PREMISES_PURPOSE_OFFICE_ONLY = true;
+const OFFICE_PREMISES_PURPOSE = 'офисные';
+const ACTIVE_PREMISES_PURPOSE_OPTIONS = FLOOR_PREMISES_PURPOSE_OFFICE_ONLY
+    ? PREMISES_PURPOSE_OPTIONS.filter((option) => option.value === OFFICE_PREMISES_PURPOSE)
+    : PREMISES_PURPOSE_OPTIONS;
+
 const YES_NO_OPTIONS = [
     { value: 'yes', label: 'Да' },
     { value: 'no', label: 'Нет' },
@@ -343,6 +350,21 @@ function calculateFloorsLeasableSum(floors = []) {
     );
 }
 
+function normalizeFloorPremisesPurpose(value) {
+    if (FLOOR_PREMISES_PURPOSE_OFFICE_ONLY) {
+        return OFFICE_PREMISES_PURPOSE;
+    }
+
+    return value ?? '';
+}
+
+function normalizeFloorForActivePurposeOptions(floor = {}) {
+    return {
+        ...floor,
+        premisesPurpose: normalizeFloorPremisesPurpose(floor?.premisesPurpose ?? floor?.purpose),
+    };
+}
+
 function areSourceHintsEqual(left = {}, right = {}) {
     const leftKeys = Object.keys(left);
     const rightKeys = Object.keys(right);
@@ -365,7 +387,7 @@ function mergeGeneratedFloorsWithCurrent(generatedTemplates, currentFloors = [])
         const existing = currentById.get(String(template.id));
 
         if (!existing) {
-            return template;
+            return normalizeFloorForActivePurposeOptions(template);
         }
 
         return {
@@ -374,7 +396,7 @@ function mergeGeneratedFloorsWithCurrent(generatedTemplates, currentFloors = [])
             area: existing.area ?? 0,
             leasableArea: existing.leasableArea ?? 0,
             avgLeasableRoomArea: existing.avgLeasableRoomArea ?? 0,
-            premisesPurpose: existing.premisesPurpose ?? existing.purpose ?? '',
+            premisesPurpose: normalizeFloorPremisesPurpose(existing.premisesPurpose ?? existing.purpose),
             occupiedArea: existing.occupiedArea ?? 0,
             isGenerated: true,
         };
@@ -383,7 +405,7 @@ function mergeGeneratedFloorsWithCurrent(generatedTemplates, currentFloors = [])
     const manualFloors = (Array.isArray(currentFloors) ? currentFloors : []).filter((floor) => {
         const id = String(floor.id);
         return !generatedIds.has(id) && floor.isGenerated !== true;
-    });
+    }).map(normalizeFloorForActivePurposeOptions);
 
     return [...mergedGenerated, ...manualFloors];
 }
@@ -420,7 +442,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints, readOnly = false })
     const floors = Array.isArray(watchedFloors) ? watchedFloors : [];
     const currentTotalArea = form.getFieldValue('totalArea');
     const displayFloors = useMemo(
-        () => applyDerivedThirdPlusArea(floors, currentTotalArea),
+        () => applyDerivedThirdPlusArea(floors.map(normalizeFloorForActivePurposeOptions), currentTotalArea),
         [floors, currentTotalArea]
     );
 
@@ -482,7 +504,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints, readOnly = false })
             area: 0,
             leasableArea: 0,
             avgLeasableRoomArea: 0,
-            premisesPurpose: '',
+            premisesPurpose: normalizeFloorPremisesPurpose(''),
             occupiedArea: 0,
             isGenerated: false,
         };
@@ -511,12 +533,15 @@ const FloorDataSection = ({ form, onFloorsChange, showHints, readOnly = false })
             return;
         }
 
+        const normalizedValue = field === 'premisesPurpose'
+            ? normalizeFloorPremisesPurpose(value)
+            : value;
         const currentFloors = Array.isArray(form.getFieldValue('floors'))
             ? form.getFieldValue('floors')
             : [];
 
         let updatedFloors = currentFloors.map((floor) =>
-            floor.id === floorId ? { ...floor, [field]: value } : floor
+            floor.id === floorId ? { ...floor, [field]: normalizedValue } : floor
         );
 
         if (shouldRecalculateThirdPlusArea(floorId, field)) {
@@ -614,7 +639,7 @@ const FloorDataSection = ({ form, onFloorsChange, showHints, readOnly = false })
                                 <Select
                                     className="full-width"
                                     placeholder="Выберите назначение"
-                                    options={PREMISES_PURPOSE_OPTIONS}
+                                    options={ACTIVE_PREMISES_PURPOSE_OPTIONS}
                                     disabled={readOnly}
                                     value={floor.premisesPurpose || undefined}
                                     onChange={(value) => updateFloor(floor.id, 'premisesPurpose', value)}

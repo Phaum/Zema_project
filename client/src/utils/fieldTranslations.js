@@ -103,6 +103,10 @@ export const fieldTranslations = {
     label: 'Адрес',
     tooltip: 'Адрес аналогичного объекта на рынке',
   },
+  building_name: {
+    label: 'Название БЦ',
+    tooltip: 'Название бизнес-центра или здания аналогичного объекта',
+  },
   class_offer: {
     label: 'Класс',
     tooltip: 'Класс объекта (А, Б, В или иной)',

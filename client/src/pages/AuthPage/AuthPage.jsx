@@ -34,46 +34,60 @@ const AuthPage = () => {
   const [activeTab, setActiveTab] = useState(routeTab);
   const [loading, setLoading] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
-  const [form] = Form.useForm();
+  const [loginForm] = Form.useForm();
+  const [registerForm] = Form.useForm();
 
   useEffect(() => {
     setActiveTab(routeTab);
-    form.resetFields();
-  }, [routeTab, form]);
+    loginForm.resetFields();
+    registerForm.resetFields();
+  }, [routeTab, loginForm, registerForm]);
 
   const handleTabChange = (key) => {
     setActiveTab(key);
-    form.resetFields();
+    loginForm.resetFields();
+    registerForm.resetFields();
     navigate(key === 'register' ? '/register' : '/login', { replace: true });
   };
 
-  const onFinish = async (values) => {
+  const handleLoginFinish = async (values) => {
     setLoading(true);
 
     try {
-      if (activeTab === 'login') {
-        const response = await login({
-          email: values.email,
-          password: values.password,
-        });
+      const response = await login({
+        email: values.email,
+        password: values.password,
+      });
 
-        message.success(response?.message || 'Успешный вход');
+      message.success(response?.message || 'Успешный вход');
 
-        const targetPath =
-            typeof location.state?.from === 'string' ? location.state.from : '/personal';
+      const targetPath =
+          typeof location.state?.from === 'string' ? location.state.from : '/personal';
 
-        navigate(targetPath, { replace: true });
-      } else {
-        await register({
-          firstName: values.firstName,
-          lastName: values.lastName,
-          email: values.email,
-          password: values.password,
-        });
+      navigate(targetPath, { replace: true });
+    } catch (err) {
+      message.error(err.response?.data?.error || err.message || 'Произошла ошибка');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        message.success('Регистрация успешна. Теперь войдите в аккаунт.');
-        navigate('/login', { replace: true });
-      }
+  const handleRegisterFinish = async (values) => {
+    setLoading(true);
+
+    try {
+      await register({
+        firstName: values.firstName,
+        lastName: values.lastName,
+        email: values.email,
+        password: values.password,
+      });
+
+      message.success('Регистрация успешна. Теперь войдите в аккаунт.');
+      registerForm.resetFields();
+      loginForm.setFieldsValue({ email: values.email });
+      setActiveTab('login');
+      navigate('/login', { replace: true });
     } catch (err) {
       message.error(err.response?.data?.error || err.message || 'Произошла ошибка');
     } finally {
@@ -110,10 +124,10 @@ const AuthPage = () => {
                     label: 'Вход',
                     children: (
                         <Form
-                            form={form}
+                            form={loginForm}
                             name="login"
                             layout="vertical"
-                            onFinish={onFinish}
+                            onFinish={handleLoginFinish}
                             onFinishFailed={onFinishFailed}
                             className="auth-form"
                         >
@@ -177,10 +191,10 @@ const AuthPage = () => {
                     label: 'Регистрация',
                     children: (
                         <Form
-                            form={form}
+                            form={registerForm}
                             name="register"
                             layout="vertical"
-                            onFinish={onFinish}
+                            onFinish={handleRegisterFinish}
                             onFinishFailed={onFinishFailed}
                             className="auth-form"
                         >

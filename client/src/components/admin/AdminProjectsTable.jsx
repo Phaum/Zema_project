@@ -8,6 +8,35 @@ import {
 } from './Api';
 import AdminProjectPreviewModal from './AdminProjectPreviewModal';
 
+function resolveCalculationDate(project) {
+    return (
+        project?.result?.calculated_at ||
+        project?.result?.calculatedAt ||
+        project?.result?.updated_at ||
+        project?.result?.updatedAt ||
+        project?.result?.created_at ||
+        project?.result?.createdAt ||
+        null
+    );
+}
+
+function formatDateTime(value) {
+    if (!value) {
+        return '—';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '—';
+    }
+
+    return date.toLocaleString('ru-RU', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+        timeZone: 'Europe/Moscow',
+    });
+}
+
 export default function AdminProjectsTable() {
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState([]);
@@ -65,6 +94,12 @@ export default function AdminProjectsTable() {
             title: 'Пользователь',
             dataIndex: 'user_id',
             render: (_, record) => record.user?.email || record.user_id,
+        },
+        {
+            title: 'Дата расчета',
+            dataIndex: ['result', 'updated_at'],
+            width: 180,
+            render: (_, record) => formatDateTime(resolveCalculationDate(record)),
         },
         {
             title: 'Действия',

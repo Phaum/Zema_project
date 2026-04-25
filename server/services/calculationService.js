@@ -975,15 +975,15 @@ export function resolveVacancyRateProfile(questionnaire, context = {}) {
         1
     );
 
-    if (Number.isFinite(actualVacancyRate) && actualVacancyRate > marketRate) {
+    if (Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate <= marketRate) {
         return {
             rate: clamp(actualVacancyRate, 0, 1),
             baseRate: marketRate,
             adjustments: [],
             source: 'factual',
             sourceLabel: marketProfile.label
-                ? `Фактическая незаполняемость выше квартального рыночного профиля (${marketProfile.label})`
-                : 'Фактическая незаполняемость выше квартального рыночного профиля',
+                ? `Фактическая незаполняемость объекта (${marketProfile.label})`
+                : 'Фактическая незаполняемость объекта',
             normalizedClass,
             districtBucket,
             valuationYear,
@@ -2136,16 +2136,18 @@ export function calculateVacancyRate({ questionnaire, subject = {}, marketContex
         };
     }
 
-    if (Number.isFinite(actualVacancyRate) && actualVacancyRate > marketRate) {
+    if (Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate <= marketRate) {
         return {
             rate: actualVacancyRate,
             source: 'factual',
             sourceLabel: marketProfile.label
-                ? `Фактическая незаполняемость выше квартального рыночного профиля (${marketProfile.label})`
-                : 'Фактическая незаполняемость выше квартального рыночного профиля',
-            reasoning: 'Использована фактическая незаполняемость объекта, так как она выше квартального рыночного профиля.',
+                ? `Фактическая незаполняемость объекта (${marketProfile.label})`
+                : 'Фактическая незаполняемость объекта',
+            reasoning: actualVacancyRate < marketRate
+                ? 'Использована фактическая незаполняемость объекта, так как она ниже базового значения квартального рыночного профиля.'
+                : 'Использована фактическая незаполняемость объекта.',
             details: {
-                priority: 'client_max_market',
+                priority: actualVacancyRate < marketRate ? 'actual_below_market' : 'actual_equal_market',
                 leasableArea: round2(leasableArea),
                 occupiedArea: round2(occupiedArea),
                 actualVacancyRate: round2(actualVacancyRate * 100),
@@ -2172,12 +2174,12 @@ export function calculateVacancyRate({ questionnaire, subject = {}, marketContex
         sourceLabel: marketProfile.label
             ? `Квартальный рыночный профиль незаполняемости (${marketProfile.label})`
             : 'Квартальный рыночный профиль незаполняемости',
-        reasoning: Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate < marketRate
-            ? 'Фактическая незаполняемость ниже базового значения, поэтому в расчёт принято базовое значение квартального рыночного профиля.'
+        reasoning: Number.isFinite(actualVacancyRate) && actualVacancyRate > marketRate
+            ? 'Фактическая незаполняемость выше рыночного профиля, поэтому в расчет принято рыночное значение.'
             : 'Незаполняемость взята из квартального рыночного профиля без дополнительных корректировок.',
         details: {
-            priority: Number.isFinite(actualVacancyRate) && actualVacancyRate >= 0 && actualVacancyRate < marketRate
-                ? 'base_floor_over_actual'
+            priority: Number.isFinite(actualVacancyRate) && actualVacancyRate > marketRate
+                ? 'market_cap_over_actual'
                 : 'market',
             actualVacancyRate: Number.isFinite(actualVacancyRate) ? round2(actualVacancyRate * 100) : null,
             marketRate: round2(marketRate * 100),

@@ -38,6 +38,12 @@ export async function getAdminProjects(req, res) {
                     as: 'user',
                     attributes: ['id', 'email', 'first_name', 'last_name'],
                 },
+                {
+                    model: ProjectResult,
+                    as: 'result',
+                    attributes: ['id', 'created_at', 'updated_at'],
+                    required: false,
+                },
             ],
             order: [['created_at', 'DESC']],
             offset: (page - 1) * pageSize,

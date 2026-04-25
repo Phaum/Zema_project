@@ -35,7 +35,7 @@ test('calculateOpexRate uses quarter market profile without adjustments', () => 
     assert.deepEqual(result.adjustments, []);
 });
 
-test('calculateVacancyRate uses base profile when factual vacancy is below market quarter profile', () => {
+test('calculateVacancyRate uses factual vacancy when it is below market quarter profile', () => {
     const result = calculateVacancyRate({
         questionnaire: {
             valuationDate: '2025-01-01',
@@ -46,33 +46,35 @@ test('calculateVacancyRate uses base profile when factual vacancy is below marke
         subject: {
             leasableArea: 1000,
             occupiedArea: 952.5,
+        },
+    });
+
+    assert.equal(result.source, 'factual');
+    assert.equal(result.baseRate, 0.09);
+    assert.ok(Math.abs(result.rate - 0.0475) < 0.00001);
+    assert.equal(result.details.priority, 'actual_below_market');
+    assert.equal(result.details.actualVacancyRate, 4.75);
+    assert.deepEqual(result.adjustments, []);
+});
+
+test('calculateVacancyRate uses market profile when factual vacancy is above market quarter profile', () => {
+    const result = calculateVacancyRate({
+        questionnaire: {
+            valuationDate: '2025-01-01',
+            calculationMethod: 'actual_market',
+            leasableArea: 1000,
+            occupiedArea: 800,
+        },
+        subject: {
+            leasableArea: 1000,
+            occupiedArea: 800,
         },
     });
 
     assert.equal(result.source, 'quarter_profile');
     assert.equal(result.baseRate, 0.09);
     assert.equal(result.rate, 0.09);
-    assert.equal(result.details.priority, 'base_floor_over_actual');
-    assert.equal(result.details.actualVacancyRate, 4.75);
-    assert.deepEqual(result.adjustments, []);
-});
-
-test('calculateVacancyRate uses factual vacancy when it is above market quarter profile', () => {
-    const result = calculateVacancyRate({
-        questionnaire: {
-            valuationDate: '2025-01-01',
-            calculationMethod: 'actual_market',
-            leasableArea: 1000,
-            occupiedArea: 800,
-        },
-        subject: {
-            leasableArea: 1000,
-            occupiedArea: 800,
-        },
-    });
-
-    assert.equal(result.source, 'factual');
-    assert.equal(result.baseRate, 0.09);
-    assert.ok(Math.abs(result.rate - 0.2) < 0.00001);
+    assert.equal(result.details.priority, 'market_cap_over_actual');
+    assert.equal(result.details.actualVacancyRate, 20);
     assert.deepEqual(result.adjustments, []);
 });
