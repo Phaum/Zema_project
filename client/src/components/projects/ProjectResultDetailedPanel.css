@@ -248,6 +248,46 @@
     margin-top: 24px;
 }
 
+.project-result-export-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    display: grid;
+    place-items: center;
+    background: rgba(248, 251, 255, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.project-result-export-loader {
+    display: flex;
+    width: min(360px, calc(100vw - 40px));
+    min-height: 160px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    padding: 28px 30px;
+    border: 1px solid rgba(22, 119, 255, 0.18);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 20px 56px rgba(15, 23, 42, 0.16);
+    text-align: center;
+}
+
+.project-result-export-title {
+    color: #101828;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.project-result-export-note {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
 .project-result-card .ant-descriptions-item-label {
     width: 42%;
 }

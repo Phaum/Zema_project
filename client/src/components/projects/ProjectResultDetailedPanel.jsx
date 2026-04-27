@@ -15,6 +15,7 @@ import {
   Col,
   Tag,
   Statistic,
+  Spin,
   Tooltip,
 } from 'antd';
 import html2canvas from 'html2canvas';
@@ -772,11 +773,19 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
   }));
 
   const rawComparables = breakdown?.market?.topComparables || [];
+  const reportComparables = rawComparables.filter(c => c.included_in_rent_calculation !== false);
+  const getReportComparableRate = (comp) => Number(
+    comp?.price_per_sqm_month
+    ?? comp?.raw_rate
+    ?? comp?.price_per_sqm_cleaned
+    ?? comp?.price_per_sqm
+    ?? comp?.unit_price
+    ?? 0
+  );
 
-  const includedRates = rawComparables
-    .filter(c => c.included_in_rent_calculation !== false)
-    .map(c => c.price_per_sqm_cleaned)
-    .filter(v => v != null && v > 0);
+  const includedRates = reportComparables
+    .map(getReportComparableRate)
+    .filter(v => Number.isFinite(v) && v > 0);
 
   let calculatedAverageRate = breakdown?.market?.averageRate;
   if (includedRates.length > 0) {
@@ -789,7 +798,7 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
   const marketRateMin = includedRates.length ? Math.min(...includedRates) : 0;
   const marketRateMax = includedRates.length ? Math.max(...includedRates) : 0;
 
-  const comparables = rawComparables.map(comp => {
+  const comparables = reportComparables.map(comp => {
     const metro = comp.metro || comp.nearestMetro || '—';
     const distance = comp.distance_to_metro ?? comp.distanceToMetro ?? comp.metro_distance ?? null;
     const terZone = comp.ter_zone || comp.territorialZone || '—';
@@ -806,7 +815,7 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
       address_offer: comp.address_offer || '—',
       area_total: comp.area_total || 0,
       floor: comp.floor || comp.floor_location || '—',
-      rawOfferRate: comp.price_per_sqm_month ?? comp.raw_rate ?? comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
+      rawOfferRate: getReportComparableRate(comp),
       price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
       district: comp.district || '—',
       nearestMetro: metro,
@@ -1158,6 +1167,51 @@ function drawLeafletCapturePoints(canvas, element) {
   });
 }
 
+function fitLeafletCaptureBounds(element, { includeObjectPoint = true } = {}) {
+  const map = element?.__leafletMap;
+  const capturePoints = element?.__leafletCapturePoints;
+
+  if (!map || !capturePoints) {
+    return () => {};
+  }
+
+  const points = [];
+  const addPoint = (point) => {
+    if (hasValidMapCoords(point?.lat, point?.lng)) {
+      points.push([Number(point.lat), Number(point.lng)]);
+    }
+  };
+
+  if (includeObjectPoint) {
+    addPoint(capturePoints.objectPoint);
+  }
+
+  (capturePoints.comparables || []).forEach(addPoint);
+
+  if (!points.length) {
+    return () => {};
+  }
+
+  const previousCenter = map.getCenter();
+  const previousZoom = map.getZoom();
+
+  map.invalidateSize({ animate: false, pan: false });
+
+  if (points.length === 1) {
+    map.setView(points[0], Math.min(Math.max(previousZoom || 13, 13), 14), { animate: false });
+  } else {
+    map.fitBounds(L.latLngBounds(points), {
+      padding: [36, 36],
+      animate: false,
+      maxZoom: 14,
+    });
+  }
+
+  return () => {
+    map.setView(previousCenter, previousZoom, { animate: false });
+  };
+}
+
 async function captureLeafletMapAsCanvasPng(element) {
   const map = element?.__leafletMap;
   if (!element || !map) {
@@ -1215,11 +1269,17 @@ async function captureLeafletMapAsCanvasPng(element) {
   return canvas.toDataURL('image/png');
 }
 
-async function captureElementAsPng(element) {
+async function captureElementAsPng(element, options = {}) {
   if (!element) return null;
 
   const ignoreAttribute = element.getAttribute('data-html2canvas-ignore');
+  const previousElementStyle = {
+    opacity: element.style.opacity,
+    pointerEvents: element.style.pointerEvents,
+  };
   let restoreLeafletLayout = () => {};
+  let restoreLeafletCapturePoints = () => {};
+  let restoreLeafletBounds = () => {};
   let hiddenLeafletLayers = [];
 
   if (ignoreAttribute !== null) {
@@ -1227,6 +1287,32 @@ async function captureElementAsPng(element) {
   }
 
   try {
+    if (options.hideElementDuringCapture) {
+      element.style.opacity = '0';
+      element.style.pointerEvents = 'none';
+    }
+
+    if (
+      typeof options.leafletComparableFilter === 'function' &&
+      Array.isArray(element.__leafletCapturePoints?.comparables)
+    ) {
+      const previousCapturePoints = element.__leafletCapturePoints;
+      element.__leafletCapturePoints = {
+        ...previousCapturePoints,
+        comparables: previousCapturePoints.comparables.filter(options.leafletComparableFilter),
+      };
+      restoreLeafletCapturePoints = () => {
+        element.__leafletCapturePoints = previousCapturePoints;
+      };
+    }
+
+    if (options.fitLeafletToCapturePoints) {
+      restoreLeafletBounds = fitLeafletCaptureBounds(element, {
+        includeObjectPoint: options.includeObjectPoint !== false,
+      });
+      await waitForAnimationFrames(2);
+    }
+
     await waitForAnimationFrames(1);
     restoreLeafletLayout = await stabilizeLeafletMapForCapture(element);
 
@@ -1257,8 +1343,14 @@ async function captureElementAsPng(element) {
   } finally {
     restoreLeafletVectorLayersVisibility(hiddenLeafletLayers);
     restoreLeafletLayout();
+    restoreLeafletBounds();
+    restoreLeafletCapturePoints();
     if (ignoreAttribute !== null) {
       element.setAttribute('data-html2canvas-ignore', ignoreAttribute);
+    }
+    if (options.hideElementDuringCapture) {
+      element.style.opacity = previousElementStyle.opacity;
+      element.style.pointerEvents = previousElementStyle.pointerEvents;
     }
   }
 }
@@ -1734,16 +1826,6 @@ export default function ProjectResultDetailedPanel({
               ),
             },
             {
-              title: <Tooltip title={getFieldTooltip('offer_date')}>Дата</Tooltip>,
-              dataIndex: 'offer_date',
-              key: 'offer_date',
-              width: '10%',
-              render: (value) => {
-                if (!value) return '—';
-                return new Date(value).toLocaleDateString('ru-RU');
-              },
-            },
-            {
               title: <Tooltip title="Переход к источнику информации об объекте">Ссылка</Tooltip>,
               dataIndex: 'link',
               key: 'link',
@@ -1817,8 +1899,14 @@ export default function ProjectResultDetailedPanel({
   const handleExportZemaReport = async () => {
     try {
       setExportingPdf(true);
+      await waitForAnimationFrames(2);
+
       const reportData = prepareReportData(projectId, project, breakdown, result, objectPhoto);
-      const comparablesMapImageUrl = await captureElementAsPng(comparablesMapRef.current)
+      const comparablesMapImageUrl = await captureElementAsPng(comparablesMapRef.current, {
+        leafletComparableFilter: (point) => point.included !== false,
+        fitLeafletToCapturePoints: true,
+        hideElementDuringCapture: true,
+      })
         .catch((error) => {
           console.error('Не удалось сделать снимок карты аналогов:', error);
           return null;
@@ -3011,6 +3099,16 @@ export default function ProjectResultDetailedPanel({
               Справка ЗЕМА
             </Button>
           </Space>
+        </div>
+      )}
+
+      {exportingPdf && (
+        <div className="project-result-export-overlay" role="status" aria-live="polite">
+          <div className="project-result-export-loader">
+            <Spin size="large" />
+            <div className="project-result-export-title">Формируем справку ЗЕМА</div>
+            <div className="project-result-export-note">Собираем таблицы, карту и PDF-файл</div>
+          </div>
         </div>
       )}
     </Card>

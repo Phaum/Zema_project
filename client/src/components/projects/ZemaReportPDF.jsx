@@ -130,22 +130,24 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     `${formatCurrency(landShareValue)}`,
   ].join(' / ');
 
-  const normalizedComparables = comparables.map(comp => ({
-    ...comp,
-    rawOfferRate: comp.rawOfferRate ?? comp.price_per_sqm_month ?? comp.raw_rate ?? comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
-    price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
-    buildingName: comp.buildingName || comp.building_name || comp.complex_name || '—',
-    class_offer: comp.class_offer || '—',
-    address_offer: comp.address_offer || '—',
-    area_total: comp.area_total || 0,
-    floor: comp.floor || '—',
-    district: comp.district || '—',
-    nearestMetro: comp.nearestMetro || '—',
-    distanceToMetro: comp.distanceToMetro,
-    isHistoricalCenter: comp.isHistoricalCenter,
-    territorialZone: comp.territorialZone || '—',
-    nearbyEnvironment: translateEnvironmentCategory(comp.nearbyEnvironment || comp.environment || '—'),
-  }));
+  const normalizedComparables = comparables
+    .filter(comp => comp?.included_in_rent_calculation !== false)
+    .map(comp => ({
+      ...comp,
+      rawOfferRate: comp.rawOfferRate ?? comp.price_per_sqm_month ?? comp.raw_rate ?? comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
+      price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
+      buildingName: comp.buildingName || comp.building_name || comp.complex_name || '—',
+      class_offer: comp.class_offer || '—',
+      address_offer: comp.address_offer || '—',
+      area_total: comp.area_total || 0,
+      floor: comp.floor || '—',
+      district: comp.district || '—',
+      nearestMetro: comp.nearestMetro || '—',
+      distanceToMetro: comp.distanceToMetro,
+      isHistoricalCenter: comp.isHistoricalCenter,
+      territorialZone: comp.territorialZone || '—',
+      nearbyEnvironment: translateEnvironmentCategory(comp.nearbyEnvironment || comp.environment || '—'),
+    }));
 
   const loadLogoDataURL = () => new Promise((resolve) => {
     const img = new Image();
@@ -401,44 +403,57 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     ${Array.from({ length: 6 }, (_, i) => getPageHTML(i + 1)).join('')}
   </body></html>`;
 
+  const previousScroll = {
+    x: window.scrollX,
+    y: window.scrollY,
+  };
   const container = document.createElement('div');
   container.innerHTML = fullHTML;
   container.style.position = 'fixed';
-  container.style.top = '-10000px';
-  container.style.left = '-10000px';
+  container.style.top = '0';
+  container.style.left = '0';
   container.style.width = '580px';
   container.style.backgroundColor = '#fff';
+  container.style.pointerEvents = 'none';
+  container.style.zIndex = '-1';
+  container.style.contain = 'layout style paint';
   document.body.appendChild(container);
 
-  await new Promise(resolve => setTimeout(resolve, 300));
+  try {
+    await new Promise(resolve => setTimeout(resolve, 300));
 
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pdfWidth = pdf.internal.pageSize.getWidth();
-  const horizontalMargin = 15;
-  const availableWidth = pdfWidth - horizontalMargin * 2;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const horizontalMargin = 15;
+    const availableWidth = pdfWidth - horizontalMargin * 2;
 
-  const pages = container.querySelectorAll('.page');
-  for (let i = 0; i < pages.length; i++) {
-    const canvas = await html2canvas(pages[i], {
-      scale: 2.5,
-      backgroundColor: '#ffffff',
-      logging: false,
-      useCORS: true,
-      allowTaint: false,
-    });
+    const pages = container.querySelectorAll('.page');
+    for (let i = 0; i < pages.length; i++) {
+      const canvas = await html2canvas(pages[i], {
+        scale: 2.5,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+        allowTaint: false,
+        scrollX: 0,
+        scrollY: 0,
+      });
 
-    const imgWidthMm = (canvas.width * 25.4) / 96;
-    const imgHeightMm = (canvas.height * 25.4) / 96;
-    const scale = availableWidth / imgWidthMm;
-    const finalWidthMm = imgWidthMm * scale;
-    const finalHeightMm = imgHeightMm * scale;
-    const xOffset = horizontalMargin + (availableWidth - finalWidthMm) / 2;
-    const yOffset = 15;
+      const imgWidthMm = (canvas.width * 25.4) / 96;
+      const imgHeightMm = (canvas.height * 25.4) / 96;
+      const scale = availableWidth / imgWidthMm;
+      const finalWidthMm = imgWidthMm * scale;
+      const finalHeightMm = imgHeightMm * scale;
+      const xOffset = horizontalMargin + (availableWidth - finalWidthMm) / 2;
+      const yOffset = 15;
 
-    if (i !== 0) pdf.addPage();
-    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', xOffset, yOffset, finalWidthMm, finalHeightMm, undefined, 'FAST');
+      if (i !== 0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', xOffset, yOffset, finalWidthMm, finalHeightMm, undefined, 'FAST');
+    }
+
+    pdf.save(`Справка_ЗЕМА_${projectId || 'проект'}_${Date.now()}.pdf`);
+  } finally {
+    document.body.removeChild(container);
+    window.scrollTo(previousScroll.x, previousScroll.y);
   }
-
-  pdf.save(`Справка_ЗЕМА_${projectId || 'проект'}_${Date.now()}.pdf`);
-  document.body.removeChild(container);
 };
