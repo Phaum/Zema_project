@@ -163,6 +163,29 @@ function formatCurrency(value, digits = 2) {
   return `${formatNumber(value, digits)} ₽`;
 }
 
+function getComparableOfferRate(comp = {}) {
+  const candidates = [
+    comp?.rawOfferRate,
+    comp?.price_per_sqm_month,
+    comp?.offer_rate,
+    comp?.advertised_rate,
+    comp?.raw_source?.price_per_meter,
+    comp?.price_per_sqm,
+    comp?.unit_price,
+    comp?.raw_rate,
+    comp?.price_per_sqm_cleaned,
+  ];
+
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+
+  return 0;
+}
+
 function formatPreciseNumber(value, maxFractionDigits = 6) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '—';
@@ -552,7 +575,7 @@ function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) 
                   <strong>{item.address_offer || item.id || 'Аналог'}</strong>
                   {/* <div>ID: {item.id || item.external_id || '—'}</div> */}
                   <div>Класс: {item.class_offer || '—'}</div>
-                  <div>Ставка: {formatNumber(item.price_per_sqm_cleaned, 2)} ₽/м²</div>
+                  <div>Ставка из объявления: {formatNumber(getComparableOfferRate(item), 2)} ₽/м²</div>
                   <div>Скорр. ставка: {item.adjusted_rate ? `${formatNumber(item.adjusted_rate, 2)} ₽/м²` : '—'}</div>
                   <div>Вес: {item.normalized_weight ? `${formatNumber(Number(item.normalized_weight) * 100, 1)}%` : '—'}</div>
                   <div>Статус: {included ? 'В расчёте' : 'Исключён'}</div>
@@ -774,29 +797,29 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
 
   const rawComparables = breakdown?.market?.topComparables || [];
   const reportComparables = rawComparables.filter(c => c.included_in_rent_calculation !== false);
-  const getReportComparableRate = (comp) => Number(
-    comp?.price_per_sqm_month
-    ?? comp?.raw_rate
-    ?? comp?.price_per_sqm_cleaned
-    ?? comp?.price_per_sqm
-    ?? comp?.unit_price
-    ?? 0
-  );
+  const getReportComparableRate = getComparableOfferRate;
 
-  const includedRates = reportComparables
+  const includedOfferRates = reportComparables
     .map(getReportComparableRate)
     .filter(v => Number.isFinite(v) && v > 0);
 
-  let calculatedAverageRate = breakdown?.market?.averageRate;
-  if (includedRates.length > 0) {
-    const avgFromIncluded = includedRates.reduce((a, b) => a + b, 0) / includedRates.length;
-    if (!calculatedAverageRate || Math.abs(calculatedAverageRate - avgFromIncluded) / avgFromIncluded > 0.2) {
-      calculatedAverageRate = avgFromIncluded;
-    }
-  }
-
-  const marketRateMin = includedRates.length ? Math.min(...includedRates) : 0;
-  const marketRateMax = includedRates.length ? Math.max(...includedRates) : 0;
+  const calculatedAverageRate = Number(
+    breakdown?.market?.averageRentalRate
+    ?? breakdown?.inputs?.rentalRate?.marketData?.average
+    ?? breakdown?.inputs?.rentalRate?.value
+    ?? result?.rental_rate
+    ?? 0
+  );
+  const marketRateMin = Number(
+    breakdown?.market?.correctedRateMin
+    ?? breakdown?.inputs?.rentalRate?.marketData?.min
+    ?? (includedOfferRates.length ? Math.min(...includedOfferRates) : 0)
+  );
+  const marketRateMax = Number(
+    breakdown?.market?.correctedRateMax
+    ?? breakdown?.inputs?.rentalRate?.marketData?.max
+    ?? (includedOfferRates.length ? Math.max(...includedOfferRates) : 0)
+  );
 
   const comparables = reportComparables.map(comp => {
     const metro = comp.metro || comp.nearestMetro || '—';
@@ -1769,11 +1792,11 @@ export default function ProjectResultDetailedPanel({
               render: (value) => formatSqm(value, 2),
             },
             {
-              title: <Tooltip title={getFieldTooltip('price_per_sqm_cleaned')}>Ставка</Tooltip>,
-              dataIndex: 'price_per_sqm_cleaned',
-              key: 'price_per_sqm_cleaned',
+              title: <Tooltip title="Ставка аренды из объявления, без подмены на очищенную расчётную базу">Ставка из объявления</Tooltip>,
+              dataIndex: 'price_per_sqm_month',
+              key: 'price_per_sqm_month',
               width: '12%',
-              render: (value) => <Text strong>{formatNumber(value, 2)} ₽/м²</Text>,
+              render: (_, record) => <Text strong>{formatNumber(getComparableOfferRate(record), 2)} ₽/м²</Text>,
             },
             {
               title: 'Скорр. ставка',
@@ -2835,7 +2858,10 @@ export default function ProjectResultDetailedPanel({
                             dataIndex: 'raw_rate',
                             key: 'raw_rate',
                             width: '10%',
-                            render: (value) => value ? `${formatNumber(value, 2)} ₽/м²` : '—',
+                            render: (value, record) => {
+                              const offerRate = getComparableOfferRate(record);
+                              return offerRate || value ? `${formatNumber(offerRate || value, 2)} ₽/м²` : '—';
+                            },
                           },
                           {
                             title: 'Скорр. ставка',

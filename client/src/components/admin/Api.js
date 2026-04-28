@@ -237,6 +237,11 @@ export async function updateAdminBillingPlan(id, payload) {
     return data;
 }
 
+export async function deleteAdminBillingPlan(id) {
+    const { data } = await adminApi.delete(`/billing/plans/${id}`);
+    return data;
+}
+
 export async function fetchAdminSubscriptions(params = {}) {
     const { data } = await adminApi.get('/billing/subscriptions', { params });
     return data;

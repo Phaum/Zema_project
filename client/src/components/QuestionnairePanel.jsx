@@ -94,7 +94,7 @@ const BC_CLASS_OPTIONS = [
 
 const OBJECT_TYPE_OPTIONS = [
     { value: 'здание', label: 'Здание' },
-    { value: 'помещение', label: 'Помещение' },
+    { value: 'помещение', label: 'Помещение', disabled: true },
 ];
 
 const PREMISES_PURPOSE_OPTIONS = [

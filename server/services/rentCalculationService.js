@@ -957,6 +957,17 @@ function adjustAnalogRateByNewAlgorithm(analog, questionnaire, baseRate) {
     };
 }
 
+function resolveOfferRate(analog = {}) {
+    return toNumber(
+        analog?.price_per_sqm_month ??
+        analog?.offer_rate ??
+        analog?.advertised_rate ??
+        analog?.raw_source?.price_per_meter ??
+        analog?.raw_source?.price_per_sqm_month,
+        null
+    );
+}
+
 function filterAnalogsBySameClass(questionnaire = {}, analogs = []) {
     const subjectClass = normalizeBusinessCenterClass(
         questionnaire?.businessCenterClass ||
@@ -1202,6 +1213,7 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
 
     const preparedRows = limitedAnalogs.map((analog) => {
         const baseRate = toNumber(analog?.price_per_sqm_cleaned, null);
+        const offerRate = resolveOfferRate(analog);
 
         if (!Number.isFinite(baseRate) || baseRate <= 0) {
             return {
@@ -1216,6 +1228,8 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
                 floor_location: analog?.floor_location ?? null,
                 area_total: toNumber(analog?.area_total, null),
                 distance_to_metro: toNumber(analog?.distance_to_metro, null),
+                price_per_sqm_month: offerRate,
+                offerRate,
 
                 rawRate: null,
                 baseRate: null,
@@ -1259,6 +1273,8 @@ export function calculateMarketRentByNewAlgorithm(analogs = [], questionnaire = 
             floor_location: analog?.floor_location ?? null,
             area_total: toNumber(analog?.area_total, null),
             distance_to_metro: toNumber(analog?.distance_to_metro, null),
+            price_per_sqm_month: offerRate,
+            offerRate,
 
             rawRate: result.rawRate,
             baseRate: result.baseRate,

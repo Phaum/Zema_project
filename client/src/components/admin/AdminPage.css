@@ -107,6 +107,18 @@
     padding-bottom: 10px !important;
 }
 
+.admin-page-shell .ant-switch,
+.ant-drawer .ant-switch,
+.ant-modal .ant-switch {
+    border-radius: 999px !important;
+}
+
+.admin-page-shell .ant-switch .ant-switch-handle::before,
+.ant-drawer .ant-switch .ant-switch-handle::before,
+.ant-modal .ant-switch .ant-switch-handle::before {
+    border-radius: 50% !important;
+}
+
 .admin-page-section-shell {
     display: flex;
     flex-direction: column;

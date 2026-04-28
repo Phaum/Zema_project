@@ -20,7 +20,7 @@ const ServicesPage = () => {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.href = url;
-      link.download = 'zema_report_sample.pdf';
+      link.download = 'Образец_заключения_ЗЕМА.pdf';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

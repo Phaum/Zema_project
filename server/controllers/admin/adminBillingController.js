@@ -172,6 +172,33 @@ export async function updateAdminBillingPlan(req, res) {
   }
 }
 
+export async function deleteAdminBillingPlan(req, res) {
+  try {
+    const plan = await BillingPlan.findByPk(req.params.id);
+
+    if (!plan) {
+      return sendNotFound(res, 'Тариф');
+    }
+
+    const beforeData = plan.toJSON();
+    await plan.destroy();
+
+    await writeAdminAudit({
+      adminUserId: req.user.id,
+      entityType: 'billing_plan',
+      entityId: beforeData.id,
+      action: 'delete',
+      beforeData,
+      afterData: null,
+    });
+
+    return sendOk(res, { id: beforeData.id });
+  } catch (error) {
+    console.error('deleteAdminBillingPlan error:', error);
+    return sendServerError(res, 'удаления тарифа');
+  }
+}
+
 export async function getAdminSubscriptions(req, res) {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);

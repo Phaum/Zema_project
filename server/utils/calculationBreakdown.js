@@ -140,6 +140,7 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
                 address_offer: item.address_offer || null,
                 district: item.district || null,
                 class_offer: item.class_offer || null,
+                offer_rate: round2OrNull(item.offerRate ?? item.price_per_sqm_month),
                 raw_rate: round2(toNumber(item.rawRate, item.baseRate)),
                 corrected_rate: round2(toNumber(item.correctedRate, item.adjustedRate)),
                 relevance_score: round2(toNumber(item.relevanceScore, null)),
@@ -159,6 +160,7 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
             address_offer: item.address_offer || item.address || null,
             district: item.district || null,
             class_offer: item.class_offer || null,
+            offer_rate: round2OrNull(item.price_per_sqm_month ?? item.price_per_meter),
             raw_rate: round2(toNumber(item.price_per_sqm_cleaned, item.unit_price)),
             corrected_rate: null,
             relevance_score: null,
@@ -506,6 +508,11 @@ function roundTo(value, digits = 2) {
 
 function round2(value) {
     return roundTo(value, 2);
+}
+
+function round2OrNull(value) {
+    const num = toNumber(value, null);
+    return Number.isFinite(num) ? round2(num) : null;
 }
 
 function formatPlain(value) {

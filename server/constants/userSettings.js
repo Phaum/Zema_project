@@ -2,7 +2,7 @@ export const DEFAULT_USER_SETTINGS = Object.freeze({
   emailNotifications: true,
   cabinetNotifications: true,
   compactMode: false,
-  showQuestionnaireHints: true,
+  showQuestionnaireHints: false,
   confirmImportantActions: true,
   rememberLastProject: true,
 });

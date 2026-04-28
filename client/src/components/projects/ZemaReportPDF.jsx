@@ -130,11 +130,33 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     `${formatCurrency(landShareValue)}`,
   ].join(' / ');
 
+  const getComparableOfferRate = (comp = {}) => {
+    const candidates = [
+      comp.rawOfferRate,
+      comp.price_per_sqm_month,
+      comp.offer_rate,
+      comp.advertised_rate,
+      comp.raw_rate,
+      comp.price_per_sqm_cleaned,
+      comp.price_per_sqm,
+      comp.unit_price,
+    ];
+
+    for (const candidate of candidates) {
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value > 0) {
+        return value;
+      }
+    }
+
+    return 0;
+  };
+
   const normalizedComparables = comparables
     .filter(comp => comp?.included_in_rent_calculation !== false)
     .map(comp => ({
       ...comp,
-      rawOfferRate: comp.rawOfferRate ?? comp.price_per_sqm_month ?? comp.raw_rate ?? comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
+      rawOfferRate: getComparableOfferRate(comp),
       price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
       buildingName: comp.buildingName || comp.building_name || comp.complex_name || '—',
       class_offer: comp.class_offer || '—',
@@ -198,7 +220,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <th>Адрес</th>
             <th>Площадь, м²</th>
             <th>Этаж</th>
-            <th>Ставка, ₽/м²</th>
+            <th>Ставка из объявления, ₽/м²</th>
             <th>Район</th>
             <th>Ближ. окружение</th>
             <th>Метро</th>

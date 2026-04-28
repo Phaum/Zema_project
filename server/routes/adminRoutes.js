@@ -54,6 +54,7 @@ import {
 } from '../controllers/admin/adminAnaloguesController.js';
 import {
     createAdminBillingPlan,
+    deleteAdminBillingPlan,
     getAdminBillingPlans,
     getAdminSubscriptions,
     updateAdminBillingPlan,
@@ -112,6 +113,7 @@ router.delete('/spatial-zones/:id', deleteAdminSpatialZone);
 router.get('/billing/plans', getAdminBillingPlans);
 router.post('/billing/plans', createAdminBillingPlan);
 router.patch('/billing/plans/:id', updateAdminBillingPlan);
+router.delete('/billing/plans/:id', deleteAdminBillingPlan);
 router.get('/billing/subscriptions', getAdminSubscriptions);
 router.patch('/billing/subscriptions/:userId', updateAdminSubscription);
 

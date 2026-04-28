@@ -29,6 +29,7 @@ test('calculateMarketRentByNewAlgorithm aligns area and floor corrections with E
     const analogs = [
         {
             id: 'excel_like_basement',
+            price_per_sqm_month: 1000,
             price_per_sqm_cleaned: 800,
             area_total: 381,
             class_offer: 'B+',
@@ -47,6 +48,8 @@ test('calculateMarketRentByNewAlgorithm aligns area and floor corrections with E
     const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
     const analog = result.adjustedRates[0];
 
+    assert.equal(analog.offerRate, 1000);
+    assert.equal(analog.rawRate, 800);
     assert.equal(result.marketRentFirst, analog.correctedRate);
     assert.equal(analog.areaAdjustment, 1.14);
     assert.equal(analog.floorAdjustment, 1.14);

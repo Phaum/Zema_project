@@ -8,6 +8,7 @@ import {
     Form,
     Input,
     InputNumber,
+    Popconfirm,
     Select,
     Space,
     Switch,
@@ -18,8 +19,10 @@ import {
     message,
 } from 'antd';
 import dayjs from 'dayjs';
+import { DeleteOutlined } from '@ant-design/icons';
 import {
     createAdminBillingPlan,
+    deleteAdminBillingPlan,
     fetchAdminBillingPlans,
     fetchAdminSubscriptions,
     updateAdminBillingPlan,
@@ -84,6 +87,7 @@ export default function AdminBillingTab() {
     const [selectedSubscription, setSelectedSubscription] = useState(null);
     const [savingPlan, setSavingPlan] = useState(false);
     const [savingSubscription, setSavingSubscription] = useState(false);
+    const [deletingPlanId, setDeletingPlanId] = useState(null);
     const [planForm] = Form.useForm();
     const [subscriptionForm] = Form.useForm();
     const watchedPlanKind = Form.useWatch('kind', planForm);
@@ -246,6 +250,24 @@ export default function AdminBillingTab() {
         }
     };
 
+    const handleDeletePlan = async (record) => {
+        if (!record?.id) {
+            return;
+        }
+
+        try {
+            setDeletingPlanId(record.id);
+            await deleteAdminBillingPlan(record.id);
+            message.success('Тариф удалён');
+            await loadPlans();
+        } catch (error) {
+            console.error(error);
+            message.error(error?.response?.data?.error || 'Не удалось удалить тариф');
+        } finally {
+            setDeletingPlanId(null);
+        }
+    };
+
     const planColumns = [
         {
             title: 'Название',
@@ -282,11 +304,29 @@ export default function AdminBillingTab() {
         },
         {
             title: 'Действия',
-            width: 120,
+            width: 210,
             render: (_, record) => (
-                <Button onClick={() => openPlanDrawer(record, record.kind)}>
-                    Открыть
-                </Button>
+                <Space>
+                    <Button onClick={() => openPlanDrawer(record, record.kind)}>
+                        Открыть
+                    </Button>
+                    <Popconfirm
+                        title="Удалить тариф?"
+                        description="Тариф исчезнет из админки и каталога оплаты. Исторические проекты и подписки сохранят код тарифа."
+                        okText="Удалить"
+                        cancelText="Отмена"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => handleDeletePlan(record)}
+                    >
+                        <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            loading={deletingPlanId === record.id}
+                        >
+                            Удалить
+                        </Button>
+                    </Popconfirm>
+                </Space>
             ),
         },
     ];

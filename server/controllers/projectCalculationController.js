@@ -66,6 +66,16 @@ function toComparablePlain(row) {
     return { ...row };
 }
 
+function isPremisesObjectType(value) {
+    const normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/ё/g, 'е');
+
+    return normalized.includes('помещ')
+        || ['premises', 'office', 'retail', 'офис', 'торговля'].includes(normalized);
+}
+
 function firstFinite(...values) {
     for (const value of values) {
         const num = toNumber(value, null);
@@ -673,6 +683,11 @@ async function mapAnalogueToComparable(rawRow) {
         row.price_per_meter_cut_nds,
         row.price_per_meter
     );
+    const offerRate = firstFinite(
+        row.price_per_meter,
+        row.price_per_meter_cut_nds,
+        row.unit_price
+    );
 
     return {
         id: row.id,
@@ -682,6 +697,7 @@ async function mapAnalogueToComparable(rawRow) {
         district: row.district || null,
         class_offer: row.class_offer || null,
         area_total: row.total_area !== null ? Number(row.total_area) : null,
+        price_per_sqm_month: offerRate,
         price_per_sqm_cleaned: comparableRate,
         comparison_price_per_sqm: comparableRate,
         latitude: coords.lat,
@@ -924,6 +940,7 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
             class_offer: row.class_offer || null,
             area_total: toNumber(row.area_total, null),
             price_per_sqm_month: toNumber(row.price_per_sqm_month, null),
+            offer_rate: toNumber(row.offer_rate ?? row.price_per_sqm_month, null),
             price_per_sqm_cleaned: toNumber(row.price_per_sqm_cleaned, null),
             raw_rate: toNumber(adjustment?.rawRate, null),
             adjusted_rate: toNumber(adjustment?.adjustedRate, null),
@@ -1055,6 +1072,12 @@ export const calculateProject = async (req, res) => {
                 ).questionnaire
             ).questionnaire
         ).questionnaire;
+
+        if (isPremisesObjectType(questionnaire.objectType)) {
+            return res.status(400).json({
+                error: 'Расчёт для вида объекта «помещение» пока недоступен. Выберите вид объекта «здание».',
+            });
+        }
 
         if (!questionnaire.mapPointLat || !questionnaire.mapPointLng) {
             return res.status(400).json({ error: 'Координаты объекта не указаны' });
@@ -1283,6 +1306,12 @@ export const getProjectMarketContext = async (req, res) => {
         const questionnaire = project.questionnaire;
         if (!questionnaire) {
             return res.status(400).json({ error: 'Для проекта отсутствует опросный лист' });
+        }
+
+        if (isPremisesObjectType(questionnaire.objectType)) {
+            return res.status(400).json({
+                error: 'Рыночный контекст для вида объекта «помещение» пока недоступен. Выберите вид объекта «здание».',
+            });
         }
 
         const {
