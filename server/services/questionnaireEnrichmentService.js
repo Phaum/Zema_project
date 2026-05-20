@@ -1321,7 +1321,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                     lon: Number(enriched.mapPointLng),
                     address: enriched.objectAddress,
                     city: 'Санкт-Петербург',
-                    preferWalkingRoute: false,
+                    preferWalkingRoute: true,
                 });
 
                 if (hasMeaningfulValue(metro?.station) && isPlausibleMetroDistanceMeters(metro?.distance)) {

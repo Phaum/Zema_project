@@ -501,7 +501,7 @@ async function getMetroByCoordinates(latitude, longitude, { address = null, city
       lon: longitude,
       address,
       city,
-      preferWalkingRoute: false,
+      preferWalkingRoute: true,
     });
 
     return {

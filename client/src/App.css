@@ -27,6 +27,9 @@ body {
   --border-color: #d9d9d9;
   --text-color: #262626;
   --text-secondary: #595959;
+  --app-header-height: 70px;
+  --app-footer-height: 58px;
+  --page-visible-height: calc(100vh - var(--app-header-height) - var(--app-footer-height));
 }
 
 #root {
@@ -43,6 +46,93 @@ body {
 .app-content {
   flex: 1;
   background: #ffffff;
+}
+
+.app-footer {
+  flex-shrink: 0;
+  padding: 14px 50px !important;
+  background: #ffffff !important;
+  border-top: 2px solid #f0f0f0;
+}
+
+.app-footer-credit {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.app-footer-credit:hover {
+  color: var(--primary-dark);
+}
+
+.app-footer-text {
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.app-footer-logo {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.home-container,
+.about-container,
+.services-page-container,
+.analytics-page-container,
+.contacts-page-container,
+.personal-container,
+.questionary-container,
+.auth-page {
+  min-height: var(--page-visible-height) !important;
+}
+
+.auth-page {
+  margin-top: var(--app-header-height);
+}
+
+.hero-section {
+  min-height: 430px !important;
+}
+
+.about-hero,
+.services-page-hero,
+.analytics-page-hero,
+.contacts-page-hero {
+  min-height: 280px !important;
+}
+
+.features-section,
+.analytics-section,
+.cta-section,
+.about-section,
+.services-main,
+.analytics-page-section,
+.contacts-page-section {
+  padding-top: 44px !important;
+  padding-bottom: 44px !important;
+}
+
+.personal-page-head {
+  padding-top: 20px !important;
+}
+
+.personal-content {
+  padding-bottom: 24px !important;
+}
+
+.questionary-container {
+  padding-top: 28px !important;
+  padding-bottom: 28px !important;
 }
 
 .ant-btn,
@@ -198,8 +288,45 @@ body {
 }
 
 @media (max-width: 768px) {
+  :root {
+    --app-header-height: 60px;
+    --app-footer-height: 82px;
+  }
+
   .container {
     padding: 0 15px;
+  }
+
+  .app-footer {
+    padding: 12px 20px !important;
+  }
+
+  .app-footer-credit {
+    flex-direction: column;
+    gap: 4px;
+    text-align: center;
+  }
+
+  .hero-section {
+    min-height: 360px !important;
+  }
+
+  .about-hero,
+  .services-page-hero,
+  .analytics-page-hero,
+  .contacts-page-hero {
+    min-height: 240px !important;
+  }
+
+  .features-section,
+  .analytics-section,
+  .cta-section,
+  .about-section,
+  .services-main,
+  .analytics-page-section,
+  .contacts-page-section {
+    padding-top: 34px !important;
+    padding-bottom: 34px !important;
   }
 }
 

@@ -331,7 +331,7 @@ async function resolveComparableMetroDistanceKm(row) {
                 lon: coords.lon,
                 address: row?.address,
                 city: 'Санкт-Петербург',
-                preferWalkingRoute: false,
+                preferWalkingRoute: true,
             });
             const namedDistanceKm = normalizeMetroDistanceKm(stationDistance?.distance);
             if (Number.isFinite(namedDistanceKm)) {
@@ -348,7 +348,7 @@ async function resolveComparableMetroDistanceKm(row) {
             lon: coords.lon,
             address: row?.address || 'Санкт-Петербург',
             city: 'Санкт-Петербург',
-            preferWalkingRoute: false,
+            preferWalkingRoute: true,
         });
 
         return normalizeMetroDistanceKm(nearestMetro?.distance);

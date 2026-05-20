@@ -16,7 +16,7 @@ import { AuthProvider } from './context/AuthContext';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
 
-const { Content } = Layout;
+const { Content, Footer } = Layout;
 
 const App = () => {
     return (
@@ -74,6 +74,24 @@ const App = () => {
                                 <Route path="*" element={<Navigate to="/" replace />} />
                             </Routes>
                         </Content>
+                        <Footer className="app-footer">
+                            <a
+                                className="app-footer-credit"
+                                href="https://codeak.ru"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Перейти на сайт Code.ak"
+                            >
+                                <span className="app-footer-text">
+                                    Проект разработан совместно с командой Code.ak
+                                </span>
+                                <img
+                                    className="app-footer-logo"
+                                    src="/codeak-logo.svg"
+                                    alt="Code.ak"
+                                />
+                            </a>
+                        </Footer>
                     </Layout>
                 </Router>
             </AuthProvider>
