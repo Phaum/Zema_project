@@ -57,6 +57,19 @@ test('buildAreaRangeByCalculationArea uses first-floor area plus-minus 200 sqm',
     assert.deepEqual(areaRange?.[Op.between], [485, 885]);
 });
 
+test('buildAreaRangeByCalculationArea uses 50 percent range for small rooms', () => {
+    const areaRange = buildAreaRangeByCalculationArea({
+        floors: [
+            {
+                floorCategory: 'first',
+                avgLeasableRoomArea: 180,
+            },
+        ],
+    });
+
+    assert.deepEqual(areaRange?.[Op.between], [90, 270]);
+});
+
 test('resolveAnalogueQuarterKey prefers explicit quarter and normalizes it', () => {
     assert.equal(resolveAnalogueQuarterKey({ quarter: '1 кв. 2025' }), '2025-Q1');
     assert.equal(resolveAnalogueQuarterKey({ quarter: 'Q3 2024' }), '2024-Q3');

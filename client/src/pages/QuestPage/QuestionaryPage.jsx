@@ -503,24 +503,10 @@ const QuestionaryPage = () => {
                       <Option value="B+">В+</Option>
                       <Option value="B">В</Option>
                       <Option value="C">С</Option>
-                      <Option value="unknown">не знаю</Option>
                     </Select>
                   </Form.Item>
                 </Col>
               </Row>
-
-              {form.getFieldValue('classBC') === 'unknown' && (
-                <Row gutter={24}>
-                  <Col span={24}>
-                    <Form.Item 
-                      name="marketRate" 
-                      label="Средняя рыночная ставка аренды помещения в БЦ (₽/кв.м/мес)"
-                    >
-                      <Input type="number" placeholder="Ручной ввод" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              )}
             </Card>
 
             <Card className="form-card" title="Местоположение и характеристики">

@@ -21,6 +21,45 @@ test('calculateCapitalizationRate uses quarter market profile without adjustment
     assert.deepEqual(result.adjustments, []);
 });
 
+test('calculateCapitalizationRate applies 2025 class-specific capitalization matrix', () => {
+    const q1ClassB = calculateCapitalizationRate({
+        questionnaire: {
+            valuationDate: '2025-01-01',
+            businessCenterClass: 'B',
+        },
+    });
+    const q1ClassC = calculateCapitalizationRate({
+        questionnaire: {
+            valuationDate: '2025-01-01',
+            businessCenterClass: 'C',
+        },
+    });
+    const q3ClassA = calculateCapitalizationRate({
+        questionnaire: {
+            valuationDate: '2025-09-15',
+            businessCenterClass: 'A',
+        },
+    });
+    const q3ClassB = calculateCapitalizationRate({
+        questionnaire: {
+            valuationDate: '2025-09-15',
+            businessCenterClass: 'B',
+        },
+    });
+    const q3ClassC = calculateCapitalizationRate({
+        questionnaire: {
+            valuationDate: '2025-09-15',
+            businessCenterClass: 'C',
+        },
+    });
+
+    assert.equal(q1ClassB.finalCapRate, 0.1075);
+    assert.equal(q1ClassC.finalCapRate, 0.115);
+    assert.equal(q3ClassA.finalCapRate, 0.12);
+    assert.equal(q3ClassB.finalCapRate, 0.1275);
+    assert.equal(q3ClassC.finalCapRate, 0.135);
+});
+
 test('calculateOpexRate uses quarter market profile without adjustments', () => {
     const result = calculateOpexRate({
         questionnaire: {

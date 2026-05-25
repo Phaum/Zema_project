@@ -38,8 +38,8 @@ const CAPITALIZATION_RATE_BY_CLASS = {
     'A+': 0.09,
     A: 0.095,
     'B+': 0.10,
-    B: 0.105,
-    C: 0.11,
+    B: 0.1075,
+    C: 0.115,
     unknown: 0.10,
 };
 
@@ -64,21 +64,49 @@ const OPEX_RATE_BY_CLASS = {
 const QUARTER_MARKET_PROFILE_BY_PERIOD = {
     '2025-Q1': {
         capitalizationRate: 0.10,
+        capitalizationRateByClass: {
+            'A+': 0.10,
+            A: 0.10,
+            'B+': 0.10,
+            B: 0.1075,
+            C: 0.115,
+        },
         vacancyRate: 0.09,
         opexRate: 0.21,
     },
     '2025-Q2': {
         capitalizationRate: 0.10,
+        capitalizationRateByClass: {
+            'A+': 0.10,
+            A: 0.10,
+            'B+': 0.10,
+            B: 0.1075,
+            C: 0.115,
+        },
         vacancyRate: 0.11,
         opexRate: 0.21,
     },
     '2025-Q3': {
         capitalizationRate: 0.12,
+        capitalizationRateByClass: {
+            'A+': 0.12,
+            A: 0.12,
+            'B+': 0.12,
+            B: 0.1275,
+            C: 0.135,
+        },
         vacancyRate: 0.14,
         opexRate: 0.26,
     },
     '2025-Q4': {
         capitalizationRate: 0.10,
+        capitalizationRateByClass: {
+            'A+': 0.10,
+            A: 0.10,
+            'B+': 0.10,
+            B: 0.1075,
+            C: 0.115,
+        },
         vacancyRate: 0.14,
         opexRate: 0.25,
     },
@@ -478,6 +506,16 @@ function resolveQuarterMarketProfile(questionnaire = {}) {
         label: humanizeQuarterKey(key),
         profile,
     };
+}
+
+function resolveCapitalizationRateByProfileAndClass(marketProfile, normalizedClass) {
+    const classRate = marketProfile?.profile?.capitalizationRateByClass?.[normalizedClass];
+    if (Number.isFinite(classRate)) return classRate;
+
+    const profileRate = marketProfile?.profile?.capitalizationRate;
+    if (Number.isFinite(profileRate)) return profileRate;
+
+    return CAPITALIZATION_RATE_BY_CLASS[normalizedClass] ?? EXCEL_PARITY_CONFIG.valuation.capitalizationRate;
 }
 
 function sumAdjustments(items = []) {
@@ -934,10 +972,7 @@ export function resolveCapitalizationRateProfile(questionnaire, selectedAnalogs 
         Array.isArray(selectedAnalogs) ? selectedAnalogs.length : 0
     );
     const environmentScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
-    const baseRate = toNumber(
-        marketProfile.profile?.capitalizationRate,
-        EXCEL_PARITY_CONFIG.valuation.capitalizationRate
-    );
+    const baseRate = resolveCapitalizationRateByProfileAndClass(marketProfile, normalizedClass);
 
     return {
         rate: baseRate,
@@ -956,6 +991,7 @@ export function resolveCapitalizationRateProfile(questionnaire, selectedAnalogs 
         environmentScore,
         profileQuarterKey: marketProfile.key,
         profileQuarterLabel: marketProfile.label,
+        capitalizationClassRate: baseRate,
     };
 }
 
@@ -2477,10 +2513,7 @@ export function calculateCapitalizationRate({
         questionnaire?.objectClass
     );
     const districtBucket = resolveDistrictBucket(questionnaire?.district);
-    const baseCapRate = toNumber(
-        marketProfile.profile?.capitalizationRate,
-        EXCEL_PARITY_CONFIG.valuation.capitalizationRate
-    );
+    const baseCapRate = resolveCapitalizationRateByProfileAndClass(marketProfile, normalizedClass);
     const environmentScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
     const reliabilityScore = toNumber(reliability?.score, null);
     const dispersionPct = toNumber(
@@ -2515,6 +2548,7 @@ export function calculateCapitalizationRate({
             ? round4(subjectDataQualityScoreNormalized)
             : null,
         valuationQuarterKey: marketProfile.key,
+        normalizedClass,
     };
 
     return {
@@ -2540,6 +2574,7 @@ export function calculateCapitalizationRate({
                 : null,
             valuationQuarterKey: marketProfile.key,
             valuationQuarterLabel: marketProfile.label,
+            capitalizationClassRate: baseCapRate,
         },
     };
 }

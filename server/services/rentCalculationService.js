@@ -3,6 +3,7 @@ import { toNumber } from '../utils/dataValidation.js';
 const RENT_CONFIG = {
     selector: {
         maxAnalogs: 10,
+        minFinalAnalogs: 5,
         areaMinFactor: 0.35,
         areaMaxFactor: 3,
     },
@@ -1144,6 +1145,26 @@ function filterRowsByCorrectedRateTolerance(rows = [], tolerance = RENT_CONFIG.f
         };
     }
 
+    const minimumFinalRows = Math.min(RENT_CONFIG.selector.minFinalAnalogs, working.length);
+    let strategy = 'no_rate_range_outliers';
+
+    if (bestRows.length < minimumFinalRows) {
+        const selectedIds = new Set(bestRows.map((row) => row.analogId));
+        const additionalRows = working
+            .filter((row) => !selectedIds.has(row.analogId))
+            .map((row) => ({
+                row,
+                distanceFromMedian: Math.abs(toNumber(row.correctedRate, 0) - medianRate),
+            }))
+            .sort((left, right) => left.distanceFromMedian - right.distanceFromMedian)
+            .slice(0, minimumFinalRows - bestRows.length)
+            .map((item) => item.row);
+
+        bestRows = [...bestRows, ...additionalRows]
+            .sort((left, right) => toNumber(left.correctedRate, 0) - toNumber(right.correctedRate, 0));
+        strategy = 'expanded_to_minimum_5_after_30pct_range';
+    }
+
     const keptIds = new Set(bestRows.map((row) => row.analogId));
     const removedRows = working.filter((row) => !keptIds.has(row.analogId));
     const lowerBound = toNumber(bestRows[0]?.correctedRate, null);
@@ -1156,7 +1177,9 @@ function filterRowsByCorrectedRateTolerance(rows = [], tolerance = RENT_CONFIG.f
         upperBound,
         medianRate,
         tolerance,
-        strategy: removedRows.length ? 'corrected_rate_30pct_range' : 'no_rate_range_outliers',
+        strategy: strategy !== 'no_rate_range_outliers'
+            ? strategy
+            : removedRows.length ? 'corrected_rate_30pct_range' : 'no_rate_range_outliers',
     };
 }
 

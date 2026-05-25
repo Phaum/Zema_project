@@ -214,11 +214,92 @@
     margin-top: 10px;
 }
 
+.project-result-environment-logic {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+    margin: 12px 0;
+    border: 1px solid #dce8f6;
+    background: #fbfdff;
+}
+
+.project-result-environment-logic-header,
+.project-result-environment-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.project-result-environment-side {
+    min-height: 112px;
+    padding: 12px;
+    border: 1px solid #e7eef7;
+    background: #ffffff;
+}
+
+.project-result-environment-guide {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .project-result-map-meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+}
+
+.project-result-environment-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.project-result-environment-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+}
+
+.project-result-environment-map-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    gap: 14px;
+    align-items: stretch;
+}
+
+.project-result-environment-map-shell {
+    min-width: 0;
+}
+
+.project-result-map.project-result-environment-map {
+    height: 460px;
+}
+
+.project-result-environment-summary {
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid #e7eef7;
+    background: #ffffff;
+}
+
+.project-result-environment-category-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.project-result-environment-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
 }
 
 .project-result-map-shell {
@@ -497,6 +578,14 @@ body.compact-ui .project-result-map {
     .project-result-map {
         height: 360px;
     }
+
+    .project-result-environment-map-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .project-result-map.project-result-environment-map {
+        height: 380px;
+    }
 }
 
 @media (max-width: 576px) {
@@ -528,5 +617,9 @@ body.compact-ui .project-result-map {
 
     .project-result-map {
         height: 300px;
+    }
+
+    .project-result-map.project-result-environment-map {
+        height: 320px;
     }
 }

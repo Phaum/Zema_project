@@ -19,7 +19,7 @@ import {
   Tooltip,
 } from 'antd';
 import html2canvas from 'html2canvas';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
   DollarOutlined,
@@ -589,6 +589,229 @@ function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) 
   );
 }
 
+const ENVIRONMENT_ZONE_LAYERS = [
+  {
+    key: 'business',
+    label: 'Деловая застройка',
+    shortLabel: 'Деловая',
+    color: '#2563eb',
+    offset: [180, 145],
+  },
+  {
+    key: 'industrialWarehouse',
+    label: 'Произв.-складская',
+    shortLabel: 'Склады',
+    color: '#f97316',
+    offset: [-180, 155],
+  },
+  {
+    key: 'highriseResidential',
+    label: 'Многоэтажки',
+    shortLabel: 'Многоэтажки',
+    color: '#dc2626',
+    offset: [-150, -175],
+  },
+  {
+    key: 'midriseResidential',
+    label: 'Среднеэтажки до 8 эт.',
+    shortLabel: 'До 8 эт.',
+    color: '#16a34a',
+    offset: [165, -160],
+  },
+];
+
+function offsetLatLngByMeters(lat, lng, northMeters, eastMeters) {
+  const numericLat = Number(lat);
+  const numericLng = Number(lng);
+  const lngScale = 111320 * Math.cos((numericLat * Math.PI) / 180);
+
+  return [
+    numericLat + northMeters / 111320,
+    numericLng + eastMeters / (Number.isFinite(lngScale) && Math.abs(lngScale) > 1 ? lngScale : 111320),
+  ];
+}
+
+function buildEnvironmentZoneSpots(analysis) {
+  const counts = analysis?.counts || {};
+
+  return ENVIRONMENT_ZONE_LAYERS.map((layer) => {
+    const count = Number(counts[layer.key]) || 0;
+    const radius = Math.min(280, Math.max(95, 90 + Math.sqrt(Math.max(count, 1)) * 34));
+
+    return {
+      ...layer,
+      count,
+      radius,
+      visible: count > 0,
+    };
+  });
+}
+
+function EnvironmentAnalysisMap({ analysis, objectPoint }) {
+  const lat = Number(analysis?.latitude ?? objectPoint?.lat);
+  const lng = Number(analysis?.longitude ?? objectPoint?.lng);
+  const hasCenter = Number.isFinite(lat) && Number.isFinite(lng);
+
+  if (!hasCenter) {
+    return (
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="Нет координат для карты ближайшего окружения"
+      />
+    );
+  }
+
+  const radiusMeters = Number(analysis?.radiusMeters) || 600;
+  const center = [lat, lng];
+  const spots = buildEnvironmentZoneSpots(analysis);
+  const visibleSpots = spots.filter((spot) => spot.visible);
+  const categories = Array.from(new Set((analysis?.categories || []).filter(Boolean)));
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <div className="project-result-map-meta">
+        <Tag color="magenta">Объект</Tag>
+        <Tag color="default">Радиус {formatNumber(radiusMeters, 0)} м</Tag>
+        {spots.map((spot) => (
+          <Tag key={spot.key} color="default" className="project-result-environment-tag">
+            <span
+              className="project-result-environment-dot"
+              style={{ backgroundColor: spot.color }}
+            />
+            {spot.shortLabel}: {formatNumber(spot.count, 0)}
+          </Tag>
+        ))}
+      </div>
+
+      <div className="project-result-environment-map-layout">
+        <div className="project-result-map-shell project-result-environment-map-shell">
+          <MapContainer
+            key={`environment_${lat}_${lng}_${radiusMeters}`}
+            center={center}
+            zoom={14}
+            scrollWheelZoom={false}
+            zoomAnimation={false}
+            fadeAnimation={false}
+            markerZoomAnimation={false}
+            className="project-result-map project-result-environment-map"
+          >
+            <TileLayer
+              attribution="&copy; OpenStreetMap contributors"
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              crossOrigin="anonymous"
+            />
+            <Circle
+              center={center}
+              radius={radiusMeters}
+              pathOptions={{
+                color: '#111827',
+                weight: 2,
+                fillOpacity: 0.03,
+              }}
+            />
+            <Circle
+              center={center}
+              radius={Math.min(300, radiusMeters)}
+              pathOptions={{
+                color: '#111827',
+                weight: 1,
+                dashArray: '6 6',
+                fillOpacity: 0,
+              }}
+            />
+
+            {visibleSpots.map((spot) => {
+              const [northMeters, eastMeters] = spot.offset;
+              const spotCenter = offsetLatLngByMeters(lat, lng, northMeters, eastMeters);
+
+              return (
+                <Circle
+                  key={spot.key}
+                  center={spotCenter}
+                  radius={spot.radius}
+                  pathOptions={{
+                    color: spot.color,
+                    weight: 1,
+                    fillColor: spot.color,
+                    fillOpacity: 0.22,
+                  }}
+                >
+                  <Popup>
+                    <div className="project-result-map-popup">
+                      <strong>{spot.label}</strong>
+                      <div>Объектов в радиусе: {formatNumber(spot.count, 0)}</div>
+                    </div>
+                  </Popup>
+                </Circle>
+              );
+            })}
+
+            <CircleMarker
+              center={center}
+              radius={7}
+              pathOptions={{
+                color: '#ffffff',
+                weight: 3,
+                fillColor: '#c026d3',
+                fillOpacity: 0.96,
+              }}
+            >
+              <Popup>
+                <div>
+                  <strong>Оцениваемый объект</strong>
+                  <div>{objectPoint?.address || 'Адрес не указан'}</div>
+                  <div>{objectPoint?.cadastralNumber || '—'}</div>
+                </div>
+              </Popup>
+            </CircleMarker>
+          </MapContainer>
+        </div>
+
+        <div className="project-result-environment-summary">
+          <div>
+            <Text type="secondary">Категория окружения</Text>
+            <div className="project-result-environment-category-list">
+              {categories.length
+                ? categories.slice(0, 3).map((category) => (
+                  <Tag key={category}>{localizeEnvironmentCategoryText(category)}</Tag>
+                ))
+                : <Tag>Не определена</Tag>}
+            </div>
+          </div>
+
+          <div className="project-result-environment-stat-grid">
+            <Statistic
+              title="Индекс окружения"
+              value={hasMeaningfulValue(analysis?.totalScore) ? Number(analysis.totalScore) : 0}
+              precision={1}
+              valueStyle={{ fontSize: 22 }}
+            />
+            <Statistic
+              title="Метро"
+              value={analysis?.nearestMetro || '—'}
+              valueStyle={{ fontSize: 18 }}
+            />
+          </div>
+
+          <Descriptions size="small" column={1}>
+            <Descriptions.Item label="Расстояние до метро">
+              {hasMeaningfulValue(analysis?.nearestMetroDistance)
+                ? `${formatNumber(Number(analysis.nearestMetroDistance), 0)} м`
+                : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Исторический центр">
+              {analysis?.historicalCenterStatus || '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Качество данных">
+              {analysis?.qualityFlag || '—'}
+            </Descriptions.Item>
+          </Descriptions>
+        </div>
+      </div>
+    </Space>
+  );
+}
+
 const OBJECT_TYPE_LABELS = {
   'здание': 'Здание',
   'помещение': 'Помещение',
@@ -744,6 +967,83 @@ function buildComparableFactorLine(adjustment) {
   return `${adjustment.stage}: ${variable} = ${formatPlainFactor(adjustment.factor)} (${formatSignedPercent(adjustment.deltaPercent, 2)})`;
 }
 
+const ENVIRONMENT_COEFFICIENT_GUIDE = [
+  ['культурный и исторический центр', 1.00],
+  ['центры деловой активности', 0.91],
+  ['многоквартирная жилая застройка', 0.83],
+  ['среднеэтажная жилая застройка', 0.80],
+  ['район крупных автомагистралей города', 0.79],
+  ['окраины городов, промзоны', 0.61],
+];
+
+function formatEnvironmentValues(values = []) {
+  return formatEnvironmentCategories(
+    (Array.isArray(values) ? values : [values]).flat().filter(Boolean),
+    ' / '
+  );
+}
+
+function EnvironmentDeterminationPanel({ details = {}, subjectLabel, analogLabel, factor }) {
+  const subjectEnvironment = formatEnvironmentValues(details.subjectEnvironment);
+  const analogEnvironment = formatEnvironmentValues(details.analogEnvironment);
+  const subjectCoefficient = hasMeaningfulValue(details.subjectCoefficient)
+    ? Number(details.subjectCoefficient)
+    : null;
+  const analogCoefficient = hasMeaningfulValue(details.analogCoefficient)
+    ? Number(details.analogCoefficient)
+    : null;
+
+  return (
+    <div className="project-result-environment-logic">
+      <div className="project-result-environment-logic-header">
+        <Text strong>Как определяется ближайшее окружение</Text>
+        <Text type="secondary">
+          Берём категории объекта и аналога, переводим их в коэффициенты и считаем Кокружение = К объекта / К аналога.
+        </Text>
+      </div>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} md={12}>
+          <div className="project-result-environment-side">
+            <Text type="secondary">{subjectLabel}</Text>
+            <Text strong>{subjectEnvironment}</Text>
+            <Text>
+              Коэффициент: {hasMeaningfulValue(subjectCoefficient) ? formatPlainFactor(subjectCoefficient) : '—'}
+            </Text>
+            {hasMeaningfulValue(details.subjectHistoricalCenter) && (
+              <Text type="secondary">Исторический центр: {formatYesNo(details.subjectHistoricalCenter)}</Text>
+            )}
+          </div>
+        </Col>
+        <Col xs={24} md={12}>
+          <div className="project-result-environment-side">
+            <Text type="secondary">{analogLabel}</Text>
+            <Text strong>{analogEnvironment}</Text>
+            <Text>
+              Коэффициент: {hasMeaningfulValue(analogCoefficient) ? formatPlainFactor(analogCoefficient) : '—'}
+            </Text>
+            {hasMeaningfulValue(details.analogHistoricalCenter) && (
+              <Text type="secondary">Исторический центр: {formatYesNo(details.analogHistoricalCenter)}</Text>
+            )}
+          </div>
+        </Col>
+      </Row>
+
+      <code className="project-result-formula">
+        {`Кокружение = ${formatPlainFactor(subjectCoefficient)} / ${formatPlainFactor(analogCoefficient)} = ${formatPlainFactor(factor)}`}
+      </code>
+
+      <div className="project-result-environment-guide">
+        {ENVIRONMENT_COEFFICIENT_GUIDE.map(([label, coefficient]) => (
+          <Tag key={label}>
+            {label}: {formatPlainFactor(coefficient)}
+          </Tag>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ComparableMathStep({ number, title, result, formula, explanation, facts = [] }) {
   return (
     <Card size="small" className="project-result-comparable-step">
@@ -843,7 +1143,7 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
       district: comp.district || '—',
       nearestMetro: metro,
       distanceToMetro: distance,
-      isHistoricalCenter: comp.is_historical_center ?? comp.isHistoricalCenter ?? false,
+      isHistoricalCenter: comp.environment_historical_center ?? comp.is_historical_center ?? comp.isHistoricalCenter ?? false,
       territorialZone: terZone === null || terZone === 'null' ? '—' : terZone,
       nearbyEnvironment: env,
     };
@@ -904,7 +1204,7 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
     nearestMetro: questionnaire.nearestMetro || '—',
     distanceToMetro: questionnaire.metroDistance,
     isHistoricalCenter: questionnaire.isHistoricalCenter || false,
-    territorialZone: questionnaire.terZone || '—',
+    territorialZone: questionnaire.terZone || questionnaire.ter_zone || questionnaire.zoneCode || questionnaire.zone_code || '—',
     objectLocationDescription: questionnaire.locationDescription || '—',
     nearbyEnvironment,   
 
@@ -1534,6 +1834,12 @@ export default function ProjectResultDetailedPanel({
       cadastralNumber: questionnaire.buildingCadastralNumber,
     }
     : null;
+  const objectEnvironmentAnalysis = (
+    breakdown?.market?.objectEnvironmentAnalysis
+    || marketContext?.objectEnvironmentAnalysis
+    || result?.market_snapshot_json?.objectEnvironmentAnalysis
+    || null
+  );
   const mapComparableSource = useMemo(() => {
     const resultComparables = Array.isArray(breakdown?.market?.topComparables)
       ? breakdown.market.topComparables
@@ -1659,6 +1965,7 @@ export default function ProjectResultDetailedPanel({
   const selectedComparableDateLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.date);
   const selectedComparableBargainLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.bargain);
   const selectedComparableMetroDetails = selectedComparableRawAdjustmentByKey.metro?.details || {};
+  const selectedComparableEnvironmentDetails = selectedComparableRawAdjustmentByKey.environment?.details || {};
   const selectedComparableSecondGroupLines = [
     buildComparableFactorLine(selectedComparableAdjustmentByKey.metro),
     buildComparableFactorLine(selectedComparableAdjustmentByKey.area),
@@ -1745,7 +2052,7 @@ export default function ProjectResultDetailedPanel({
         </Text>
         <Table
           dataSource={topComparables}
-          scroll={{ x: 1720 }}
+          scroll={{ x: 2160 }}
           onRow={(record) => ({
             onClick: () => setSelectedComparable(record),
           })}
@@ -1799,11 +2106,30 @@ export default function ProjectResultDetailedPanel({
               render: (_, record) => <Text strong>{formatNumber(getComparableOfferRate(record), 2)} ₽/м²</Text>,
             },
             {
-              title: 'Скорр. ставка',
-              dataIndex: 'adjusted_rate',
-              key: 'adjusted_rate',
+              title: 'Ставка после корректировки',
+              dataIndex: 'corrected_rate',
+              key: 'corrected_rate',
               width: '12%',
-              render: (value) => value ? <Text>{formatNumber(value, 2)} ₽/м²</Text> : '—',
+              render: (_, record) => {
+                const value = record.corrected_rate ?? record.adjusted_rate;
+                return value ? <Text>{formatNumber(value, 2)} ₽/м²</Text> : '—';
+              },
+            },
+            {
+              title: 'Тер. зона',
+              dataIndex: 'ter_zone',
+              key: 'ter_zone',
+              width: '10%',
+              render: (_, record) => record.ter_zone || record.zone_code || '—',
+            },
+            {
+              title: 'Ист. центр',
+              dataIndex: 'environment_historical_center',
+              key: 'environment_historical_center',
+              width: '9%',
+              render: (_, record) => formatYesNo(
+                record.environment_historical_center ?? record.is_historical_center ?? record.isHistoricalCenter
+              ),
             },
             {
               title: 'Ближ. окружение',
@@ -2781,6 +3107,13 @@ export default function ProjectResultDetailedPanel({
                     ]}
                   />
 
+                  <EnvironmentDeterminationPanel
+                    details={selectedComparableEnvironmentDetails}
+                    subjectLabel="Объект оценки"
+                    analogLabel="Аналог"
+                    factor={selectedComparableAdjustmentByKey.environment?.factor}
+                  />
+
                   <ComparableMathStep
                     number={4}
                     title="Корректировки 2-й группы: метро, площадь, этаж, ближайшее окружение"
@@ -2926,6 +3259,26 @@ export default function ProjectResultDetailedPanel({
                 </div>
               </>
             )} */}
+
+            {objectEnvironmentAnalysis && (
+              <>
+                <Divider />
+                <div className="project-result-pdf-break-before">
+                  <Title level={3}>
+                    <LineChartOutlined />
+                    <Tooltip title="Радиус 600 м и распределение ключевых категорий ближайшего окружения">
+                      Анализ ближайшего окружения <InfoCircleOutlined />
+                    </Tooltip>
+                  </Title>
+                  <Card className="project-result-section-card">
+                    <EnvironmentAnalysisMap
+                      analysis={objectEnvironmentAnalysis}
+                      objectPoint={objectMapPoint}
+                    />
+                  </Card>
+                </div>
+              </>
+            )}
 
             {(objectMapPoint || comparableMapPoints.length > 0) && (
               <>

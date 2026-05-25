@@ -11,6 +11,10 @@ import {
 
 const DEFAULT_CITY = process.env.GEO_DEFAULT_CITY || 'Санкт-Петербург';
 const METRO_CANDIDATE_LIMIT = Number(process.env.GEO_METRO_CANDIDATE_LIMIT || 6);
+const WALKING_ROUTE_LOG_COOLDOWN_MS = Number(process.env.WALKING_ROUTE_LOG_COOLDOWN_MS || 10 * 60 * 1000);
+
+let lastWalkingRouteLogAt = 0;
+let lastWalkingRouteLogMessage = '';
 
 function toFiniteNumber(value) {
   const number = Number(value);
@@ -23,6 +27,22 @@ function isValidLatitude(value) {
 
 function isValidLongitude(value) {
   return value !== null && value >= -180 && value <= 180;
+}
+
+function logWalkingRouteFallback(context, error) {
+  const message = `${context}: ${error?.message || error}; используется расстояние по прямой`;
+  const now = Date.now();
+
+  if (
+    message === lastWalkingRouteLogMessage &&
+    now - lastWalkingRouteLogAt < WALKING_ROUTE_LOG_COOLDOWN_MS
+  ) {
+    return;
+  }
+
+  lastWalkingRouteLogAt = now;
+  lastWalkingRouteLogMessage = message;
+  console.warn(message);
 }
 
 export async function getGeoServiceHealth({ city = DEFAULT_CITY } = {}) {
@@ -91,7 +111,7 @@ export async function calculateNearestMetro({
         };
       }
     } catch (error) {
-      console.error('Ошибка расчета пешеходного маршрута до метро:', error.message);
+      logWalkingRouteFallback('Ошибка расчета пешеходного маршрута до метро', error);
     }
   }
 
@@ -166,7 +186,7 @@ export async function calculateMetroDistanceToStation({
         };
       }
     } catch (error) {
-      console.error('Ошибка расчета пешеходного маршрута до станции метро:', error.message);
+      logWalkingRouteFallback('Ошибка расчета пешеходного маршрута до станции метро', error);
     }
   }
 

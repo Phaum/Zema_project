@@ -30,7 +30,11 @@ import {
     sanitizeAutoFilledOccupiedArea,
     sanitizeAutoFilledTotalOksAreaOnLand,
 } from '../services/questionnaireEnrichmentService.js';
+import { getSavedEnvironmentAnalysis } from '../services/environmentAnalysisService.js';
 import { resolveSpatialZoneForCoords } from '../utils/spatialZoneResolver.js';
+
+const MIN_FINAL_RENT_ANALOGS = 5;
+const MAX_RENT_ANALOG_CANDIDATES = 10;
 
 function median(values = []) {
     const arr = values
@@ -544,6 +548,12 @@ export function buildAreaRangeByCalculationArea(questionnaire) {
     const area = getFirstFloorComparableArea(questionnaire);
     if (!area) return null;
 
+    if (area <= 200) {
+        return {
+            [Op.between]: [Math.max(area * 0.5, 0), area * 1.5],
+        };
+    }
+
     return {
         [Op.between]: [Math.max(area - 200, 0), area + 200],
     };
@@ -671,6 +681,141 @@ export function deduplicateRankedAnalogsByObject(items, valuationDate, maxCount 
             return aDistance - bDistance;
         })
         .slice(0, maxCount);
+}
+
+function getComparableStableId(row) {
+    const plain = toComparablePlain(row);
+    return String(plain.id || plain.external_id || plain.address_offer || plain.address || '');
+}
+
+function refillSelectedAnalogsForMinimumCalculation({
+    selectedAnalogs = [],
+    rankingPool = [],
+    valuation = {},
+    minFinalAnalogs = MIN_FINAL_RENT_ANALOGS,
+    maxCandidates = MAX_RENT_ANALOG_CANDIDATES,
+} = {}) {
+    const includedIds = new Set(
+        (Array.isArray(valuation?.adjustedRates) ? valuation.adjustedRates : [])
+            .filter((row) => row?.includedInRentCalculation !== false)
+            .map((row) => String(row.analogId || row.externalId || ''))
+            .filter(Boolean)
+    );
+    const selectedIds = new Set(
+        (Array.isArray(selectedAnalogs) ? selectedAnalogs : [])
+            .map(getComparableStableId)
+            .filter(Boolean)
+    );
+    const includedAnalogs = (Array.isArray(selectedAnalogs) ? selectedAnalogs : [])
+        .filter((row) => includedIds.has(getComparableStableId(row)));
+
+    if (includedAnalogs.length >= minFinalAnalogs || !Array.isArray(rankingPool) || !rankingPool.length) {
+        return selectedAnalogs;
+    }
+
+    const usedIds = new Set(includedAnalogs.map(getComparableStableId).filter(Boolean));
+    const refilled = [...includedAnalogs];
+
+    for (const candidate of rankingPool) {
+        const candidateId = getComparableStableId(candidate);
+        if (!candidateId || usedIds.has(candidateId) || selectedIds.has(candidateId)) {
+            continue;
+        }
+
+        refilled.push(candidate);
+        usedIds.add(candidateId);
+
+        if (refilled.length >= maxCandidates) {
+            break;
+        }
+    }
+
+    return refilled.length >= minFinalAnalogs && refilled.length > includedAnalogs.length
+        ? refilled
+        : selectedAnalogs;
+}
+
+function numberOrZero(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
+    const details = analysis?.environment_details_json || {};
+    const counts = details.counts || {};
+    const score = details.score || {};
+    const categories = details.categories || {};
+    const lat = numberOrZero(analysis?.latitude || questionnaire?.mapPointLat);
+    const lng = numberOrZero(analysis?.longitude || questionnaire?.mapPointLng);
+
+    if (!lat || !lng) {
+        return null;
+    }
+
+    const categoryValues = [
+        analysis?.environment_category_1 || categories.primary,
+        analysis?.environment_category_2 || categories.secondary,
+        analysis?.environment_category_3 || categories.tertiary,
+        questionnaire?.environmentCategory1,
+        questionnaire?.environmentCategory2,
+        questionnaire?.environmentCategory3,
+    ].filter(Boolean);
+    const categoryText = categoryValues.join(' ').toLowerCase();
+    const businessCount = numberOrZero(counts.businessCount);
+    const industrialCount = numberOrZero(counts.industrialSites) + numberOrZero(counts.warehouseSites);
+    const residentialCount = numberOrZero(counts.residentialBuildings);
+    const explicitMidriseCount = numberOrZero(counts.residentialMidrise || counts.midriseResidential);
+    const explicitHighriseCount = numberOrZero(counts.residentialHighrise || counts.multiApartmentResidential);
+    const hasMidriseSignal = /средне|до\s*8|midrise/.test(categoryText);
+    const hasHighriseSignal = /много|multi|apartment/.test(categoryText);
+    const midriseCount = explicitMidriseCount
+        || (hasMidriseSignal && hasHighriseSignal ? Math.round(residentialCount / 2) : 0)
+        || (hasMidriseSignal ? residentialCount : 0);
+    const highriseCount = explicitHighriseCount
+        || (hasMidriseSignal && hasHighriseSignal ? Math.max(0, residentialCount - midriseCount) : 0)
+        || (hasHighriseSignal ? residentialCount : 0);
+
+    return {
+        latitude: lat,
+        longitude: lng,
+        radiusMeters: numberOrZero(analysis?.radius_used) || 600,
+        totalScore: analysis?.total_environment_score ?? score.totalScore ?? null,
+        qualityFlag: analysis?.quality_flag || null,
+        locationType: analysis?.location_type || null,
+        historicalCenterStatus: analysis?.historical_center_status || null,
+        nearestMetro: analysis?.nearest_metro || null,
+        nearestMetroDistance: analysis?.nearest_metro_distance ?? null,
+        categories: categoryValues,
+        rankedCategories: categories.ranked || [],
+        counts: {
+            business: businessCount,
+            industrialWarehouse: industrialCount,
+            highriseResidential: highriseCount,
+            midriseResidential: midriseCount,
+            residentialTotal: residentialCount,
+            service: numberOrZero(counts.serviceCount),
+            transport: numberOrZero(counts.transportPoints),
+        },
+        metrics: details.metrics || null,
+        subscores: score.subscores || null,
+        rawFactors: score.rawFactors || details.rawFactors || null,
+        warnings: Array.isArray(details.warnings) ? details.warnings : [],
+    };
+}
+
+async function resolveObjectEnvironmentAnalysisSummary(questionnaire = {}) {
+    const cadastralNumber = questionnaire?.buildingCadastralNumber || questionnaire?.building_cadastral_number;
+    if (!cadastralNumber) {
+        return buildEnvironmentAnalysisSummaryPayload(null, questionnaire);
+    }
+
+    try {
+        const analysis = await getSavedEnvironmentAnalysis(cadastralNumber, { radiusMeters: 600 });
+        return buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire);
+    } catch (error) {
+        console.warn('[environmentAnalysis] Не удалось получить анализ окружения объекта', error?.message || error);
+        return buildEnvironmentAnalysisSummaryPayload(null, questionnaire);
+    }
 }
 
 async function mapAnalogueToComparable(rawRow) {
@@ -975,12 +1120,15 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
             environment_category_2: row.environment_category_2 || null,
             environment_category_3: row.environment_category_3 || null,
             environment_historical_center: row.environment_historical_center ?? null,
+            is_historical_center: row.environment_historical_center ?? null,
             mahalanobisDistance: row.mahalanobisDistance ?? null,
             year_built_commissioning: row.year_built_commissioning || null,
             floor_location: row.floor_location || null,
             distance_to_metro: row.distance_to_metro || null,
             building_cadastral_number: row.building_cadastral_number || null,
             building_name: row.building_name || null,
+            ter_zone: row.ter_zone || null,
+            zone_code: row.zone_code || null,
             adjustments: adjustment?.adjustments || null,
         };
     });
@@ -996,6 +1144,7 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
         objectTotalAvailable: allAnalogs?.length || 0,
 
         district: marketMeta.district || questionnaire.district || null,
+        objectEnvironmentAnalysis: marketMeta.objectEnvironmentAnalysis || null,
 
         averageRentalRate: marketMeta.marketRentAverage ?? average(selectedRates),
         medianRentalRate: marketMeta.marketRentMedian ?? median(selectedRates),
@@ -1087,6 +1236,7 @@ export const calculateProject = async (req, res) => {
             district,
             allAnalogs,
             excludedDuplicates,
+            rankingPool,
             selectedAnalogs,
         } = await findComparableAnalogues(questionnaire);
 
@@ -1099,22 +1249,42 @@ export const calculateProject = async (req, res) => {
             questionnaire,
         });
 
-        const valuation = await calculateValuation(
+        let calculationSelectedAnalogs = selectedAnalogs;
+        let valuation = await calculateValuation(
             questionnaire,
-            selectedAnalogs,
+            calculationSelectedAnalogs,
             manualRate
         );
 
-        if (selectedAnalogs.length < 10) {
-            console.warn(`Найдено только ${selectedAnalogs.length} аналогов, требуется 10`);
+        if (valuation.selectedAnalogsCount < MIN_FINAL_RENT_ANALOGS) {
+            const refilledAnalogs = refillSelectedAnalogsForMinimumCalculation({
+                selectedAnalogs: calculationSelectedAnalogs,
+                rankingPool,
+                valuation,
+            });
+
+            if (refilledAnalogs !== calculationSelectedAnalogs) {
+                calculationSelectedAnalogs = refilledAnalogs;
+                valuation = await calculateValuation(questionnaire, calculationSelectedAnalogs, manualRate);
+                console.log(
+                    `[projectCalculation] Добор аналогов для ставки: итоговых ${valuation.selectedAnalogsCount}, кандидатов ${calculationSelectedAnalogs.length}`
+                );
+            }
         }
+
+        if (calculationSelectedAnalogs.length < 10) {
+            console.warn(`Найдено только ${calculationSelectedAnalogs.length} аналогов, требуется 10`);
+        }
+
+        const objectEnvironmentAnalysis = await resolveObjectEnvironmentAnalysisSummary(questionnaire);
 
         const marketSnapshot = buildMarketSnapshot(
             questionnaire,
-            selectedAnalogs,
+            calculationSelectedAnalogs,
             allAnalogs,
             {
                 district,
+                objectEnvironmentAnalysis,
                 adjustedRates: valuation.adjustedRates,
                 marketRentAverage: valuation.marketRentAverage,
                 marketRentMedian: valuation.marketRentMedian,
@@ -1318,17 +1488,35 @@ export const getProjectMarketContext = async (req, res) => {
             district,
             allAnalogs,
             excludedDuplicates,
+            rankingPool,
             selectedAnalogs,
         } = await findComparableAnalogues(questionnaire);
 
-        const valuationPreview = await calculateValuation(questionnaire, selectedAnalogs, 0);
+        let calculationSelectedAnalogs = selectedAnalogs;
+        let valuationPreview = await calculateValuation(questionnaire, calculationSelectedAnalogs, 0);
+
+        if (valuationPreview.selectedAnalogsCount < MIN_FINAL_RENT_ANALOGS) {
+            const refilledAnalogs = refillSelectedAnalogsForMinimumCalculation({
+                selectedAnalogs: calculationSelectedAnalogs,
+                rankingPool,
+                valuation: valuationPreview,
+            });
+
+            if (refilledAnalogs !== calculationSelectedAnalogs) {
+                calculationSelectedAnalogs = refilledAnalogs;
+                valuationPreview = await calculateValuation(questionnaire, calculationSelectedAnalogs, 0);
+            }
+        }
+
+        const objectEnvironmentAnalysis = await resolveObjectEnvironmentAnalysisSummary(questionnaire);
 
         const snapshot = buildMarketSnapshot(
             questionnaire,
-            selectedAnalogs,
+            calculationSelectedAnalogs,
             allAnalogs,
             {
                 district,
+                objectEnvironmentAnalysis,
                 adjustedRates: valuationPreview.adjustedRates,
                 marketRentAverage: valuationPreview.marketRentAverage,
                 marketRentMedian: valuationPreview.marketRentMedian,

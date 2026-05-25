@@ -151,20 +151,35 @@ function getClassVariants(value) {
     return [normalized];
 }
 
-function toTime(value) {
-    const timestamp = new Date(value).getTime();
-    return Number.isFinite(timestamp) ? timestamp : null;
+function getQuarterIndex(value) {
+    const normalized = normalizeText(value);
+    if (!normalized) return null;
+
+    const yearMatch = normalized.match(/\b(20\d{2})\b/);
+    const quarterMatch = normalized.match(/(?:Q|КВ|КВАРТАЛ)\s*([1-4])|([1-4])\s*(?:Q|КВ|КВАРТАЛ)/i);
+    const quarterNumber = quarterMatch?.[1] || quarterMatch?.[2] || normalized.match(/\b([1-4])\b/)?.[1];
+
+    if (yearMatch && quarterNumber) {
+        return Number(yearMatch[1]) * 4 + Number(quarterNumber);
+    }
+
+    const date = new Date(normalized);
+    if (!Number.isNaN(date.getTime())) {
+        return date.getFullYear() * 4 + Math.floor(date.getMonth() / 3) + 1;
+    }
+
+    return null;
 }
 
-function getDayDiff(left, right) {
-    const leftTime = toTime(left);
-    const rightTime = toTime(right);
+function getQuarterDiff(left, right) {
+    const leftQuarter = getQuarterIndex(left);
+    const rightQuarter = getQuarterIndex(right);
 
-    if (leftTime === null || rightTime === null) {
+    if (leftQuarter === null || rightQuarter === null) {
         return Number.POSITIVE_INFINITY;
     }
 
-    return Math.abs(leftTime - rightTime) / (1000 * 60 * 60 * 24);
+    return Math.abs(leftQuarter - rightQuarter);
 }
 
 function median(values = []) {
@@ -279,7 +294,7 @@ function resolveOfferCoordinates(offers = []) {
 
 function inferActualUseFromOffers(offers = []) {
     const values = offers
-        .map((offer) => normalizeText(offer.model_functional || offer.function_name).toLowerCase())
+        .map((offer) => normalizeText(offer.functional || offer.function_name).toLowerCase())
         .filter(Boolean);
 
     if (!values.length) {
@@ -331,20 +346,20 @@ function selectRepresentativeOffers(offers = [], { valuationDate, referenceArea 
     }
 
     if (valuationDate) {
-        const sortedByDate = [...selected].sort(
-            (left, right) => getDayDiff(left.offer_date, valuationDate) - getDayDiff(right.offer_date, valuationDate)
+        const sortedByQuarter = [...selected].sort(
+            (left, right) => getQuarterDiff(left.quarter, valuationDate) - getQuarterDiff(right.quarter, valuationDate)
         );
-        const withinYear = sortedByDate.filter((offer) => getDayDiff(offer.offer_date, valuationDate) <= 365);
+        const withinYear = sortedByQuarter.filter((offer) => getQuarterDiff(offer.quarter, valuationDate) <= 4);
 
         if (withinYear.length >= 3) {
             selected = withinYear;
-        } else if (sortedByDate.length >= 3) {
-            selected = sortedByDate;
+        } else if (sortedByQuarter.length >= 3) {
+            selected = sortedByQuarter;
         }
     }
 
     return [...selected]
-        .sort((left, right) => getDayDiff(left.offer_date, valuationDate) - getDayDiff(right.offer_date, valuationDate))
+        .sort((left, right) => getQuarterDiff(left.quarter, valuationDate) - getQuarterDiff(right.quarter, valuationDate))
         .slice(0, Math.min(selected.length, 25));
 }
 
@@ -356,13 +371,13 @@ async function findOffersByBuilding(buildingCadastralNumber) {
     return MarketOffer.findAll({
         attributes: [
             'class_offer',
-            'model_functional',
+            'functional',
             'function_name',
             'district',
             'metro',
             'address_offer',
             'area_total',
-            'offer_date',
+            'quarter',
             'above_ground_floors',
             'total_floors',
             'underground_floors',
@@ -379,7 +394,7 @@ async function findOffersByBuilding(buildingCadastralNumber) {
         where: {
             building_cadastral_number: normalizeCadastralNumber(buildingCadastralNumber),
         },
-        order: [['offer_date', 'DESC']],
+        order: [['quarter', 'DESC']],
         raw: true,
     });
 }
@@ -395,7 +410,7 @@ async function findOffersByDistrictAndClass({ districts = [], businessClass }) {
     return MarketOffer.findAll({
         attributes: [
             'area_total',
-            'offer_date',
+            'quarter',
             'price_per_sqm_cleaned',
             'price_without_vat_per_sqm_month',
             'price_per_sqm_month',
@@ -413,7 +428,7 @@ async function findOffersByDistrictAndClass({ districts = [], businessClass }) {
                 { price_per_sqm_month: { [Op.ne]: null } },
             ],
         },
-        order: [['offer_date', 'DESC']],
+        order: [['quarter', 'DESC']],
         limit: 500,
         raw: true,
     });

@@ -89,7 +89,6 @@ const BC_CLASS_OPTIONS = [
     { value: 'B+', label: 'В+' },
     { value: 'B', label: 'В' },
     { value: 'C', label: 'С' },
-    { value: 'unknown', label: 'Не знаю' },
 ];
 
 const OBJECT_TYPE_OPTIONS = [
@@ -911,7 +910,7 @@ export default function QuestionnairePanel({
     const showActualDataFields = calculationMethod === 'actual_market';
     const showQuestionnaireHints = userSettings.showQuestionnaireHints;
     const compactQuestionnaire = userSettings.compactMode;
-    const showRentalRateField = selectedBcClass === 'unknown';
+    const showRentalRateField = false;
     const normalizedObjectType = normalizeObjectTypeValue(selectedObjectType);
     const reverseGeocodeTimerRef = useRef(null);
     const lastLoadedBuildingCadRef = useRef('');
@@ -1038,6 +1037,27 @@ export default function QuestionnairePanel({
             setIsSaved(false);
         }
     };
+
+    useEffect(() => {
+        if (selectedBcClass !== 'unknown') {
+            return;
+        }
+
+        const payload = {
+            businessCenterClass: undefined,
+            averageRentalRate: undefined,
+            marketClassResolved: undefined,
+        };
+        form.setFieldsValue(payload);
+
+        const nextValues = {
+            ...form.getFieldsValue(true),
+            ...payload,
+        };
+        setFormSnapshot(nextValues);
+        persistDraftLocally(nextValues);
+        setIsSaved(false);
+    }, [form, persistDraftLocally, selectedBcClass]);
 
     const applyEnrichmentFormPatch = (values = {}) => {
         const nextSourceHints = normalizeQuestionnaireFieldSourceHints(values.fieldSourceHints);

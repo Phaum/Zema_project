@@ -540,11 +540,11 @@ async function ensureMarketOffersTable() {
                 type: sequelize.Sequelize.STRING(255),
                 allowNull: true,
             },
-            model_functional: {
+            functional: {
                 type: sequelize.Sequelize.STRING(255),
                 allowNull: true,
             },
-            subgroup_2025: {
+            segment: {
                 type: sequelize.Sequelize.STRING(255),
                 allowNull: true,
             },
@@ -648,10 +648,6 @@ async function ensureMarketOffersTable() {
                 type: sequelize.Sequelize.STRING(255),
                 allowNull: true,
             },
-            offer_date: {
-                type: sequelize.Sequelize.DATEONLY,
-                allowNull: true,
-            },
             quarter: {
                 type: sequelize.Sequelize.STRING(50),
                 allowNull: true,
@@ -697,14 +693,25 @@ async function ensureMarketOffersTable() {
             name: 'market_offers_district_idx',
         });
 
-        await queryInterface.addIndex(tableName, ['offer_date'], {
-            name: 'market_offers_offer_date_idx',
-        });
-
         return;
     }
 
-    const table = await queryInterface.describeTable(tableName);
+    let table = await queryInterface.describeTable(tableName);
+
+    if (table.model_functional && !table.functional) {
+        await queryInterface.renameColumn(tableName, 'model_functional', 'functional');
+        table = await queryInterface.describeTable(tableName);
+    }
+
+    if (table.subgroup_2025 && !table.segment) {
+        await queryInterface.renameColumn(tableName, 'subgroup_2025', 'segment');
+        table = await queryInterface.describeTable(tableName);
+    }
+
+    if (table.offer_date) {
+        await queryInterface.removeColumn(tableName, 'offer_date');
+        table = await queryInterface.describeTable(tableName);
+    }
 
     async function addColumnIfMissing(columnName, definition) {
         if (!table[columnName]) {
@@ -722,12 +729,12 @@ async function ensureMarketOffersTable() {
         allowNull: true,
     });
 
-    await addColumnIfMissing('model_functional', {
+    await addColumnIfMissing('functional', {
         type: sequelize.Sequelize.STRING(255),
         allowNull: true,
     });
 
-    await addColumnIfMissing('subgroup_2025', {
+    await addColumnIfMissing('segment', {
         type: sequelize.Sequelize.STRING(255),
         allowNull: true,
     });
@@ -854,11 +861,6 @@ async function ensureMarketOffersTable() {
 
     await addColumnIfMissing('district', {
         type: sequelize.Sequelize.STRING(255),
-        allowNull: true,
-    });
-
-    await addColumnIfMissing('offer_date', {
-        type: sequelize.Sequelize.DATEONLY,
         allowNull: true,
     });
 

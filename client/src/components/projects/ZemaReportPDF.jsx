@@ -157,6 +157,7 @@ export const exportZemaReportToPDF = async (projectId, data) => {
     .map(comp => ({
       ...comp,
       rawOfferRate: getComparableOfferRate(comp),
+      correctedRate: comp.corrected_rate ?? comp.adjusted_rate ?? comp.correctedRate ?? null,
       price_per_sqm_cleaned: comp.price_per_sqm_cleaned ?? comp.price_per_sqm ?? comp.unit_price ?? 0,
       buildingName: comp.buildingName || comp.building_name || comp.complex_name || '—',
       class_offer: comp.class_offer || '—',
@@ -166,8 +167,8 @@ export const exportZemaReportToPDF = async (projectId, data) => {
       district: comp.district || '—',
       nearestMetro: comp.nearestMetro || '—',
       distanceToMetro: comp.distanceToMetro,
-      isHistoricalCenter: comp.isHistoricalCenter,
-      territorialZone: comp.territorialZone || '—',
+      isHistoricalCenter: comp.environment_historical_center ?? comp.is_historical_center ?? comp.isHistoricalCenter,
+      territorialZone: comp.territorialZone || comp.ter_zone || comp.zone_code || '—',
       nearbyEnvironment: translateEnvironmentCategory(comp.nearbyEnvironment || comp.environment || '—'),
     }));
 
@@ -221,7 +222,10 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <th>Площадь, м²</th>
             <th>Этаж</th>
             <th>Ставка из объявления, ₽/м²</th>
+            <th>Ставка после корректировки, ₽/м²</th>
             <th>Район</th>
+            <th>Тер. зона</th>
+            <th>Ист. центр</th>
             <th>Ближ. окружение</th>
             <th>Метро</th>
             <th>Расст., км</th>
@@ -235,7 +239,10 @@ export const exportZemaReportToPDF = async (projectId, data) => {
             <td>${formatNumber(c.area_total)}</td>
             <td>${c.floor}</td>
             <td>${formatNumber(c.rawOfferRate)}</td>
+            <td>${formatNumber(c.correctedRate)}</td>
             <td>${c.district}</td>
+            <td>${c.territorialZone}</td>
+            <td>${formatYesNo(c.isHistoricalCenter)}</td>
             <td>${c.nearbyEnvironment}</td>
             <td>${c.nearestMetro}</td>
             <td>${formatDistanceKm(c.distanceToMetro)}</td>

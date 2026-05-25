@@ -186,6 +186,41 @@ test('calculateMarketRentByNewAlgorithm returns non-zero diagnostics for include
     assert.ok(result.correctedRateIQR > 0);
 });
 
+test('calculateMarketRentByNewAlgorithm keeps at least five analogs when 30 percent range is too narrow', () => {
+    const questionnaire = {
+        totalArea: 1000,
+        leasableArea: 1000,
+        aboveGroundFloors: 1,
+        metroDistance: 1,
+        valuationDate: '2025-01-01',
+        businessCenterClass: 'B+',
+        marketClassResolved: 'B+',
+        floors: [
+            {
+                id: 'first',
+                floorCategory: 'first',
+                avgLeasableRoomArea: 1000,
+            },
+        ],
+    };
+
+    const analogs = [1000, 1010, 1020, 2000, 3000, 4000].map((rate, index) => ({
+        id: `a${index + 1}`,
+        price_per_sqm_cleaned: rate,
+        area_total: 1000,
+        class_offer: 'B+',
+        distance_to_metro: 1,
+        floor_location: 'Первый этаж',
+        quarter: '2025-Q1',
+        environment_historical_center: false,
+    }));
+
+    const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
+
+    assert.equal(result.selectedCount, 5);
+    assert.equal(result.outlierRangeCheck.correctedRateRangeFilterStrategy, 'expanded_to_minimum_5_after_30pct_range');
+});
+
 test('calculateMarketRentByNewAlgorithm maps environment analysis category codes to coefficients', () => {
     const questionnaire = {
         totalArea: 1000,

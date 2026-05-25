@@ -6,6 +6,11 @@ import {
     MARKET_OFFER_COLUMNS,
     REQUIRED_MARKET_OFFER_HEADERS,
 } from '../../utils/marketOfferTemplate.js';
+import {
+    buildMarketOfferZemaId,
+    deriveMarketOfferSegment,
+    MARKET_OFFER_ID_HEADER,
+} from '../../utils/marketOfferEncoding.js';
 import { msk64ToWgs84 } from "../../utils/coordsConverter.js";
 import { fetchOsmEnvironment, classifyEnvironment } from '../../utils/osmEnvironmentClassifier.js';
 import { resolveHistoricalCenterForCoords } from '../../utils/historicalCenterResolver.js';
@@ -61,11 +66,23 @@ function normalizeDate(value) {
     return null;
 }
 
+function readColumnValue(row, col) {
+    const headers = [col.header, ...(col.aliases || [])];
+
+    for (const header of headers) {
+        if (Object.prototype.hasOwnProperty.call(row, header)) {
+            return row[header];
+        }
+    }
+
+    return undefined;
+}
+
 function mapRowToPayload(row, sourceSheetName) {
     const payload = { source_sheet_name: sourceSheetName };
 
     for (const col of MARKET_OFFER_COLUMNS) {
-        const raw = row[col.header];
+        const raw = readColumnValue(row, col);
 
         if (col.type === 'number') {
             payload[col.field] = normalizeNumber(raw);
@@ -76,6 +93,8 @@ function mapRowToPayload(row, sourceSheetName) {
         }
     }
 
+    payload.segment = deriveMarketOfferSegment(payload.segment);
+
     return payload;
 }
 
@@ -85,7 +104,11 @@ function validateHeaders(rows) {
     }
 
     const headers = Object.keys(rows[0] || {});
-    const missing = REQUIRED_MARKET_OFFER_HEADERS.filter((header) => !headers.includes(header));
+    const missing = REQUIRED_MARKET_OFFER_HEADERS.filter((header) => {
+        const column = MARKET_OFFER_COLUMNS.find((item) => item.header === header);
+        const acceptedHeaders = [header, ...(column?.aliases || [])];
+        return !acceptedHeaders.some((acceptedHeader) => headers.includes(acceptedHeader));
+    });
 
     if (missing.length) {
         return {
@@ -110,13 +133,14 @@ export async function getAdminMarketOffers(req, res) {
                 { address_offer: { [Op.iLike]: `%${search}%` } },
                 { building_cadastral_number: { [Op.iLike]: `%${search}%` } },
                 { district: { [Op.iLike]: `%${search}%` } },
-                { model_functional: { [Op.iLike]: `%${search}%` } },
+                { functional: { [Op.iLike]: `%${search}%` } },
+                { segment: { [Op.iLike]: `%${search}%` } },
             ];
         }
 
         const { rows, count } = await MarketOffer.findAndCountAll({
             where,
-            order: [['offer_date', 'DESC'], ['id', 'DESC']],
+            order: [['quarter', 'DESC'], ['id', 'DESC']],
             offset: (page - 1) * pageSize,
             limit: pageSize,
         });
@@ -178,13 +202,11 @@ export async function importMarketOffers(req, res) {
             try {
                 const payload = mapRowToPayload(rows[index], sheetName);
 
-                if (!payload.external_id) {
-                    errors.push({
-                        row: index + 2,
-                        error: 'Пустой ID',
-                    });
-                    continue;
-                }
+                payload.external_id = buildMarketOfferZemaId({
+                    id: index + 1,
+                    externalId: payload.external_id,
+                    quarter: payload.quarter,
+                });
 
                 const existing = await MarketOffer.findOne({
                     where: { external_id: payload.external_id },
@@ -237,14 +259,14 @@ export async function importMarketOffers(req, res) {
 export async function exportMarketOffers(req, res) {
     try {
         const items = await MarketOffer.findAll({
-            order: [['offer_date', 'DESC'], ['id', 'DESC']],
+            order: [['quarter', 'DESC'], ['id', 'DESC']],
         });
 
         const rows = items.map((item) => ({
-            'ID': item.external_id,
+            [MARKET_OFFER_ID_HEADER]: item.external_id,
             'Тип родительского объекта': item.parent_object_type,
-            'Функционал для модели': item.model_functional,
-            'подгруппа 2025': item.subgroup_2025,
+            'Функционал': item.functional,
+            'сегмент': item.segment,
             'Функция': item.function_name,
             'Общая площадь по объявлению, кв. м': item.area_total,
             'Класс  по объявлению': item.class_offer,
@@ -270,7 +292,6 @@ export async function exportMarketOffers(req, res) {
             'x': item.x,
             'y': item.y,
             'Район': item.district,
-            'Дата предложения': item.offer_date,
             'Квартал': item.quarter,
             'Состояние помещения': item.room_condition,
             'Ссылка на объявление': item.offer_url,
@@ -307,8 +328,8 @@ export async function exportMarketOffers(req, res) {
 
 const ALLOWED_MARKET_OFFER_BULK_FIELDS = [
     'parent_object_type',
-    'model_functional',
-    'subgroup_2025',
+    'functional',
+    'segment',
     'function_name',
     'area_total',
     'class_offer',
@@ -334,7 +355,6 @@ const ALLOWED_MARKET_OFFER_BULK_FIELDS = [
     'x',
     'y',
     'district',
-    'offer_date',
     'quarter',
     'room_condition',
     'offer_url',
@@ -390,6 +410,10 @@ export async function bulkUpdateAdminMarketOffers(req, res) {
                 if (Object.prototype.hasOwnProperty.call(patch, key)) {
                     patch[key] = normalizeBulkNumber(patch[key]);
                 }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(patch, 'segment')) {
+                patch.segment = deriveMarketOfferSegment(patch.segment);
             }
 
             await item.update(patch);

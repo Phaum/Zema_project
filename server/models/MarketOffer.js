@@ -19,12 +19,12 @@ const MarketOffer = sequelize.define('MarketOffer', {
         allowNull: true,
     },
 
-    model_functional: {
+    functional: {
         type: DataTypes.STRING(255),
         allowNull: true,
     },
 
-    subgroup_2025: {
+    segment: {
         type: DataTypes.STRING(255),
         allowNull: true,
     },
@@ -151,11 +151,6 @@ const MarketOffer = sequelize.define('MarketOffer', {
 
     district: {
         type: DataTypes.STRING(255),
-        allowNull: true,
-    },
-
-    offer_date: {
-        type: DataTypes.DATEONLY,
         allowNull: true,
     },
 

@@ -6,10 +6,14 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
 ];
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.PEDESTRIAN_ROUTE_TIMEOUT_MS || 25000);
+const DEFAULT_TIMEOUT_MS = Number(process.env.PEDESTRIAN_ROUTE_TIMEOUT_MS || 8000);
 const DEFAULT_BUFFER_METERS = Number(process.env.PEDESTRIAN_ROUTE_BUFFER_METERS || 450);
 const DEFAULT_CONNECTOR_METERS = Number(process.env.PEDESTRIAN_ROUTE_CONNECTOR_METERS || 350);
 const DEFAULT_CONNECTOR_COUNT = Number(process.env.PEDESTRIAN_ROUTE_CONNECTOR_COUNT || 6);
+const OVERPASS_COOLDOWN_MS = Number(process.env.PEDESTRIAN_ROUTE_OVERPASS_COOLDOWN_MS || 10 * 60 * 1000);
+const ROUTING_ENABLED = String(process.env.PEDESTRIAN_ROUTE_ENABLED || 'true').toLowerCase() !== 'false';
+
+let overpassUnavailableUntil = 0;
 
 const BLOCKED_HIGHWAYS = new Set([
   'motorway',
@@ -68,9 +72,10 @@ function buildBounds(points = [], bufferMeters = DEFAULT_BUFFER_METERS) {
 
 function buildOverpassQuery(bounds) {
   const bbox = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
+  const timeoutSeconds = Math.max(1, Math.ceil(DEFAULT_TIMEOUT_MS / 1000));
 
   return `
-    [out:json][timeout:25];
+    [out:json][timeout:${timeoutSeconds}];
     (
       way["highway"]["highway"!~"^(motorway|motorway_link|trunk|trunk_link|construction|proposed|raceway|bridleway|bus_guideway|escape)$"]["access"!~"^(no|private)$"]["foot"!~"^no$"](${bbox});
     );
@@ -80,6 +85,15 @@ function buildOverpassQuery(bounds) {
 }
 
 async function fetchOverpass(query) {
+  if (!ROUTING_ENABLED) {
+    throw new Error('Пешеходная маршрутизация через Overpass отключена настройкой');
+  }
+
+  if (Date.now() < overpassUnavailableUntil) {
+    const secondsLeft = Math.ceil((overpassUnavailableUntil - Date.now()) / 1000);
+    throw new Error(`Overpass временно недоступен, повтор через ${secondsLeft} сек.`);
+  }
+
   const errors = [];
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
@@ -105,6 +119,7 @@ async function fetchOverpass(query) {
     }
   }
 
+  overpassUnavailableUntil = Date.now() + Math.max(0, OVERPASS_COOLDOWN_MS);
   throw new Error(`Overpass недоступен: ${errors.join('; ')}`);
 }
 

@@ -128,8 +128,9 @@ export default function AdminMarketOffersTable() {
     const renderEnvironmentCategory = (value) => translateEnvironmentCategory(value) || '—';
 
     const columns = [
-        { title: 'ID', dataIndex: 'external_id', width: 120 },
-        { title: 'Функционал', dataIndex: 'model_functional', width: 180 },
+        { title: 'zema_id_2025_квартал', dataIndex: 'external_id', width: 190 },
+        { title: 'Функционал', dataIndex: 'functional', width: 180 },
+        { title: 'Сегмент', dataIndex: 'segment', width: 190 },
         { title: 'Площадь', dataIndex: 'area_total', width: 120 },
         { title: 'Адрес', dataIndex: 'address_offer', ellipsis: true },
         { title: 'КН здания', dataIndex: 'building_cadastral_number', width: 180 },
@@ -137,7 +138,7 @@ export default function AdminMarketOffersTable() {
         { title: 'Окружение 1', dataIndex: 'environment_category_1', width: 180, render: renderEnvironmentCategory },
         { title: 'Окружение 2', dataIndex: 'environment_category_2', width: 180, render: renderEnvironmentCategory },
         { title: 'Окружение 3', dataIndex: 'environment_category_3', width: 180, render: renderEnvironmentCategory },
-        { title: 'Дата предложения', dataIndex: 'offer_date', width: 140 },
+        { title: 'Квартал', dataIndex: 'quarter', width: 140 },
         { title: 'Действия', key: 'actions', width: 180, fixed: 'right',
             render: (_, row) => (
                 <Button
@@ -170,10 +171,10 @@ export default function AdminMarketOffersTable() {
 
     const editableColumns = [
         { title: 'ID', dataIndex: 'id', type: 'string', width: 90, fixed: 'left' },
-        { title: 'Внешний ID', dataIndex: 'external_id', type: 'string', width: 120, fixed: 'left' },
+        { title: 'zema_id_2025_квартал', dataIndex: 'external_id', type: 'string', width: 190, fixed: 'left' },
         { title: 'Тип родительского объекта', dataIndex: 'parent_object_type', type: 'string', width: 220 },
-        { title: 'Функционал для модели', dataIndex: 'model_functional', type: 'string', width: 220 },
-        { title: 'подгруппа 2025', dataIndex: 'subgroup_2025', type: 'string', width: 160 },
+        { title: 'Функционал', dataIndex: 'functional', type: 'string', width: 220 },
+        { title: 'Сегмент', dataIndex: 'segment', type: 'string', width: 190 },
         { title: 'Функция', dataIndex: 'function_name', type: 'string', width: 180 },
         { title: 'Площадь', dataIndex: 'area_total', type: 'number', width: 130 },
         { title: 'Класс', dataIndex: 'class_offer', type: 'string', width: 120 },
@@ -199,7 +200,6 @@ export default function AdminMarketOffersTable() {
         { title: 'x', dataIndex: 'x', type: 'number', width: 120 },
         { title: 'y', dataIndex: 'y', type: 'number', width: 120 },
         { title: 'Район', dataIndex: 'district', type: 'string', width: 160 },
-        { title: 'Дата предложения', dataIndex: 'offer_date', type: 'string', width: 160 },
         { title: 'Квартал', dataIndex: 'quarter', type: 'string', width: 120 },
         { title: 'Состояние помещения', dataIndex: 'room_condition', type: 'string', width: 180 },
         { title: 'Ссылка', dataIndex: 'offer_url', type: 'string', width: 240 },
@@ -219,7 +219,7 @@ export default function AdminMarketOffersTable() {
             <Space wrap style={{ marginBottom: 16 }}>
                 <Input.Search
                     allowClear
-                    placeholder="Поиск по ID, адресу, КН здания, району"
+                    placeholder="Поиск по zema_id, адресу, КН здания, району, сегменту"
                     style={{ width: 340 }}
                     onSearch={(value) => {
                         setSearch(value);

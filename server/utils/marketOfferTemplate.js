@@ -1,8 +1,10 @@
+import { MARKET_OFFER_ID_HEADER } from './marketOfferEncoding.js';
+
 export const MARKET_OFFER_COLUMNS = [
-    { header: 'ID', field: 'external_id', type: 'string', required: true },
+    { header: MARKET_OFFER_ID_HEADER, field: 'external_id', type: 'string', required: true, aliases: ['ID', 'Внешний ID'] },
     { header: 'Тип родительского объекта', field: 'parent_object_type', type: 'string' },
-    { header: 'Функционал для модели', field: 'model_functional', type: 'string' },
-    { header: 'подгруппа 2025', field: 'subgroup_2025', type: 'string' },
+    { header: 'Функционал', field: 'functional', type: 'string', aliases: ['Функционал для модели'] },
+    { header: 'сегмент', field: 'segment', type: 'string', aliases: ['подгруппа 2025'] },
     { header: 'Функция', field: 'function_name', type: 'string' },
     { header: 'Общая площадь по объявлению, кв. м', field: 'area_total', type: 'number' },
     { header: 'Класс  по объявлению', field: 'class_offer', type: 'string' },
@@ -28,7 +30,6 @@ export const MARKET_OFFER_COLUMNS = [
     { header: 'x', field: 'x', type: 'number' },
     { header: 'y', field: 'y', type: 'number' },
     { header: 'Район', field: 'district', type: 'string' },
-    { header: 'Дата предложения', field: 'offer_date', type: 'date' },
     { header: 'Квартал', field: 'quarter', type: 'string' },
     { header: 'Состояние помещения', field: 'room_condition', type: 'string' },
     { header: 'Ссылка на объявление', field: 'offer_url', type: 'string' },
@@ -36,8 +37,8 @@ export const MARKET_OFFER_COLUMNS = [
 ];
 
 export const REQUIRED_MARKET_OFFER_HEADERS = [
-    'ID',
-    'Функционал для модели',
+    MARKET_OFFER_ID_HEADER,
+    'Функционал',
     'Общая площадь по объявлению, кв. м',
     'Адрес по объявлению',
     'КН здания',
