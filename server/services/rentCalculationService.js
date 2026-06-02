@@ -102,14 +102,12 @@ const RENT_CONFIG = {
             'среднеэтажная жилая застройка': 0.80,
             'окраины городов, промзоны': 0.61,
             'промзона': 0.61,
-            'район крупных автомагистралей города': 0.79,
             prime_business: 0.91,
             urban_business: 0.91,
             mixed_urban: 0.91,
             residential_mixed: 0.83,
             industrial_edge: 0.61,
             warehouse_industrial: 0.61,
-            peripheral_low_activity: 0.79,
             residential: 0.83,
             industrial: 0.61,
             business: 0.91,
@@ -472,7 +470,6 @@ function getEnvironmentCoefficientSingle(value) {
     if (normalized.includes('многоквартир')) return 0.83;
     if (normalized.includes('среднеэтаж')) return 0.80;
     if (normalized.includes('пром')) return 0.61;
-    if (normalized.includes('автомагистра')) return 0.79;
 
     return null;
 }

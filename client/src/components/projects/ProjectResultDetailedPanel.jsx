@@ -44,6 +44,7 @@ import {
 } from '../../utils/projectQuestionnaire';
 import {
   formatEnvironmentCategories,
+  isIgnoredEnvironmentCategory,
   localizeEnvironmentCategoryText,
 } from '../../utils/environmentLabels';
 import {
@@ -665,7 +666,8 @@ function EnvironmentAnalysisMap({ analysis, objectPoint, captureRef = null }) {
   const center = [lat, lng];
   const spots = buildEnvironmentZoneSpots(analysis);
   const visibleSpots = spots.filter((spot) => spot.visible);
-  const categories = Array.from(new Set((analysis?.categories || []).filter(Boolean)));
+  const categories = Array.from(new Set((analysis?.categories || []).filter(Boolean)))
+    .filter((category) => !isIgnoredEnvironmentCategory(category));
 
   return (
     <div ref={captureRef}>
@@ -975,7 +977,6 @@ const ENVIRONMENT_COEFFICIENT_GUIDE = [
   ['общественно-деловая застройка', 0.91],
   ['многоквартирная жилая застройка', 0.83],
   ['среднеэтажная жилая застройка', 0.80],
-  ['район крупных автомагистралей города', 0.79],
   ['окраины городов, промзоны', 0.61],
 ];
 

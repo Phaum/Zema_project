@@ -117,7 +117,6 @@ const PROJECT_ENVIRONMENT_CATEGORY_BY_INTERNAL = Object.freeze({
     residential_mixed: 'многоквартирная жилая застройка',
     industrial_edge: 'окраины городов, промзоны',
     warehouse_industrial: 'промзона',
-    peripheral_low_activity: 'район крупных автомагистралей города',
     residential: 'многоквартирная жилая застройка',
     industrial: 'промзона',
     business: 'общественно-деловая застройка',
@@ -127,9 +126,14 @@ const PROJECT_ENVIRONMENT_CATEGORY_BY_INTERNAL = Object.freeze({
     'смешанная жилая среда': 'многоквартирная жилая застройка',
     'промышленная периферия': 'окраины городов, промзоны',
     'складская и промышленная зона': 'промзона',
-    'периферийная зона с низкой активностью': 'район крупных автомагистралей города',
     'жилая застройка': 'многоквартирная жилая застройка',
 });
+
+const EXCLUDED_PROJECT_ENVIRONMENT_CATEGORIES = new Set([
+    'peripheral_low_activity',
+    'район крупных автомагистралей города',
+    'периферийная зона с низкой активностью',
+]);
 
 function normalizeCadastralNumber(value) {
     return String(value || '').trim();
@@ -558,7 +562,6 @@ function summarizeAnnotatedElements(annotatedElements = [], radiusMeters, { metr
 
         if (flags.majorRoad) {
             bucket.counts.majorRoads += 1;
-            updateNearest(bucket, 'negative', distanceMeters);
         }
     }
 
@@ -579,8 +582,7 @@ function summarizeAnnotatedElements(annotatedElements = [], radiusMeters, { metr
     const negativeCount =
         bucket.counts.industrialSites +
         bucket.counts.warehouseSites +
-        bucket.counts.railObjects +
-        bucket.counts.majorRoads;
+        bucket.counts.railObjects;
 
     const transportNearest = minDefined(bucket.nearest.transport, metroInfo?.distanceMeters);
 
@@ -698,8 +700,7 @@ function calculateEnvironmentScore(summary, { historicalCenterStatus } = {}) {
     let negativePenalty =
         (counts.industrialSites || 0) * 1.5 +
         (counts.warehouseSites || 0) * 2 +
-        (counts.railObjects || 0) * 0.8 +
-        (counts.majorRoads || 0) * 1.2;
+        (counts.railObjects || 0) * 0.8;
     if (((counts.businessCount || 0) + (counts.serviceCount || 0)) <= 2) {
         negativePenalty += 3;
     }
@@ -787,14 +788,12 @@ function buildCategoryScores(summary, scoreResult, { historicalCenterStatus } = 
             industrialIntensity * 1.2,
         industrial_edge:
             industrialIntensity * 2.2 +
-            (counts.majorRoads || 0) * 1.2 +
             (counts.railObjects || 0) * 1.2 -
             serviceIntensity * 0.8 -
             residentialIntensity * 0.9,
         warehouse_industrial:
             (counts.warehouseSites || 0) * 3.5 +
             (counts.industrialSites || 0) * 1.8 +
-            (counts.majorRoads || 0) * 1.3 +
             (counts.railObjects || 0) * 1.2 -
             serviceIntensity * 0.5 -
             residentialIntensity * 1.3,
@@ -818,7 +817,13 @@ function buildCategoryScores(summary, scoreResult, { historicalCenterStatus } = 
 export function toProjectEnvironmentCategory(category) {
     if (!category) return null;
     const key = String(category).trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
-    return PROJECT_ENVIRONMENT_CATEGORY_BY_INTERNAL[key] || key;
+    const resolved = PROJECT_ENVIRONMENT_CATEGORY_BY_INTERNAL[key] || key;
+    const normalizedResolved = String(resolved).trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+
+    return EXCLUDED_PROJECT_ENVIRONMENT_CATEGORIES.has(key) ||
+        EXCLUDED_PROJECT_ENVIRONMENT_CATEGORIES.has(normalizedResolved)
+        ? null
+        : resolved;
 }
 
 function mapCategoriesToProjectScale(categories = {}) {
@@ -839,7 +844,7 @@ function mapCategoriesToProjectScale(categories = {}) {
         categories.secondary,
         categories.tertiary,
         ...ranked.map((item) => item.key),
-    ].map(toProjectEnvironmentCategory);
+    ].map(toProjectEnvironmentCategory).filter(Boolean);
 
     const unique = [];
     for (const category of ordered) {
@@ -967,7 +972,7 @@ function buildExamplesByCategory(annotatedElements = []) {
         transport: (item) => item.flags.publicTransport || item.flags.rail,
         business: (item) => item.flags.businessBuilding || item.flags.office || item.flags.bank || item.flags.hotel,
         service: (item) => item.flags.servicePoint,
-        negative: (item) => item.flags.industrial || item.flags.warehouse || item.flags.majorRoad || item.flags.rail,
+        negative: (item) => item.flags.industrial || item.flags.warehouse || item.flags.rail,
     };
 
     return Object.fromEntries(

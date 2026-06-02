@@ -10,7 +10,6 @@ export const ENVIRONMENT_CATEGORY_LABELS = Object.freeze({
   residential_mixed: 'многоквартирная жилая застройка',
   industrial_edge: 'окраины городов, промзоны',
   warehouse_industrial: 'промзона',
-  peripheral_low_activity: 'район крупных автомагистралей города',
   residential: 'многоквартирная жилая застройка',
   industrial: 'промзона',
   business: 'общественно-деловая застройка',
@@ -20,9 +19,14 @@ export const ENVIRONMENT_CATEGORY_LABELS = Object.freeze({
   'смешанная жилая среда': 'многоквартирная жилая застройка',
   'промышленная периферия': 'окраины городов, промзоны',
   'складская и промышленная зона': 'промзона',
-  'периферийная зона с низкой активностью': 'район крупных автомагистралей города',
   'жилая застройка': 'многоквартирная жилая застройка',
 });
+
+const IGNORED_ENVIRONMENT_CATEGORY_KEYS = new Set([
+  'peripheral_low_activity',
+  'район крупных автомагистралей города',
+  'периферийная зона с низкой активностью',
+]);
 
 const ENVIRONMENT_SPLIT_PATTERN = /\s*(?:\/|;|\|)\s*/u;
 
@@ -34,6 +38,10 @@ function normalizeEnvironmentCategoryKey(value) {
     .replace(/\s+/g, ' ');
 }
 
+export function isIgnoredEnvironmentCategory(value) {
+  return IGNORED_ENVIRONMENT_CATEGORY_KEYS.has(normalizeEnvironmentCategoryKey(value));
+}
+
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -43,10 +51,11 @@ export function translateEnvironmentCategory(value) {
 
   const text = String(value).trim();
   if (!text || text === '—') return text;
+  if (isIgnoredEnvironmentCategory(text)) return '';
 
   const parts = text.split(ENVIRONMENT_SPLIT_PATTERN).filter(Boolean);
   if (parts.length > 1) {
-    return parts.map(translateEnvironmentCategory).join(' / ');
+    return parts.map(translateEnvironmentCategory).filter(Boolean).join(' / ');
   }
 
   const key = normalizeEnvironmentCategoryKey(text);
@@ -65,6 +74,7 @@ export function formatEnvironmentCategories(values = [], separator = ', ') {
 
 export function localizeEnvironmentCategoryText(value) {
   if (value === null || value === undefined || value === '') return value;
+  if (isIgnoredEnvironmentCategory(value)) return '';
 
   return Object.entries(ENVIRONMENT_CATEGORY_LABELS).reduce((text, [key, label]) => {
     if (/^[a-z0-9_]+$/i.test(key)) {

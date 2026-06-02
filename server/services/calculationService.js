@@ -1229,7 +1229,6 @@ const ENVIRONMENT_CATEGORY_COEFFICIENTS = {
     'общественно-деловая застройка': 0.91,
     'многоквартирная жилая застройка': 0.83,
     'среднеэтажная жилая застройка': 0.80,
-    'район крупных автомагистралей города': 0.79,
     'окраины городов, промзоны': 0.61,
     'промзона': 0.61,
     prime_business: 0.91,
@@ -1238,7 +1237,6 @@ const ENVIRONMENT_CATEGORY_COEFFICIENTS = {
     residential_mixed: 0.83,
     industrial_edge: 0.61,
     warehouse_industrial: 0.61,
-    peripheral_low_activity: 0.79,
     residential: 0.83,
     industrial: 0.61,
     business: 0.91,
@@ -1271,7 +1269,6 @@ function mapEnvironmentTokenToCoefficient(value) {
     if (normalized.includes('многоквартир')) return 0.83;
     if (normalized.includes('среднеэтаж')) return 0.80;
     if (normalized.includes('пром')) return 0.61;
-    if (normalized.includes('автомагистра')) return 0.79;
 
     return null;
 }
@@ -1449,11 +1446,6 @@ function normalizeEnvironmentTokenForSelection(value) {
         normalized.includes('пром') ||
         normalized.includes('склад')
     ) return 'industrial';
-    if (
-        normalized.includes('peripheral_low_activity') ||
-        normalized.includes('автомагистра') ||
-        normalized.includes('перифер')
-    ) return 'road_edge';
     return null;
 }
 
@@ -1485,7 +1477,6 @@ const ENVIRONMENT_SELECTION_VECTOR_ORDER = [
     'multifamily',
     'midrise_residential',
     'industrial',
-    'road_edge',
 ];
 
 function encodeEnvironmentSelectionVector(values = []) {
