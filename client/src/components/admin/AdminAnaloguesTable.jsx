@@ -9,6 +9,7 @@ import {
     clearAdminAnalogues,
 } from './Api';
 import EditableGridModal from './EditableGridModal';
+import { translateEnvironmentCategory } from '../../utils/environmentLabels';
 
 export default function AdminAnaloguesTable() {
     const [loading, setLoading] = useState(false);
@@ -90,6 +91,8 @@ export default function AdminAnaloguesTable() {
         });
     };
 
+    const renderEnvironmentCategory = (value) => translateEnvironmentCategory(value) || '—';
+
     const columns = [
         { title: 'ID', dataIndex: 'id', width: 140, fixed: 'left' },
         { title: 'Функционал', dataIndex: 'model_func', width: 180 },
@@ -142,8 +145,8 @@ export default function AdminAnaloguesTable() {
         { title: 'Год постройки', dataIndex: 'built_year', type: 'string', width: 140 },
         { title: 'Год эксплуатации', dataIndex: 'expl_year', type: 'string', width: 140 },
         { title: 'Срок жизни', dataIndex: 'new_life_year', type: 'string', width: 140 },
-        { title: 'Окружение 1', dataIndex: 'env_category_1', type: 'string', width: 180 },
-        { title: 'Окружение 2', dataIndex: 'env_category_2', type: 'string', width: 180 },
+        { title: 'Окружение 1', dataIndex: 'env_category_1', type: 'string', width: 180, render: renderEnvironmentCategory },
+        { title: 'Окружение 2', dataIndex: 'env_category_2', type: 'string', width: 180, render: renderEnvironmentCategory },
     ];
 
     return (

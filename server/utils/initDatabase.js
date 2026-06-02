@@ -536,6 +536,10 @@ async function ensureMarketOffersTable() {
                 allowNull: false,
                 unique: true,
             },
+            cian_id: {
+                type: sequelize.Sequelize.STRING(120),
+                allowNull: true,
+            },
             parent_object_type: {
                 type: sequelize.Sequelize.STRING(255),
                 allowNull: true,
@@ -722,6 +726,11 @@ async function ensureMarketOffersTable() {
     await addColumnIfMissing('external_id', {
         type: sequelize.Sequelize.STRING(120),
         allowNull: false,
+    });
+
+    await addColumnIfMissing('cian_id', {
+        type: sequelize.Sequelize.STRING(120),
+        allowNull: true,
     });
 
     await addColumnIfMissing('parent_object_type', {

@@ -3,6 +3,57 @@ import assert from 'node:assert/strict';
 
 import { calculateMarketRentByNewAlgorithm } from '../services/rentCalculationService.js';
 
+test('calculateMarketRentByNewAlgorithm ignores auto-resolved market class without manual class', () => {
+    const questionnaire = {
+        totalArea: 1000,
+        leasableArea: 1000,
+        aboveGroundFloors: 1,
+        metroDistance: 1,
+        valuationDate: '2025-01-01',
+        marketClassResolved: 'B+',
+        floors: [
+            {
+                id: 'first',
+                floorCategory: 'first',
+                floorLocation: 'Первый этаж',
+                leasableArea: 1000,
+                avgLeasableRoomArea: 183,
+            },
+        ],
+    };
+
+    const analogs = [
+        {
+            id: 'class_a',
+            price_per_sqm_cleaned: 1000,
+            area_total: 1000,
+            class_offer: 'A',
+            distance_to_metro: 1,
+            floor_location: 'Первый этаж',
+            offer_date: '2025-01-15',
+            quarter: '2025-Q1',
+            environment_historical_center: false,
+        },
+        {
+            id: 'class_c',
+            price_per_sqm_cleaned: 1000,
+            area_total: 1000,
+            class_offer: 'C',
+            distance_to_metro: 1,
+            floor_location: 'Первый этаж',
+            offer_date: '2025-01-15',
+            quarter: '2025-Q1',
+            environment_historical_center: false,
+        },
+    ];
+
+    const result = calculateMarketRentByNewAlgorithm(analogs, questionnaire);
+
+    assert.equal(result.subjectClass, 'unknown');
+    assert.equal(result.strictClassFilterApplied, false);
+    assert.equal(result.analogCount, 2);
+});
+
 test('calculateMarketRentByNewAlgorithm aligns area and floor corrections with Excel-style comparable unit', () => {
     const questionnaire = {
         totalArea: 18023.4,
@@ -266,11 +317,15 @@ test('calculateMarketRentByNewAlgorithm maps environment analysis category codes
 
     assert.ok(analog, 'expected adjusted analogue');
     assert.ok(
-        Math.abs(analog.environmentAdjustment - 1.49) < 0.0001,
+        Math.abs(analog.environmentAdjustment - 1.45) < 0.0001,
         `unexpected environment adjustment: ${analog.environmentAdjustment}`
     );
-    assert.equal(analog.adjustments.find((item) => item.key === 'environment')?.details?.subjectCoefficient, 0.91);
+    assert.equal(analog.adjustments.find((item) => item.key === 'environment')?.details?.subjectCoefficient, 0.8833);
     assert.equal(analog.adjustments.find((item) => item.key === 'environment')?.details?.analogCoefficient, 0.61);
+    assert.equal(
+        analog.adjustments.find((item) => item.key === 'environment')?.details?.subjectCoefficientItems?.length,
+        3
+    );
 });
 
 test('calculateMarketRentByNewAlgorithm keeps environment neutral for matching business categories', () => {
@@ -320,4 +375,6 @@ test('calculateMarketRentByNewAlgorithm keeps environment neutral for matching b
     assert.equal(analog.environmentAdjustment, 1);
     assert.equal(environmentAdjustment?.details?.subjectCoefficient, 0.91);
     assert.equal(environmentAdjustment?.details?.analogCoefficient, 0.91);
+    assert.equal(environmentAdjustment?.details?.subjectCoefficientItems?.length, 3);
+    assert.equal(environmentAdjustment?.details?.analogCoefficientItems?.length, 1);
 });

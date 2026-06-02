@@ -10,10 +10,12 @@ import {
     buildMarketOfferZemaId,
     deriveMarketOfferSegment,
     MARKET_OFFER_ID_HEADER,
+    resolveMarketOfferCianId,
 } from '../../utils/marketOfferEncoding.js';
 import { msk64ToWgs84 } from "../../utils/coordsConverter.js";
 import { fetchOsmEnvironment, classifyEnvironment } from '../../utils/osmEnvironmentClassifier.js';
 import { resolveHistoricalCenterForCoords } from '../../utils/historicalCenterResolver.js';
+import { toProjectEnvironmentCategory } from '../../services/environmentAnalysisService.js';
 
 
 function normalizeString(value) {
@@ -129,6 +131,7 @@ export async function getAdminMarketOffers(req, res) {
         const where = {};
         if (search) {
             where[Op.or] = [
+                { cian_id: { [Op.iLike]: `%${search}%` } },
                 { external_id: { [Op.iLike]: `%${search}%` } },
                 { address_offer: { [Op.iLike]: `%${search}%` } },
                 { building_cadastral_number: { [Op.iLike]: `%${search}%` } },
@@ -202,9 +205,10 @@ export async function importMarketOffers(req, res) {
             try {
                 const payload = mapRowToPayload(rows[index], sheetName);
 
+                payload.cian_id = resolveMarketOfferCianId(payload);
                 payload.external_id = buildMarketOfferZemaId({
                     id: index + 1,
-                    externalId: payload.external_id,
+                    externalId: payload.external_id || payload.cian_id,
                     quarter: payload.quarter,
                 });
 
@@ -263,7 +267,7 @@ export async function exportMarketOffers(req, res) {
         });
 
         const rows = items.map((item) => ({
-            [MARKET_OFFER_ID_HEADER]: item.external_id,
+            [MARKET_OFFER_ID_HEADER]: item.cian_id,
             'Тип родительского объекта': item.parent_object_type,
             'Функционал': item.functional,
             'сегмент': item.segment,
@@ -327,6 +331,7 @@ export async function exportMarketOffers(req, res) {
 }
 
 const ALLOWED_MARKET_OFFER_BULK_FIELDS = [
+    'cian_id',
     'parent_object_type',
     'functional',
     'segment',
@@ -479,7 +484,9 @@ async function calculateEnvironmentForOffer(item) {
     let historicalCenterError = null;
 
     try {
-        historicalCenter = await resolveHistoricalCenterForCoords(lat, lon);
+        historicalCenter = await resolveHistoricalCenterForCoords(lat, lon, {
+            district: item.district,
+        });
     } catch (error) {
         historicalCenterError =
             error?.message || 'resolveHistoricalCenterForCoords failed';
@@ -497,14 +504,24 @@ async function calculateEnvironmentForOffer(item) {
     }
 
     const result = classifyEnvironment(elements, { historicalCenter });
+    const topCategories = Array.from(new Set(
+        (result.topCategories || [])
+            .map(toProjectEnvironmentCategory)
+            .filter(Boolean)
+    ));
+    const normalizedResult = {
+        ...result,
+        rawTopCategories: result.topCategories || [],
+        topCategories,
+    };
 
     const environmentPayload = {
-        environment_historical_center: result.historicalCenter,
-        environment_category_1: result.topCategories?.[0] || null,
-        environment_category_2: result.topCategories?.[1] || null,
-        environment_category_3: result.topCategories?.[2] || null,
+        environment_historical_center: normalizedResult.historicalCenter,
+        environment_category_1: topCategories[0] || null,
+        environment_category_2: topCategories[1] || null,
+        environment_category_3: topCategories[2] || null,
         environment_score_json: {
-            ...result,
+            ...normalizedResult,
             diagnostics: {
                 osmError,
                 historicalCenterError,

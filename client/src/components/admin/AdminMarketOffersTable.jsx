@@ -128,7 +128,7 @@ export default function AdminMarketOffersTable() {
     const renderEnvironmentCategory = (value) => translateEnvironmentCategory(value) || '—';
 
     const columns = [
-        { title: 'zema_id_2025_квартал', dataIndex: 'external_id', width: 190 },
+        { title: 'ID ЦИАН', dataIndex: 'cian_id', width: 150 },
         { title: 'Функционал', dataIndex: 'functional', width: 180 },
         { title: 'Сегмент', dataIndex: 'segment', width: 190 },
         { title: 'Площадь', dataIndex: 'area_total', width: 120 },
@@ -171,7 +171,7 @@ export default function AdminMarketOffersTable() {
 
     const editableColumns = [
         { title: 'ID', dataIndex: 'id', type: 'string', width: 90, fixed: 'left' },
-        { title: 'zema_id_2025_квартал', dataIndex: 'external_id', type: 'string', width: 190, fixed: 'left' },
+        { title: 'ID ЦИАН', dataIndex: 'cian_id', type: 'string', width: 150, fixed: 'left' },
         { title: 'Тип родительского объекта', dataIndex: 'parent_object_type', type: 'string', width: 220 },
         { title: 'Функционал', dataIndex: 'functional', type: 'string', width: 220 },
         { title: 'Сегмент', dataIndex: 'segment', type: 'string', width: 190 },
@@ -219,7 +219,7 @@ export default function AdminMarketOffersTable() {
             <Space wrap style={{ marginBottom: 16 }}>
                 <Input.Search
                     allowClear
-                    placeholder="Поиск по zema_id, адресу, КН здания, району, сегменту"
+                    placeholder="Поиск по ID ЦИАН, адресу, КН здания, району, сегменту"
                     style={{ width: 340 }}
                     onSearch={(value) => {
                         setSearch(value);

@@ -3,7 +3,7 @@ import CadastralData from '../models/cadastral_data.js';
 import { getOrFetchCadastralRecord } from '../controllers/cadastralController.js';
 import { geocodeByAddress } from '../controllers/geoController.js';
 import { calculateNearestMetro } from './geoService.js';
-import { fetchOsmEnvironment } from '../utils/osmEnvironmentClassifier.js';
+import { classifyEnvironment, fetchOsmEnvironment } from '../utils/osmEnvironmentClassifier.js';
 import { resolveHistoricalCenterStatusForCoords } from '../utils/historicalCenterResolver.js';
 import {
     findEnvironmentAnalysisByCadastralNumber,
@@ -104,6 +104,32 @@ const LEISURE_TAGS = new Set([
     'sports_centre',
     'stadium',
 ]);
+
+const PROJECT_ENVIRONMENT_CATEGORY_BY_INTERNAL = Object.freeze({
+    historical_center: 'культурный и исторический центр',
+    business_activity_center: 'центры деловой активности',
+    multi_apartment_residential: 'многоквартирная жилая застройка',
+    midrise_residential: 'среднеэтажная жилая застройка',
+    industrial_zone: 'окраины городов, промзоны',
+    prime_business: 'центры деловой активности',
+    urban_business: 'общественно-деловая застройка',
+    mixed_urban: 'общественно-деловая застройка',
+    residential_mixed: 'многоквартирная жилая застройка',
+    industrial_edge: 'окраины городов, промзоны',
+    warehouse_industrial: 'промзона',
+    peripheral_low_activity: 'район крупных автомагистралей города',
+    residential: 'многоквартирная жилая застройка',
+    industrial: 'промзона',
+    business: 'общественно-деловая застройка',
+    'деловая активность высокого уровня': 'центры деловой активности',
+    'городская деловая среда': 'общественно-деловая застройка',
+    'смешанная городская среда': 'общественно-деловая застройка',
+    'смешанная жилая среда': 'многоквартирная жилая застройка',
+    'промышленная периферия': 'окраины городов, промзоны',
+    'складская и промышленная зона': 'промзона',
+    'периферийная зона с низкой активностью': 'район крупных автомагистралей города',
+    'жилая застройка': 'многоквартирная жилая застройка',
+});
 
 function normalizeCadastralNumber(value) {
     return String(value || '').trim();
@@ -789,6 +815,134 @@ function buildCategoryScores(summary, scoreResult, { historicalCenterStatus } = 
     };
 }
 
+export function toProjectEnvironmentCategory(category) {
+    if (!category) return null;
+    const key = String(category).trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+    return PROJECT_ENVIRONMENT_CATEGORY_BY_INTERNAL[key] || key;
+}
+
+function mapCategoriesToProjectScale(categories = {}) {
+    const rankedByCategory = new Map();
+    for (const item of (Array.isArray(categories.ranked) ? categories.ranked : [])) {
+        const key = toProjectEnvironmentCategory(item.key);
+        if (!key || rankedByCategory.has(key)) continue;
+        rankedByCategory.set(key, {
+            ...item,
+            internalKey: item.internalKey || item.key,
+            key,
+        });
+    }
+    const ranked = [...rankedByCategory.values()];
+
+    const ordered = [
+        categories.primary,
+        categories.secondary,
+        categories.tertiary,
+        ...ranked.map((item) => item.key),
+    ].map(toProjectEnvironmentCategory);
+
+    const unique = [];
+    for (const category of ordered) {
+        if (category && !unique.includes(category)) {
+            unique.push(category);
+        }
+    }
+
+    return {
+        primary: unique[0] || null,
+        secondary: unique[1] || null,
+        tertiary: unique[2] || null,
+        ranked,
+    };
+}
+
+function buildAnalogueClassifierCategories(classification = {}) {
+    const scoreEntries = Object.entries(classification.scores || {})
+        .filter(([, score]) => Number(score) > 0)
+        .sort((left, right) => Number(right[1]) - Number(left[1]));
+    const orderedKeys = [];
+
+    if (classification.historicalCenter) {
+        orderedKeys.push('historical_center');
+    }
+
+    for (const key of (Array.isArray(classification.topCategories) ? classification.topCategories : [])) {
+        if (key && !orderedKeys.includes(key)) {
+            orderedKeys.push(key);
+        }
+    }
+
+    for (const [key] of scoreEntries) {
+        if (key && !orderedKeys.includes(key)) {
+            orderedKeys.push(key);
+        }
+    }
+
+    const ranked = orderedKeys.map((key) => ({
+        key,
+        score: key === 'historical_center' ? 1 : Number(classification.scores?.[key] || 0),
+    }));
+
+    return mapCategoriesToProjectScale({
+        primary: orderedKeys[0] || null,
+        secondary: orderedKeys[1] || null,
+        tertiary: orderedKeys[2] || null,
+        ranked,
+    });
+}
+
+function mergeAnalogueClassifierCounts(summaryCounts = {}, classification = {}) {
+    const detailsCount = classification.detailsCount || {};
+
+    return {
+        ...summaryCounts,
+        businessActivityCenter: detailsCount.business_activity_center || 0,
+        multiApartmentResidential: detailsCount.multi_apartment_residential || 0,
+        residentialHighrise: detailsCount.multi_apartment_residential || 0,
+        midriseResidential: detailsCount.midrise_residential || 0,
+        residentialMidrise: detailsCount.midrise_residential || 0,
+        industrialZone: detailsCount.industrial_zone || 0,
+        analogueBusinessCount: detailsCount.business_activity_center || 0,
+        analogueIndustrialCount: detailsCount.industrial_zone || 0,
+    };
+}
+
+function hasAnalogueClassifierResult(analysis) {
+    const classifier = analysis?.environment_details_json?.analogueClassifier;
+    return Boolean(classifier && typeof classifier === 'object' && classifier.detailsCount);
+}
+
+function normalizeAnalysisEnvironmentCategories(analysis) {
+    if (!analysis) return analysis;
+
+    const categories = mapCategoriesToProjectScale({
+        primary: analysis.environment_category_1,
+        secondary: analysis.environment_category_2,
+        tertiary: analysis.environment_category_3,
+        ranked: analysis.environment_details_json?.categories?.ranked,
+    });
+    const details = analysis.environment_details_json && typeof analysis.environment_details_json === 'object'
+        ? {
+            ...analysis.environment_details_json,
+            categories: {
+                ...(analysis.environment_details_json.categories || {}),
+                primary: categories.primary,
+                secondary: categories.secondary,
+                tertiary: categories.tertiary,
+                ranked: categories.ranked,
+            },
+        }
+        : analysis.environment_details_json;
+
+    return {
+        ...analysis,
+        environment_category_1: categories.primary,
+        environment_category_2: categories.secondary,
+        environment_category_3: categories.tertiary,
+        environment_details_json: details,
+    };
+}
+
 function mapCategoryToLocationType(category) {
     switch (category) {
         case 'prime_business':
@@ -854,7 +1008,7 @@ async function fetchEnvironmentElementsWithFallback(lat, lon, radiusMeters) {
     };
 }
 
-async function resolveCoordinatesForEnvironment(cadastralNumber) {
+async function resolveCoordinatesForEnvironment(cadastralNumber, latestQuestionnaire = {}) {
     const normalizedCad = normalizeCadastralNumber(cadastralNumber);
     const warnings = [];
     const sourcesTried = [];
@@ -874,7 +1028,7 @@ async function resolveCoordinatesForEnvironment(cadastralNumber) {
                 cadastralRecord.address,
                 cadastralRecord.address_display
             ),
-            district: normalizeText(cadastralRecord.district) || null,
+            district: normalizeText(latestQuestionnaire?.district || cadastralRecord.district) || null,
             metro: normalizeText(cadastralRecord.nearest_metro) || null,
             metroDistance: toNumberOrNull(cadastralRecord.metro_distance),
             warnings,
@@ -901,7 +1055,7 @@ async function resolveCoordinatesForEnvironment(cadastralNumber) {
                     plainRecord.address,
                     plainRecord.address_display
                 ),
-                district: normalizeText(plainRecord.district) || null,
+                district: normalizeText(latestQuestionnaire?.district || plainRecord.district) || null,
                 metro: normalizeText(plainRecord.nearest_metro) || null,
                 metroDistance: toNumberOrNull(plainRecord.metro_distance),
                 warnings,
@@ -914,6 +1068,29 @@ async function resolveCoordinatesForEnvironment(cadastralNumber) {
     }
 
     sourcesTried.push('cadastral_enrichment');
+
+    if (hasValidCoordinates(latestQuestionnaire?.mapPointLat, latestQuestionnaire?.mapPointLng)) {
+        return {
+            latitude: Number(latestQuestionnaire.mapPointLat),
+            longitude: Number(latestQuestionnaire.mapPointLng),
+            source: 'project_questionnaire',
+            address: pickBestAddress(
+                latestQuestionnaire?.objectAddress,
+                enrichedCadastralRecord?.address_document,
+                enrichedCadastralRecord?.address,
+                enrichedCadastralRecord?.address_display,
+                cadastralRecord?.address_document,
+                cadastralRecord?.address,
+                cadastralRecord?.address_display
+            ),
+            district: normalizeText(latestQuestionnaire?.district || enrichedCadastralRecord?.district || cadastralRecord?.district) || null,
+            metro: normalizeText(latestQuestionnaire?.nearestMetro || enrichedCadastralRecord?.nearest_metro || cadastralRecord?.nearest_metro) || null,
+            metroDistance: toNumberOrNull(latestQuestionnaire?.metroDistance || enrichedCadastralRecord?.metro_distance || cadastralRecord?.metro_distance),
+            warnings,
+            sourcesTried: [...sourcesTried, 'project_questionnaire'],
+            cadastralRecord: enrichedCadastralRecord || cadastralRecord,
+        };
+    }
 
     const addressCandidate = pickBestAddress(
         latestQuestionnaire?.objectAddress,
@@ -1071,13 +1248,18 @@ export async function getSavedEnvironmentAnalysis(cadastralNumber, { radiusMeter
         return null;
     }
 
-    return normalized;
+    if (!hasAnalogueClassifierResult(normalized)) {
+        return null;
+    }
+
+    return normalizeAnalysisEnvironmentCategories(normalized);
 }
 
 export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
     valuationDate = null,
     radiusMeters = DEFAULT_RADIUS_METERS,
     forceRecalculation = false,
+    latestQuestionnaire = {},
 } = {}) {
     const normalizedCad = normalizeCadastralNumber(cadastralNumber);
     const normalizedRadius = normalizeRadius(radiusMeters);
@@ -1099,7 +1281,7 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
         }
     }
 
-    const coordinateContext = await resolveCoordinatesForEnvironment(normalizedCad);
+    const coordinateContext = await resolveCoordinatesForEnvironment(normalizedCad, latestQuestionnaire);
 
     if (!hasValidCoordinates(coordinateContext.latitude, coordinateContext.longitude)) {
         throw new Error('Не удалось определить координаты объекта для анализа окружения');
@@ -1108,7 +1290,10 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
     const historicalCenter = await resolveHistoricalCenterStatusForCoords(
         coordinateContext.latitude,
         coordinateContext.longitude,
-        { nearBufferMeters: 400 }
+        {
+            nearBufferMeters: 400,
+            district: coordinateContext.district,
+        }
     );
 
     const metroContext = await resolveMetroContext({
@@ -1131,6 +1316,9 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
         coordinateContext.latitude,
         coordinateContext.longitude
     );
+    const analogueClassifier = classifyEnvironment(overpassResult.elements, {
+        historicalCenter: historicalCenter.status === 'inside',
+    });
 
     const radiiToBuild = [...new Set([...STANDARD_RADII, normalizedRadius])].sort((left, right) => left - right);
     const radiusSummaries = Object.fromEntries(
@@ -1147,10 +1335,13 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
     const score = calculateEnvironmentScore(primarySummary, {
         historicalCenterStatus: historicalCenter.status,
     });
-    const categories = buildCategoryScores(primarySummary, score, {
+    const internalCategories = buildCategoryScores(primarySummary, score, {
         historicalCenterStatus: historicalCenter.status,
     });
-    const locationType = mapCategoryToLocationType(categories.primary);
+    const categories = buildAnalogueClassifierCategories(analogueClassifier);
+    const fallbackCategories = mapCategoriesToProjectScale(internalCategories);
+    const resolvedCategories = categories.primary ? categories : fallbackCategories;
+    const locationType = mapCategoryToLocationType(internalCategories.primary);
     const qualityFlag = resolveQualityFlag({
         coordinateSource: coordinateContext.source,
         overpassStatus: overpassResult.status,
@@ -1165,14 +1356,27 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
 
     const details = {
         metrics: primarySummary.metrics,
-        counts: primarySummary.counts,
+        counts: mergeAnalogueClassifierCounts(primarySummary.counts, analogueClassifier),
         radii: radiusSummaries,
         categories: {
-            primary: categories.primary,
-            secondary: categories.secondary,
-            tertiary: categories.tertiary,
-            ranked: categories.ranked,
+            primary: resolvedCategories.primary,
+            secondary: resolvedCategories.secondary,
+            tertiary: resolvedCategories.tertiary,
+            ranked: resolvedCategories.ranked,
+            internal: {
+                primary: internalCategories.primary,
+                secondary: internalCategories.secondary,
+                tertiary: internalCategories.tertiary,
+                ranked: internalCategories.ranked,
+            },
+            analogueClassifier: {
+                primary: categories.primary,
+                secondary: categories.secondary,
+                tertiary: categories.tertiary,
+                ranked: categories.ranked,
+            },
         },
+        analogueClassifier,
         score,
         examples: buildExamplesByCategory(annotatedElements),
         warnings,
@@ -1204,14 +1408,14 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
         historicalCenter,
         metro: metroContext,
         score,
-        categories,
+        categories: resolvedCategories,
         details,
         sourceMeta,
         qualityFlag,
     }));
 
     return {
-        analysis: normalizeEnvironmentAnalysis(saved),
+        analysis: normalizeAnalysisEnvironmentCategories(normalizeEnvironmentAnalysis(saved)),
         fromCache: false,
     };
 }

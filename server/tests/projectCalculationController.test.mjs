@@ -235,7 +235,7 @@ test('deduplicateAnaloguesForSelection collapses technical duplicates by address
     );
 });
 
-test('deduplicateRankedAnalogsByObject keeps only one analogue per address in final ranked set', () => {
+test('deduplicateRankedAnalogsByObject keeps two best analogues per address in final ranked set', () => {
     const rows = [
         {
             id: 'dom16_best',
@@ -269,14 +269,14 @@ test('deduplicateRankedAnalogsByObject keeps only one analogue per address in fi
 
     const deduped = deduplicateRankedAnalogsByObject(rows, '2025-07-01', 10);
 
-    assert.equal(deduped.length, 2);
+    assert.equal(deduped.length, 3);
     assert.deepEqual(
         deduped.map((row) => row.id),
-        ['dom16_best', 'other']
+        ['dom16_best', 'other', 'dom16_second']
     );
 });
 
-test('deduplicateAnaloguesByObject excludes duplicates with reasons before ranking', () => {
+test('deduplicateAnaloguesByObject allows two suitable offers from one object before ranking', () => {
     const rows = [
         {
             id: 'best',
@@ -291,8 +291,8 @@ test('deduplicateAnaloguesByObject excludes duplicates with reasons before ranki
             id: 'older',
             building_cadastral_number: '78:01:0001:1',
             address_offer: 'САНКТ-ПЕТЕРБУРГ. ОПТИКОВ. 4',
-            price_per_sqm_cleaned: 1000,
-            area_total: 600,
+            price_per_sqm_cleaned: 1100,
+            area_total: 580,
             class_offer: 'B+',
             offer_date: '2025-05-01',
         },
@@ -300,13 +300,12 @@ test('deduplicateAnaloguesByObject excludes duplicates with reasons before ranki
 
     const result = deduplicateAnaloguesByObject(rows, '2025-10-01');
 
-    assert.equal(result.selectedAnalogs.length, 1);
-    assert.equal(result.excludedDuplicates.length, 1);
+    assert.equal(result.selectedAnalogs.length, 2);
+    assert.equal(result.excludedDuplicates.length, 0);
     assert.equal(result.selectedAnalogs[0].id, 'best');
-    assert.match(result.excludedDuplicates[0].exclusionReason, /дубль объекта/i);
 });
 
-test('deduplicateAnaloguesByObject collapses repeated final-table analogues by object address', () => {
+test('deduplicateAnaloguesByObject keeps up to two distinct offers per object address', () => {
     const rows = [
         {
             id: 'rzhovskaya-q2',
@@ -358,11 +357,11 @@ test('deduplicateAnaloguesByObject collapses repeated final-table analogues by o
 
     const result = deduplicateAnaloguesByObject(rows, '2025-10-01');
 
-    assert.equal(result.selectedAnalogs.length, 3);
-    assert.equal(result.excludedDuplicates.length, 2);
+    assert.equal(result.selectedAnalogs.length, 4);
+    assert.equal(result.excludedDuplicates.length, 1);
     assert.deepEqual(
         result.selectedAnalogs.map((row) => row.id).sort(),
-        ['rzhovskaya-q2', 'sinopskaya-main', 'unique']
+        ['rzhovskaya-q1', 'rzhovskaya-q2', 'sinopskaya-main', 'unique']
     );
 });
 

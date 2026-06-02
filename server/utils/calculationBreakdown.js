@@ -1,18 +1,32 @@
 const ENVIRONMENT_CATEGORY_LABELS = Object.freeze({
-    prime_business: 'деловая активность высокого уровня',
-    urban_business: 'городская деловая среда',
-    mixed_urban: 'смешанная городская среда',
-    residential_mixed: 'смешанная жилая среда',
-    industrial_edge: 'промышленная периферия',
-    warehouse_industrial: 'складская и промышленная зона',
-    peripheral_low_activity: 'периферийная зона с низкой активностью',
-    residential: 'жилая застройка',
+    historical_center: 'культурный и исторический центр',
+    business_activity_center: 'центры деловой активности',
+    multi_apartment_residential: 'многоквартирная жилая застройка',
+    midrise_residential: 'среднеэтажная жилая застройка',
+    industrial_zone: 'окраины городов, промзоны',
+    prime_business: 'центры деловой активности',
+    urban_business: 'общественно-деловая застройка',
+    mixed_urban: 'общественно-деловая застройка',
+    residential_mixed: 'многоквартирная жилая застройка',
+    industrial_edge: 'окраины городов, промзоны',
+    warehouse_industrial: 'промзона',
+    peripheral_low_activity: 'район крупных автомагистралей города',
+    residential: 'многоквартирная жилая застройка',
     industrial: 'промзона',
+    business: 'общественно-деловая застройка',
+    'деловая активность высокого уровня': 'центры деловой активности',
+    'городская деловая среда': 'общественно-деловая застройка',
+    'смешанная городская среда': 'общественно-деловая застройка',
+    'смешанная жилая среда': 'многоквартирная жилая застройка',
+    'промышленная периферия': 'окраины городов, промзоны',
+    'складская и промышленная зона': 'промзона',
+    'периферийная зона с низкой активностью': 'район крупных автомагистралей города',
+    'жилая застройка': 'многоквартирная жилая застройка',
 });
 
 function humanizeEnvironmentCategory(value) {
     if (!value) return '';
-    const key = String(value).trim().toLowerCase();
+    const key = String(value).trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
     return ENVIRONMENT_CATEGORY_LABELS[key] || String(value).trim();
 }
 
@@ -938,8 +952,8 @@ function buildCalculationInputRegistry(questionnaire, calculation, landInput, op
         {
             key: 'businessCenterClass',
             label: 'Класс объекта',
-            value: questionnaire?.marketClassResolved || questionnaire?.businessCenterClass || null,
-            source: fieldSourceHints.marketClassResolved || fieldSourceHints.businessCenterClass || 'manual_input',
+            value: questionnaire?.businessCenterClass || null,
+            source: fieldSourceHints.businessCenterClass || 'manual_input',
         },
         {
             key: 'rentalRate',

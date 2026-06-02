@@ -10,6 +10,24 @@ function toNumber(value) {
     return Number.isFinite(n) ? n : null;
 }
 
+function normalizeDistrict(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/\s*район\s*/g, '')
+        .replace(/\s+/g, ' ');
+}
+
+function isHistoricalCenterDistrict(value) {
+    return new Set([
+        'центральный',
+        'адмиралтейский',
+        'петроградский',
+        'василеостровский',
+    ]).has(normalizeDistrict(value));
+}
+
 function isValidLatLon(lat, lon) {
     return (
         Number.isFinite(lat) &&
@@ -111,7 +129,7 @@ function normalizeDistanceToFeatureMeters(point, feature) {
     }
 }
 
-export async function resolveHistoricalCenterStatusForCoords(lat, lon, { nearBufferMeters = 350 } = {}) {
+export async function resolveHistoricalCenterStatusForCoords(lat, lon, { nearBufferMeters = 350, district = null } = {}) {
     const normalizedLat = toNumber(lat);
     const normalizedLon = toNumber(lon);
 
@@ -172,18 +190,29 @@ export async function resolveHistoricalCenterStatusForCoords(lat, lon, { nearBuf
         ? toRoundedMeters(nearestDistance)
         : null;
 
+    const status = roundedDistance !== null && roundedDistance <= Number(nearBufferMeters)
+        ? 'near'
+        : 'outside';
+
+    if (status === 'outside' && isHistoricalCenterDistrict(district)) {
+        return {
+            status: 'inside',
+            distanceMeters: roundedDistance,
+            source: 'central_district_fallback',
+            zoneName: nearestZoneName,
+        };
+    }
+
     return {
-        status: roundedDistance !== null && roundedDistance <= Number(nearBufferMeters)
-            ? 'near'
-            : 'outside',
+        status,
         distanceMeters: roundedDistance,
         source: 'spatial_zones',
         zoneName: nearestZoneName,
     };
 }
 
-export async function resolveHistoricalCenterForCoords(lat, lon) {
-    const resolved = await resolveHistoricalCenterStatusForCoords(lat, lon);
+export async function resolveHistoricalCenterForCoords(lat, lon, options = {}) {
+    const resolved = await resolveHistoricalCenterStatusForCoords(lat, lon, options);
     return resolved.status === 'inside';
 }
 

@@ -30,7 +30,10 @@ import {
     sanitizeAutoFilledOccupiedArea,
     sanitizeAutoFilledTotalOksAreaOnLand,
 } from '../services/questionnaireEnrichmentService.js';
-import { getSavedEnvironmentAnalysis } from '../services/environmentAnalysisService.js';
+import {
+    analyzeEnvironmentByCadastralNumber,
+    getSavedEnvironmentAnalysis,
+} from '../services/environmentAnalysisService.js';
 import { resolveSpatialZoneForCoords } from '../utils/spatialZoneResolver.js';
 
 const MIN_FINAL_RENT_ANALOGS = 5;
@@ -310,6 +313,7 @@ function normalizeFloorKey(value) {
 
 function toComparableRate(row) {
     return firstFinite(
+        row?.price_per_sqm_cleaned,
         row?.unit_price,
         row?.price_per_meter_cut_nds,
         row?.price_per_meter
@@ -365,9 +369,9 @@ async function resolveComparableMetroDistanceKm(row) {
 
 function buildAnalogueDuplicateKey(rawRow) {
     const row = toComparablePlain(rawRow);
-    const addressKey = normalizeAddressKey(row.address || row.building || row.cadastral || row.id);
+    const addressKey = normalizeAddressKey(row.address_offer || row.address || row.building || row.cadastral || row.id);
     const classKey = normalizeComparableClass(row.class_offer) || String(row.class_offer || '').trim().toUpperCase();
-    const floorKey = normalizeFloorKey(row.floor);
+    const floorKey = normalizeFloorKey(row.floor_location || row.floor);
     const comparableRate = toComparableRate(row);
     const rateKey = Number.isFinite(comparableRate) ? comparableRate.toFixed(2) : 'NO_RATE';
     const area = firstFinite(row.total_area, row.area_total, row.area);
@@ -445,7 +449,7 @@ function compareDuplicatePriority(left, right, valuationTime) {
     return rightTime - leftTime;
 }
 
-export function deduplicateAnaloguesByObject(items, valuationDate) {
+export function deduplicateAnaloguesByObject(items, valuationDate, maxPerObject = 2) {
     if (!items?.length) {
         return {
             selectedAnalogs: [],
@@ -474,15 +478,42 @@ export function deduplicateAnaloguesByObject(items, valuationDate) {
         const sorted = group
             .slice()
             .sort((left, right) => compareDuplicatePriority(left, right, valuationTime));
-        const best = sorted[0];
-        selectedAnalogs.push(best);
+        const selectedForGroup = [];
+        const selectedDuplicateKeys = new Set();
 
-        for (const duplicate of sorted.slice(1)) {
+        for (const candidate of sorted) {
+            const duplicateKey = buildAnalogueDuplicateKey(candidate);
+            if (selectedDuplicateKeys.has(duplicateKey)) {
+                continue;
+            }
+
+            selectedForGroup.push(candidate);
+            selectedDuplicateKeys.add(duplicateKey);
+
+            if (selectedForGroup.length >= maxPerObject) {
+                break;
+            }
+        }
+
+        const best = selectedForGroup[0] || sorted[0];
+        selectedAnalogs.push(...selectedForGroup);
+
+        const selectedIds = new Set(
+            selectedForGroup
+                .map((row) => row.id || row.external_id || null)
+                .filter(Boolean)
+        );
+
+        for (const duplicate of sorted) {
+            const duplicateId = duplicate.id || duplicate.external_id || null;
+            if (duplicateId && selectedIds.has(duplicateId)) {
+                continue;
+            }
             excludedDuplicates.push({
                 ...duplicate,
                 duplicateGroupKey: groupKey,
                 duplicateOf: best.id || best.external_id || null,
-                exclusionReason: 'Исключен как дубль объекта: выбран более близкий по дате и/или более полный аналог',
+                exclusionReason: `Исключен как дубль объекта: лимит ${maxPerObject} предложений на один объект`,
             });
         }
     }
@@ -631,54 +662,56 @@ export function deduplicateAnaloguesForSelection(items, valuationDate) {
     ));
 }
 
-export function deduplicateRankedAnalogsByObject(items, valuationDate, maxCount = 10) {
+export function deduplicateRankedAnalogsByObject(items, valuationDate, maxCount = 10, maxPerObject = 2) {
     if (!items?.length) return [];
 
     const valuationTime = parseDateSafe(valuationDate)?.getTime() ?? Date.now();
-    const bestByObject = new Map();
+    const grouped = new Map();
 
     for (const rawRow of items) {
         const row = toComparablePlain(rawRow);
         const key = buildAnalogueObjectKey(row);
-        const currentBest = bestByObject.get(key);
-
-        if (!currentBest) {
-            bestByObject.set(key, row);
-            continue;
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
         }
 
-        const currentDistance = toNumber(row.mahalanobisDistance, Number.MAX_SAFE_INTEGER);
-        const bestDistance = toNumber(currentBest.mahalanobisDistance, Number.MAX_SAFE_INTEGER);
-
-        if (currentDistance !== bestDistance) {
-            if (currentDistance < bestDistance) {
-                bestByObject.set(key, row);
-            }
-            continue;
-        }
-
-        const currentTime = parseDateSafe(row.offer_date || row.date_offer)?.getTime() ?? Date.now();
-        const bestTime = parseDateSafe(currentBest.offer_date || currentBest.date_offer)?.getTime() ?? Date.now();
-        const currentDateDistance = Math.abs(currentTime - valuationTime);
-        const bestDateDistance = Math.abs(bestTime - valuationTime);
-
-        if (currentDateDistance !== bestDateDistance) {
-            if (currentDateDistance < bestDateDistance) {
-                bestByObject.set(key, row);
-            }
-            continue;
-        }
-
-        if (currentTime > bestTime) {
-            bestByObject.set(key, row);
-        }
+        grouped.get(key).push(row);
     }
 
-    return Array.from(bestByObject.values())
+    const selectedByObject = [];
+    for (const group of grouped.values()) {
+        selectedByObject.push(
+            ...group
+                .slice()
+                .sort((a, b) => {
+                    const aDistance = toNumber(a.mahalanobisDistance, Number.MAX_SAFE_INTEGER);
+                    const bDistance = toNumber(b.mahalanobisDistance, Number.MAX_SAFE_INTEGER);
+                    if (aDistance !== bDistance) return aDistance - bDistance;
+
+                    const aTime = parseDateSafe(a.offer_date || a.date_offer)?.getTime() ?? Date.now();
+                    const bTime = parseDateSafe(b.offer_date || b.date_offer)?.getTime() ?? Date.now();
+                    const aDateDistance = Math.abs(aTime - valuationTime);
+                    const bDateDistance = Math.abs(bTime - valuationTime);
+                    if (aDateDistance !== bDateDistance) return aDateDistance - bDateDistance;
+
+                    return bTime - aTime;
+                })
+                .slice(0, maxPerObject)
+        );
+    }
+
+    return selectedByObject
         .sort((a, b) => {
             const aDistance = toNumber(a.mahalanobisDistance, Number.MAX_SAFE_INTEGER);
             const bDistance = toNumber(b.mahalanobisDistance, Number.MAX_SAFE_INTEGER);
-            return aDistance - bDistance;
+            if (aDistance !== bDistance) {
+                return aDistance - bDistance;
+            }
+
+            const aTime = parseDateSafe(a.offer_date || a.date_offer)?.getTime() ?? Date.now();
+            const bTime = parseDateSafe(b.offer_date || b.date_offer)?.getTime() ?? Date.now();
+
+            return Math.abs(aTime - valuationTime) - Math.abs(bTime - valuationTime);
         })
         .slice(0, maxCount);
 }
@@ -752,20 +785,22 @@ function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
         return null;
     }
 
-    const categoryValues = [
+    const categoryValues = Array.from(new Set([
         analysis?.environment_category_1 || categories.primary,
         analysis?.environment_category_2 || categories.secondary,
         analysis?.environment_category_3 || categories.tertiary,
         questionnaire?.environmentCategory1,
         questionnaire?.environmentCategory2,
         questionnaire?.environmentCategory3,
-    ].filter(Boolean);
+    ].filter(Boolean)));
     const categoryText = categoryValues.join(' ').toLowerCase();
-    const businessCount = numberOrZero(counts.businessCount);
-    const industrialCount = numberOrZero(counts.industrialSites) + numberOrZero(counts.warehouseSites);
-    const residentialCount = numberOrZero(counts.residentialBuildings);
+    const businessCount = numberOrZero(counts.businessActivityCenter || counts.analogueBusinessCount || counts.businessCount);
+    const industrialCount = numberOrZero(counts.industrialZone || counts.analogueIndustrialCount)
+        || (numberOrZero(counts.industrialSites) + numberOrZero(counts.warehouseSites));
     const explicitMidriseCount = numberOrZero(counts.residentialMidrise || counts.midriseResidential);
     const explicitHighriseCount = numberOrZero(counts.residentialHighrise || counts.multiApartmentResidential);
+    const residentialCount = numberOrZero(counts.residentialBuildings)
+        || explicitMidriseCount + explicitHighriseCount;
     const hasMidriseSignal = /средне|до\s*8|midrise/.test(categoryText);
     const hasHighriseSignal = /много|multi|apartment/.test(categoryText);
     const midriseCount = explicitMidriseCount
@@ -803,19 +838,71 @@ function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
     };
 }
 
-async function resolveObjectEnvironmentAnalysisSummary(questionnaire = {}) {
+async function resolveObjectEnvironmentAnalysis(questionnaire = {}) {
     const cadastralNumber = questionnaire?.buildingCadastralNumber || questionnaire?.building_cadastral_number;
     if (!cadastralNumber) {
-        return buildEnvironmentAnalysisSummaryPayload(null, questionnaire);
+        return null;
     }
 
     try {
-        const analysis = await getSavedEnvironmentAnalysis(cadastralNumber, { radiusMeters: 600 });
-        return buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire);
+        const cached = await getSavedEnvironmentAnalysis(cadastralNumber, { radiusMeters: 600 });
+
+        if (cached) {
+            return cached;
+        }
+
+        const { analysis } = await analyzeEnvironmentByCadastralNumber(cadastralNumber, {
+            valuationDate: questionnaire?.valuationDate || null,
+            radiusMeters: 600,
+            latestQuestionnaire: questionnaire,
+        });
+
+        return analysis;
     } catch (error) {
         console.warn('[environmentAnalysis] Не удалось получить анализ окружения объекта', error?.message || error);
-        return buildEnvironmentAnalysisSummaryPayload(null, questionnaire);
+        return null;
     }
+}
+
+function mergeObjectEnvironmentIntoQuestionnaire(questionnaire = {}, analysis = null) {
+    if (!analysis) {
+        return questionnaire;
+    }
+
+    const historicalCenter = analysis.historical_center_status === 'inside'
+        ? true
+        : analysis.historical_center_status === 'outside'
+            ? false
+            : null;
+    const historicalCenterSource = String(questionnaire?.fieldSourceHints?.isHistoricalCenter || '').trim();
+    const shouldKeepHistoricalCenter = hasMeaningfulValue(questionnaire?.isHistoricalCenter) &&
+        historicalCenterSource.toLowerCase().startsWith('manual');
+
+    return {
+        ...questionnaire,
+        nearestMetro: hasMeaningfulValue(questionnaire?.nearestMetro)
+            ? questionnaire.nearestMetro
+            : analysis.nearest_metro ?? questionnaire?.nearestMetro ?? null,
+        metroDistance: hasMeaningfulValue(questionnaire?.metroDistance)
+            ? questionnaire.metroDistance
+            : analysis.nearest_metro_distance ?? questionnaire?.metroDistance ?? null,
+        isHistoricalCenter: shouldKeepHistoricalCenter || historicalCenter === null
+            ? questionnaire.isHistoricalCenter
+            : historicalCenter,
+        environmentCategory1: hasMeaningfulValue(questionnaire?.environmentCategory1)
+            ? questionnaire.environmentCategory1
+            : analysis.environment_category_1 ?? questionnaire?.environmentCategory1 ?? null,
+        environmentCategory2: hasMeaningfulValue(questionnaire?.environmentCategory2)
+            ? questionnaire.environmentCategory2
+            : analysis.environment_category_2 ?? questionnaire?.environmentCategory2 ?? null,
+        environmentCategory3: hasMeaningfulValue(questionnaire?.environmentCategory3)
+            ? questionnaire.environmentCategory3
+            : analysis.environment_category_3 ?? questionnaire?.environmentCategory3 ?? null,
+    };
+}
+
+function buildResolvedObjectEnvironmentSummary(questionnaire = {}, analysis = null) {
+    return buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire);
 }
 
 async function mapAnalogueToComparable(rawRow) {
@@ -905,7 +992,6 @@ function buildAnalogueClassWhere(rawClass, { allowEmptyFallback = false } = {}) 
 async function findComparableAnalogues(questionnaire) {
     const selectionQuestionnaireBase = await ensureSelectionSpatialContext(questionnaire);
     const objectClassRaw =
-        selectionQuestionnaireBase.marketClassResolved ||
         selectionQuestionnaireBase.businessCenterClass ||
         selectionQuestionnaireBase.objectClass ||
         null;
@@ -1086,6 +1172,7 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
             area_total: toNumber(row.area_total, null),
             price_per_sqm_month: toNumber(row.price_per_sqm_month, null),
             offer_rate: toNumber(row.offer_rate ?? row.price_per_sqm_month, null),
+            price_without_vat_per_sqm_month: toNumber(row.price_without_vat_per_sqm_month, null),
             price_per_sqm_cleaned: toNumber(row.price_per_sqm_cleaned, null),
             raw_rate: toNumber(adjustment?.rawRate, null),
             adjusted_rate: toNumber(adjustment?.adjustedRate, null),
@@ -1129,6 +1216,7 @@ export function buildMarketSnapshot(questionnaire, selectedAnalogs, allAnalogs, 
             building_name: row.building_name || null,
             ter_zone: row.ter_zone || null,
             zone_code: row.zone_code || null,
+            zone_name: row.zone_name || null,
             adjustments: adjustment?.adjustments || null,
         };
     });
@@ -1214,7 +1302,7 @@ export const calculateProject = async (req, res) => {
             return res.status(400).json({ error: 'Анкета проекта не заполнена' });
         }
 
-        const questionnaire = sanitizeAutoFilledTotalOksAreaOnLand(
+        let questionnaire = sanitizeAutoFilledTotalOksAreaOnLand(
             sanitizeAutoFilledOccupiedArea(
                 sanitizeAutoFilledLeasableArea(
                     questionnaireRecord.get ? questionnaireRecord.get({ plain: true }) : questionnaireRecord
@@ -1231,6 +1319,9 @@ export const calculateProject = async (req, res) => {
         if (!questionnaire.mapPointLat || !questionnaire.mapPointLng) {
             return res.status(400).json({ error: 'Координаты объекта не указаны' });
         }
+
+        const objectEnvironmentAnalysisRaw = await resolveObjectEnvironmentAnalysis(questionnaire);
+        questionnaire = mergeObjectEnvironmentIntoQuestionnaire(questionnaire, objectEnvironmentAnalysisRaw);
 
         const {
             district,
@@ -1276,7 +1367,10 @@ export const calculateProject = async (req, res) => {
             console.warn(`Найдено только ${calculationSelectedAnalogs.length} аналогов, требуется 10`);
         }
 
-        const objectEnvironmentAnalysis = await resolveObjectEnvironmentAnalysisSummary(questionnaire);
+        const objectEnvironmentAnalysis = buildResolvedObjectEnvironmentSummary(
+            questionnaire,
+            objectEnvironmentAnalysisRaw
+        );
 
         const marketSnapshot = buildMarketSnapshot(
             questionnaire,
@@ -1473,7 +1567,9 @@ export const getProjectMarketContext = async (req, res) => {
             return res.status(404).json({ error: 'Проект не найден' });
         }
 
-        const questionnaire = project.questionnaire;
+        let questionnaire = project.questionnaire
+            ? toComparablePlain(project.questionnaire)
+            : null;
         if (!questionnaire) {
             return res.status(400).json({ error: 'Для проекта отсутствует опросный лист' });
         }
@@ -1483,6 +1579,9 @@ export const getProjectMarketContext = async (req, res) => {
                 error: 'Рыночный контекст для вида объекта «помещение» пока недоступен. Выберите вид объекта «здание».',
             });
         }
+
+        const objectEnvironmentAnalysisRaw = await resolveObjectEnvironmentAnalysis(questionnaire);
+        questionnaire = mergeObjectEnvironmentIntoQuestionnaire(questionnaire, objectEnvironmentAnalysisRaw);
 
         const {
             district,
@@ -1508,7 +1607,10 @@ export const getProjectMarketContext = async (req, res) => {
             }
         }
 
-        const objectEnvironmentAnalysis = await resolveObjectEnvironmentAnalysisSummary(questionnaire);
+        const objectEnvironmentAnalysis = buildResolvedObjectEnvironmentSummary(
+            questionnaire,
+            objectEnvironmentAnalysisRaw
+        );
 
         const snapshot = buildMarketSnapshot(
             questionnaire,

@@ -347,7 +347,6 @@ function getDispersionLevel({ medianValue, stdDev, iqr }) {
 
 function isStableMarketProfileAvailable(questionnaire = {}) {
     const normalizedClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );
@@ -665,6 +664,31 @@ function calculateSizeSimilarity(subjectArea, analogArea) {
 }
 
 function calculateEnvironmentSimilarity(questionnaire, analog) {
+    const subjectCategories = getEnvironmentSelectionCategories(resolveQuestionnaireEnvironment(questionnaire));
+    const analogCategories = getEnvironmentSelectionCategories(resolveAnalogEnvironment(analog));
+
+    if (subjectCategories.size || analogCategories.size) {
+        if (!subjectCategories.size || !analogCategories.size) return 0.55;
+
+        const intersectionSize = [...subjectCategories].filter((key) => analogCategories.has(key)).length;
+        if (!intersectionSize) return 0.45;
+
+        const unionSize = new Set([...subjectCategories, ...analogCategories]).size;
+        const jaccard = intersectionSize / Math.max(unionSize, 1);
+        const subjectCoverage = intersectionSize / Math.max(subjectCategories.size, 1);
+        const analogCoverage = intersectionSize / Math.max(analogCategories.size, 1);
+
+        return clamp(
+            0.35 + (
+                (jaccard * 0.40) +
+                (subjectCoverage * 0.40) +
+                (analogCoverage * 0.20)
+            ) * 0.65,
+            0.45,
+            1
+        );
+    }
+
     const subjectScore = calculateEnvironmentScore(resolveQuestionnaireEnvironment(questionnaire));
     const analogScore = calculateEnvironmentScore(resolveAnalogEnvironment(analog));
 
@@ -864,7 +888,6 @@ function calculateMetroAdjustmentRecord(questionnaire, analog) {
 
 function calculateClassAdjustmentRecord(questionnaire, analog) {
     const subjectClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );
@@ -961,7 +984,6 @@ function calculateFloorAdjustmentRecord(questionnaire, analog) {
 export function resolveCapitalizationRateProfile(questionnaire, selectedAnalogs = [], context = {}) {
     const marketProfile = resolveQuarterMarketProfile(questionnaire);
     const normalizedClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );
@@ -998,7 +1020,6 @@ export function resolveCapitalizationRateProfile(questionnaire, selectedAnalogs 
 export function resolveVacancyRateProfile(questionnaire, context = {}) {
     const marketProfile = resolveQuarterMarketProfile(questionnaire);
     const normalizedClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );
@@ -1202,9 +1223,18 @@ function getQuestionnaireReferenceFloorCategory(questionnaire) {
 // }
 
 const ENVIRONMENT_CATEGORY_COEFFICIENTS = {
+    'культурный и исторический центр': 1.00,
+    'исторический центр': 1.00,
+    'центры деловой активности': 0.91,
+    'общественно-деловая застройка': 0.91,
+    'многоквартирная жилая застройка': 0.83,
+    'среднеэтажная жилая застройка': 0.80,
+    'район крупных автомагистралей города': 0.79,
+    'окраины городов, промзоны': 0.61,
+    'промзона': 0.61,
     prime_business: 0.91,
     urban_business: 0.91,
-    mixed_urban: 0.87,
+    mixed_urban: 0.91,
     residential_mixed: 0.83,
     industrial_edge: 0.61,
     warehouse_industrial: 0.61,
@@ -1247,12 +1277,26 @@ function mapEnvironmentTokenToCoefficient(value) {
 }
 
 function calculateEnvironmentScore(values = []) {
-    const scores = values
-        .map(mapEnvironmentTokenToCoefficient)
-        .filter((value) => Number.isFinite(value) && value > 0);
+    const seen = new Set();
+    const scores = [];
+
+    for (const value of (Array.isArray(values) ? values : [values]).flat()) {
+        const normalized = String(value || '')
+            .trim()
+            .toLowerCase()
+            .replace(/ё/g, 'е')
+            .replace(/\s+/g, ' ');
+        if (!normalized || normalized === '0' || seen.has(normalized)) continue;
+
+        const coefficient = mapEnvironmentTokenToCoefficient(value);
+        if (!Number.isFinite(coefficient) || coefficient <= 0) continue;
+
+        seen.add(normalized);
+        scores.push(coefficient);
+    }
 
     if (!scores.length) return null;
-    return Math.max(...scores);
+    return average(scores);
 }
 
 function getEnvironmentAdjustment(objectEnvironment, analogEnvironment) {
@@ -1379,19 +1423,51 @@ function normalizeEnvironmentTokenForSelection(value) {
 
     if (!normalized || normalized === '0') return null;
     if (normalized.includes('истор') || normalized.includes('культур')) return null;
-    if (normalized.includes('обществен') || normalized.includes('делов')) return 'business';
-    if (normalized.includes('многоквартир') || normalized.includes('мкд')) return 'multifamily';
-    if (normalized.includes('среднеэтаж')) return 'midrise_residential';
-    if (normalized.includes('пром')) return 'industrial';
+    if (
+        normalized.includes('business_activity_center') ||
+        normalized.includes('prime_business') ||
+        normalized.includes('urban_business') ||
+        normalized.includes('mixed_urban') ||
+        normalized.includes('обществен') ||
+        normalized.includes('делов')
+    ) return 'business';
+    if (
+        normalized.includes('multi_apartment_residential') ||
+        normalized.includes('residential_mixed') ||
+        normalized.includes('многоквартир') ||
+        normalized.includes('мкд')
+    ) return 'multifamily';
+    if (
+        normalized.includes('midrise_residential') ||
+        normalized.includes('среднеэтаж') ||
+        normalized.includes('до 8')
+    ) return 'midrise_residential';
+    if (
+        normalized.includes('industrial_zone') ||
+        normalized.includes('industrial_edge') ||
+        normalized.includes('warehouse_industrial') ||
+        normalized.includes('пром') ||
+        normalized.includes('склад')
+    ) return 'industrial';
+    if (
+        normalized.includes('peripheral_low_activity') ||
+        normalized.includes('автомагистра') ||
+        normalized.includes('перифер')
+    ) return 'road_edge';
     return null;
 }
 
-function encodeEnvironmentSelectionCode(values = []) {
-    const categories = new Set(
-        values
+function getEnvironmentSelectionCategories(values = []) {
+    return new Set(
+        (Array.isArray(values) ? values : [values])
+            .flat()
             .map(normalizeEnvironmentTokenForSelection)
             .filter(Boolean)
     );
+}
+
+function encodeEnvironmentSelectionCode(values = []) {
+    const categories = getEnvironmentSelectionCategories(values);
 
     if (!categories.size) return 0;
     if (categories.has('business') && categories.has('multifamily') && categories.has('industrial')) return 7;
@@ -1402,6 +1478,19 @@ function encodeEnvironmentSelectionCode(values = []) {
     if (categories.has('business')) return 2;
     if (categories.has('multifamily')) return 1;
     return 0;
+}
+
+const ENVIRONMENT_SELECTION_VECTOR_ORDER = [
+    'business',
+    'multifamily',
+    'midrise_residential',
+    'industrial',
+    'road_edge',
+];
+
+function encodeEnvironmentSelectionVector(values = []) {
+    const categories = getEnvironmentSelectionCategories(values);
+    return ENVIRONMENT_SELECTION_VECTOR_ORDER.map((key) => (categories.has(key) ? 1 : 0));
 }
 
 function encodeHistoricalCenterSelectionCode(value) {
@@ -1487,7 +1576,7 @@ function buildObjectVector(questionnaire) {
         normalizeMetroDistanceKm(questionnaire?.metroDistance) ?? 0,
         encodeDistrictGroup(questionnaire?.district),
         encodeTerritorialZoneCategory(resolveQuestionnaireZone(questionnaire)),
-        encodeEnvironmentSelectionCode(resolveQuestionnaireEnvironment(questionnaire)),
+        ...encodeEnvironmentSelectionVector(resolveQuestionnaireEnvironment(questionnaire)),
         encodeFloorCategoryForMahalanobis(getQuestionnaireReferenceFloorCategory(questionnaire)),
         encodeHistoricalCenterSelectionCode(resolveQuestionnaireHistoricalCenter(questionnaire)),
     ];
@@ -1500,7 +1589,7 @@ function buildAnalogVectors(analogs) {
         normalizeMetroDistanceKm(analog.distance_to_metro) ?? 0,
         encodeDistrictGroup(analog.district),
         encodeTerritorialZoneCategory(resolveAnalogZone(analog)),
-        encodeEnvironmentSelectionCode(resolveAnalogEnvironment(analog)),
+        ...encodeEnvironmentSelectionVector(resolveAnalogEnvironment(analog)),
         encodeFloorCategoryForMahalanobis(analog.floor_location),
         encodeHistoricalCenterSelectionCode(resolveAnalogHistoricalCenter(analog)),
     ]);
@@ -1812,7 +1901,6 @@ function calculateMetroWeight(questionnaire, analog) {
 
 function calculateClassWeight(questionnaire, analog) {
     const objectClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );
@@ -1871,7 +1959,6 @@ export function scoreAnalogueRelevance(questionnaire, analog) {
     const areaRatio = getAreaRatio(subjectArea, analogArea);
     const classSimilarity = (() => {
         const subjectClass = normalizeBusinessCenterClass(
-            questionnaire?.marketClassResolved ||
             questionnaire?.businessCenterClass ||
             questionnaire?.objectClass
         );
@@ -1909,13 +1996,14 @@ export function scoreAnalogueRelevance(questionnaire, analog) {
     };
 
     const score = clamp(
-        (classSimilarity * 0.18) +
-        (locationSimilarity * 0.15) +
-        (metroSimilarity * 0.10) +
-        (dateRecency * 0.12) +
-        (completenessScore * 0.10) +
-        (segmentSimilarity * 0.10) +
-        (scaleSimilarity * 0.25),
+        (classSimilarity * 0.16) +
+        (locationSimilarity * 0.14) +
+        (metroSimilarity * 0.09) +
+        (dateRecency * 0.11) +
+        (completenessScore * 0.09) +
+        (segmentSimilarity * 0.09) +
+        (environmentSimilarity * 0.12) +
+        (scaleSimilarity * 0.20),
         0,
         1
     );
@@ -2278,7 +2366,7 @@ function calculateSubjectDataQualityMetrics(subject = {}) {
         subject?.metroDistance,
         subject?.mapPointLat,
         subject?.mapPointLng,
-        subject?.marketClassResolved || subject?.businessCenterClass || subject?.objectClass,
+        subject?.businessCenterClass || subject?.objectClass,
         subject?.leasableArea,
     ];
     const completeness = safeDivide(
@@ -2508,7 +2596,6 @@ export function calculateCapitalizationRate({
 }) {
     const marketProfile = resolveQuarterMarketProfile(questionnaire);
     const normalizedClass = normalizeBusinessCenterClass(
-        questionnaire?.marketClassResolved ||
         questionnaire?.businessCenterClass ||
         questionnaire?.objectClass
     );

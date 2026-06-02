@@ -1053,7 +1053,6 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
             exactObjectOffers = await findOffersByBuilding(enriched.buildingCadastralNumber);
 
             if (exactObjectOffers.length) {
-                const classFromOffers = normalizeClassLabel(mode(exactObjectOffers.map((offer) => offer.class_offer)));
                 const districtFromOffers = mode(exactObjectOffers.map((offer) => offer.district));
                 const metroFromOffers = mode(exactObjectOffers.map((offer) => offer.metro));
                 const addressFromOffers = mode(exactObjectOffers.map((offer) => offer.address_offer));
@@ -1109,22 +1108,6 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
                         sourceHints
                     );
                 }
-                pickMissing(
-                    enriched,
-                    'businessCenterClass',
-                    classFromOffers,
-                    'market_offers_exact_object',
-                    autoFilledFields,
-                    sourceHints
-                );
-                pickMissing(
-                    enriched,
-                    'marketClassResolved',
-                    classFromOffers,
-                    'market_offers_exact_object',
-                    autoFilledFields,
-                    sourceHints
-                );
                 pickMissing(
                     enriched,
                     'actualUse',
@@ -1446,7 +1429,8 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
         try {
             const historicalCenter = await resolveHistoricalCenterForCoords(
                 enriched.mapPointLat,
-                enriched.mapPointLng
+                enriched.mapPointLng,
+                { district: enriched.district }
             );
 
             pickMissing(
@@ -1514,7 +1498,7 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
             const exactMarketDistrict = mode(exactObjectOffers.map((offer) => offer.district));
             const districtClassOffers = await findOffersByDistrictAndClass({
                 districts: [exactMarketDistrict, enriched.district],
-                businessClass: enriched.businessCenterClass || enriched.marketClassResolved,
+                businessClass: enriched.businessCenterClass,
             });
 
             const districtRatePayload = buildRatePayload(districtClassOffers, {
@@ -1534,28 +1518,6 @@ export async function enrichQuestionnaireData(questionnaire = {}, { forceRefresh
         } catch (error) {
             warnings.push(`Не удалось определить рыночную ставку по предложениям: ${error.message}`);
         }
-    }
-
-    if (!hasMeaningfulValue(enriched.marketClassResolved) && hasMeaningfulValue(enriched.averageRentalRate)) {
-        pickMissing(
-            enriched,
-            'marketClassResolved',
-            inferBusinessCenterClassByRate(enriched.averageRentalRate),
-            'derived_from_rental_rate',
-            autoFilledFields,
-            sourceHints
-        );
-    }
-
-    if (!hasMeaningfulValue(enriched.businessCenterClass) && hasMeaningfulValue(enriched.marketClassResolved)) {
-        pickMissing(
-            enriched,
-            'businessCenterClass',
-            normalizeClassLabel(enriched.marketClassResolved),
-            sourceHints.marketClassResolved || 'derived_from_market_class',
-            autoFilledFields,
-            sourceHints
-        );
     }
 
     if (

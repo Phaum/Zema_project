@@ -23,7 +23,7 @@ export const QUESTIONNAIRE_SOURCE_FIELDS = [
     { name: 'objectType', label: 'Вид объекта', type: 'text' },
     { name: 'actualUse', label: 'Тип здания', type: 'text' },
     { name: 'objectAddress', label: 'Адрес объекта', type: 'textarea' },
-    { name: 'businessCenterClass', label: 'Класс БЦ', type: 'text', fallbackNames: ['marketClassResolved'] },
+    { name: 'businessCenterClass', label: 'Класс БЦ', type: 'text' },
     { name: 'totalArea', label: 'Общая площадь', type: 'area' },
     { name: 'constructionYear', label: 'Год постройки', type: 'number' },
     { name: 'aboveGroundFloors', label: 'Надземные этажи', type: 'number' },

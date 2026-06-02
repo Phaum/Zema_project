@@ -4,8 +4,8 @@ const MSK1964_SPB = "+proj=tmerc +lat_0=0 +lon_0=30 +k=1 +x_0=95942.85 +y_0=-655
 const WGS84 = "EPSG:4326";
 
 export function msk64ToWgs84(x, y) {
-    const E = Number(y);
-    const N = Number(x);
+    const E = Number(x);
+    const N = Number(y);
     const [lon, lat] = proj4(MSK1964_SPB, WGS84, [E, N]);
     return { lat, lon };
 }

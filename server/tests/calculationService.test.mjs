@@ -1022,6 +1022,52 @@ test('scoreAnalogueRelevance prefers same-class and same-location analogues', ()
     assert.ok(strongScore.components.locationSimilarity > weakScore.components.locationSimilarity);
 });
 
+test('scoreAnalogueRelevance prefers analogues with more matching environment zones', () => {
+    const questionnaire = {
+        businessCenterClass: 'B+',
+        district: 'Московский',
+        valuationDate: '2026-03-01',
+        metroDistance: 600,
+        objectType: 'business_center',
+        environmentCategory1: 'центры деловой активности',
+        environmentCategory2: 'многоквартирная жилая застройка',
+        environmentCategory3: 'окраины городов, промзоны',
+        floors: [
+            {
+                floorCategory: 'first',
+                floorLocation: 'Первый этаж',
+                avgLeasableRoomArea: 650,
+                leasableArea: 1200,
+            },
+        ],
+    };
+
+    const baseAnalog = {
+        class_offer: 'B+',
+        district: 'Московский',
+        area_total: 640,
+        distance_to_metro: 620,
+        offer_date: '2026-02-10',
+        address_offer: 'Санкт-Петербург, Московский проспект, 1',
+    };
+    const multiZoneAnalog = {
+        ...baseAnalog,
+        environment_category_1: 'центры деловой активности',
+        environment_category_2: 'многоквартирная жилая застройка',
+        environment_category_3: 'окраины городов, промзоны',
+    };
+    const singleZoneAnalog = {
+        ...baseAnalog,
+        environment_category_1: 'центры деловой активности',
+    };
+
+    const multiZoneScore = scoreAnalogueRelevance(questionnaire, multiZoneAnalog);
+    const singleZoneScore = scoreAnalogueRelevance(questionnaire, singleZoneAnalog);
+
+    assert.ok(multiZoneScore.score > singleZoneScore.score);
+    assert.ok(multiZoneScore.components.environmentSimilarity > singleZoneScore.components.environmentSimilarity);
+});
+
 test('profile helpers return bounded explainable values', () => {
     const questionnaire = {
         businessCenterClass: 'B+',

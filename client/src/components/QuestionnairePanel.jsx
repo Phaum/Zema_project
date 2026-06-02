@@ -146,7 +146,6 @@ const ALWAYS_VISIBLE_AUTOFILL_FIELDS = new Set([
 const PLATFORM_AUTOFILL_FIELDS = new Set([
     'objectType',
     'actualUse',
-    'businessCenterClass',
     'marketClassResolved',
     'averageRentalRate',
     'mapPointLat',
@@ -1992,7 +1991,7 @@ export default function QuestionnairePanel({
                                 {shouldShowDynamicField('aboveGroundFloors') && (
                                     <Col xs={24} md={12} lg={8}>
                                         <Form.Item
-                                            label="Количество надземных этажей"
+                                            label="Количество этажей (в том числе подземных)"
                                             name="aboveGroundFloors"
                                             rules={[{ required: true, message: 'Укажите количество этажей' }]}
                                             extra={showQuestionnaireHints ? 'От этих данных зависит автогенерация этажных групп ниже.' : null}

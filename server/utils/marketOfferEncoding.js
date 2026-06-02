@@ -1,4 +1,4 @@
-export const MARKET_OFFER_ID_HEADER = 'zema_id_2025_квартал';
+export const MARKET_OFFER_ID_HEADER = 'ID';
 
 export const MARKET_OFFER_SEGMENTS = Object.freeze({
     garages: 'гаражи',
@@ -49,6 +49,26 @@ export function buildMarketOfferZemaId({ id, externalId, quarter }) {
     const suffix = id || current.replace(/^V_(?:puo|mkd)_\d{4}_\d{1,2}_/i, '') || 'unknown';
 
     return `zema_id_2025_${quarterNumber}_${suffix}`;
+}
+
+export function extractCianOfferIdFromUrl(value) {
+    const match = String(value || '').match(/cian\.ru\/rent\/commercial\/(\d+)/i);
+    return match?.[1] || null;
+}
+
+export function resolveMarketOfferCianId(payload = {}) {
+    const current = String(payload.cian_id || payload.external_id || '').trim();
+    const cianId = extractCianOfferIdFromUrl(payload.offer_url);
+
+    if (cianId) {
+        return cianId;
+    }
+
+    if (/^\d{6,}$/.test(current)) {
+        return current;
+    }
+
+    return null;
 }
 
 export function deriveMarketOfferSegment(value) {

@@ -104,6 +104,7 @@ export async function prepareReportData(projectId) {
       distance_to_station: offer.metro_distance,
       is_historical_center: offer.environment_historical_center,
       ter_zone: offer.ter_zone,
+      zone_name: offer.zone_name,
       environment_category_1: offer.environment_category_1,
       environment_category_2: offer.environment_category_2,
       environment_category_3: offer.environment_category_3,

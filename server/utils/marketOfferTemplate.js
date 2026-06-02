@@ -1,7 +1,7 @@
 import { MARKET_OFFER_ID_HEADER } from './marketOfferEncoding.js';
 
 export const MARKET_OFFER_COLUMNS = [
-    { header: MARKET_OFFER_ID_HEADER, field: 'external_id', type: 'string', required: true, aliases: ['ID', 'Внешний ID'] },
+    { header: MARKET_OFFER_ID_HEADER, field: 'cian_id', type: 'string', required: false, aliases: ['ID ЦИАН', 'Id', 'id', 'Внешний ID'] },
     { header: 'Тип родительского объекта', field: 'parent_object_type', type: 'string' },
     { header: 'Функционал', field: 'functional', type: 'string', aliases: ['Функционал для модели'] },
     { header: 'сегмент', field: 'segment', type: 'string', aliases: ['подгруппа 2025'] },
@@ -37,7 +37,6 @@ export const MARKET_OFFER_COLUMNS = [
 ];
 
 export const REQUIRED_MARKET_OFFER_HEADERS = [
-    MARKET_OFFER_ID_HEADER,
     'Функционал',
     'Общая площадь по объявлению, кв. м',
     'Адрес по объявлению',

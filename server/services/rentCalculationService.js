@@ -97,6 +97,7 @@ const RENT_CONFIG = {
             'культурный и исторический центр': 1.00,
             'исторический центр': 1.00,
             'центры деловой активности': 0.91,
+            'общественно-деловая застройка': 0.91,
             'многоквартирная жилая застройка': 0.83,
             'среднеэтажная жилая застройка': 0.80,
             'окраины городов, промзоны': 0.61,
@@ -104,7 +105,7 @@ const RENT_CONFIG = {
             'район крупных автомагистралей города': 0.79,
             prime_business: 0.91,
             urban_business: 0.91,
-            mixed_urban: 0.87,
+            mixed_urban: 0.91,
             residential_mixed: 0.83,
             industrial_edge: 0.61,
             warehouse_industrial: 0.61,
@@ -476,6 +477,35 @@ function getEnvironmentCoefficientSingle(value) {
     return null;
 }
 
+function getEnvironmentCoefficientItems(values = [], historicalCenter = null) {
+    const items = [];
+    const seen = new Set();
+
+    if (isTruthyHistoricalCenter(historicalCenter)) {
+        items.push({
+            category: 'культурный и исторический центр',
+            coefficient: 1,
+        });
+        seen.add('культурный и исторический центр');
+    }
+
+    for (const value of (Array.isArray(values) ? values : [values]).flat()) {
+        const normalized = normalizeComparableText(value);
+        if (!normalized || normalized === '0' || seen.has(normalized)) continue;
+
+        const coefficient = getEnvironmentCoefficientSingle(value);
+        if (!Number.isFinite(coefficient)) continue;
+
+        seen.add(normalized);
+        items.push({
+            category: String(value).trim(),
+            coefficient,
+        });
+    }
+
+    return items;
+}
+
 function isTruthyHistoricalCenter(value) {
     const normalized = normalizeComparableText(value);
     return ['да', 'yes', 'true', '1'].includes(normalized);
@@ -509,18 +539,11 @@ function resolveAnalogHistoricalCenter(analog = {}) {
 }
 
 function getEnvironmentCoefficient(values = [], historicalCenter = null) {
-    if (isTruthyHistoricalCenter(historicalCenter)) {
-        return 1;
-    }
+    const items = getEnvironmentCoefficientItems(values, historicalCenter);
 
-    const coeffs = (Array.isArray(values) ? values : [values])
-        .flat()
-        .map(getEnvironmentCoefficientSingle)
-        .filter(Number.isFinite);
+    if (!items.length) return 1;
 
-    if (!coeffs.length) return 1;
-
-    return Math.max(...coeffs);
+    return average(items.map((item) => item.coefficient));
 }
 
 function resolveQuestionnaireEnvironment(questionnaire = {}) {
@@ -710,7 +733,7 @@ function calculateEnvironmentAdjustmentRecord(questionnaire, analog) {
         'environment',
         'Ближайшее окружение',
         factor,
-        'Корректировка по отношению коэффициентов окружения',
+        'Корректировка по отношению средних коэффициентов всех категорий окружения',
         {
             subjectEnvironment,
             analogEnvironment,
@@ -718,6 +741,10 @@ function calculateEnvironmentAdjustmentRecord(questionnaire, analog) {
             analogHistoricalCenter,
             subjectCoefficient: round4(subjectCoefficient),
             analogCoefficient: round4(analogCoefficient),
+            subjectCoefficientItems: getEnvironmentCoefficientItems(subjectEnvironment, subjectHistoricalCenter)
+                .map((item) => ({ ...item, coefficient: round4(item.coefficient) })),
+            analogCoefficientItems: getEnvironmentCoefficientItems(analogEnvironment, analogHistoricalCenter)
+                .map((item) => ({ ...item, coefficient: round4(item.coefficient) })),
         }
     );
 }
@@ -972,8 +999,7 @@ function resolveOfferRate(analog = {}) {
 function filterAnalogsBySameClass(questionnaire = {}, analogs = []) {
     const subjectClass = normalizeBusinessCenterClass(
         questionnaire?.businessCenterClass ||
-        questionnaire?.objectClass ||
-        questionnaire?.marketClassResolved
+        questionnaire?.objectClass
     );
 
     const normalizedAnalogs = analogs.map((analog) => ({

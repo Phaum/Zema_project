@@ -647,7 +647,7 @@ function buildEnvironmentZoneSpots(analysis) {
   });
 }
 
-function EnvironmentAnalysisMap({ analysis, objectPoint }) {
+function EnvironmentAnalysisMap({ analysis, objectPoint, captureRef = null }) {
   const lat = Number(analysis?.latitude ?? objectPoint?.lat);
   const lng = Number(analysis?.longitude ?? objectPoint?.lng);
   const hasCenter = Number.isFinite(lat) && Number.isFinite(lng);
@@ -668,7 +668,8 @@ function EnvironmentAnalysisMap({ analysis, objectPoint }) {
   const categories = Array.from(new Set((analysis?.categories || []).filter(Boolean)));
 
   return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <div ref={captureRef}>
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <div className="project-result-map-meta">
         <Tag color="magenta">Объект</Tag>
         <Tag color="default">Радиус {formatNumber(radiusMeters, 0)} м</Tag>
@@ -808,7 +809,8 @@ function EnvironmentAnalysisMap({ analysis, objectPoint }) {
           </Descriptions>
         </div>
       </div>
-    </Space>
+      </Space>
+    </div>
   );
 }
 
@@ -906,10 +908,10 @@ function formatComparableAdjustmentDetails(adjustment) {
         `Объект: ${formatEnvironmentLabel([details.subjectEnvironment])}`,
         `Аналог: ${formatEnvironmentLabel([details.analogEnvironment])}`,
         hasMeaningfulValue(details.subjectCoefficient)
-          ? `К объекта: ${formatPlainFactor(details.subjectCoefficient)}`
+          ? `К объекта: ${formatEnvironmentCoefficientFormula(details.subjectCoefficientItems, details.subjectCoefficient)}`
           : null,
         hasMeaningfulValue(details.analogCoefficient)
-          ? `К аналога: ${formatPlainFactor(details.analogCoefficient)}`
+          ? `К аналога: ${formatEnvironmentCoefficientFormula(details.analogCoefficientItems, details.analogCoefficient)}`
           : null,
         hasMeaningfulValue(details.subjectHistoricalCenter)
           ? `Ист. центр объекта: ${formatYesNo(details.subjectHistoricalCenter)}`
@@ -970,6 +972,7 @@ function buildComparableFactorLine(adjustment) {
 const ENVIRONMENT_COEFFICIENT_GUIDE = [
   ['культурный и исторический центр', 1.00],
   ['центры деловой активности', 0.91],
+  ['общественно-деловая застройка', 0.91],
   ['многоквартирная жилая застройка', 0.83],
   ['среднеэтажная жилая застройка', 0.80],
   ['район крупных автомагистралей города', 0.79],
@@ -983,6 +986,35 @@ function formatEnvironmentValues(values = []) {
   );
 }
 
+function formatEnvironmentCoefficientItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => hasMeaningfulValue(item?.coefficient))
+    .map((item) => {
+      const label = formatEnvironmentCategories([item.category], ' / ');
+      return `${label}: ${formatPlainFactor(item.coefficient)}`;
+    })
+    .join(' / ');
+}
+
+function formatEnvironmentCoefficientFormula(items = [], coefficient = null) {
+  const validItems = (Array.isArray(items) ? items : [])
+    .filter((item) => hasMeaningfulValue(item?.coefficient));
+
+  if (!validItems.length) {
+    return formatPlainFactor(coefficient);
+  }
+
+  if (validItems.length === 1) {
+    return formatPlainFactor(validItems[0].coefficient);
+  }
+
+  const sum = validItems
+    .map((item) => formatPlainFactor(item.coefficient))
+    .join(' + ');
+
+  return `(${sum}) / ${validItems.length} = ${formatPlainFactor(coefficient)}`;
+}
+
 function EnvironmentDeterminationPanel({ details = {}, subjectLabel, analogLabel, factor }) {
   const subjectEnvironment = formatEnvironmentValues(details.subjectEnvironment);
   const analogEnvironment = formatEnvironmentValues(details.analogEnvironment);
@@ -992,13 +1024,23 @@ function EnvironmentDeterminationPanel({ details = {}, subjectLabel, analogLabel
   const analogCoefficient = hasMeaningfulValue(details.analogCoefficient)
     ? Number(details.analogCoefficient)
     : null;
+  const subjectCoefficientFormula = formatEnvironmentCoefficientFormula(
+    details.subjectCoefficientItems,
+    subjectCoefficient
+  );
+  const analogCoefficientFormula = formatEnvironmentCoefficientFormula(
+    details.analogCoefficientItems,
+    analogCoefficient
+  );
+  const subjectCoefficientItems = formatEnvironmentCoefficientItems(details.subjectCoefficientItems);
+  const analogCoefficientItems = formatEnvironmentCoefficientItems(details.analogCoefficientItems);
 
   return (
     <div className="project-result-environment-logic">
       <div className="project-result-environment-logic-header">
         <Text strong>Как определяется ближайшее окружение</Text>
         <Text type="secondary">
-          Берём категории объекта и аналога, переводим их в коэффициенты и считаем Кокружение = К объекта / К аналога.
+          Берём все категории объекта и аналога, считаем средний коэффициент каждой стороны и делим К объекта на К аналога.
         </Text>
       </div>
 
@@ -1008,8 +1050,11 @@ function EnvironmentDeterminationPanel({ details = {}, subjectLabel, analogLabel
             <Text type="secondary">{subjectLabel}</Text>
             <Text strong>{subjectEnvironment}</Text>
             <Text>
-              Коэффициент: {hasMeaningfulValue(subjectCoefficient) ? formatPlainFactor(subjectCoefficient) : '—'}
+              Коэффициент: {subjectCoefficientFormula}
             </Text>
+            {subjectCoefficientItems && (
+              <Text type="secondary">{subjectCoefficientItems}</Text>
+            )}
             {hasMeaningfulValue(details.subjectHistoricalCenter) && (
               <Text type="secondary">Исторический центр: {formatYesNo(details.subjectHistoricalCenter)}</Text>
             )}
@@ -1020,8 +1065,11 @@ function EnvironmentDeterminationPanel({ details = {}, subjectLabel, analogLabel
             <Text type="secondary">{analogLabel}</Text>
             <Text strong>{analogEnvironment}</Text>
             <Text>
-              Коэффициент: {hasMeaningfulValue(analogCoefficient) ? formatPlainFactor(analogCoefficient) : '—'}
+              Коэффициент: {analogCoefficientFormula}
             </Text>
+            {analogCoefficientItems && (
+              <Text type="secondary">{analogCoefficientItems}</Text>
+            )}
             {hasMeaningfulValue(details.analogHistoricalCenter) && (
               <Text type="secondary">Исторический центр: {formatYesNo(details.analogHistoricalCenter)}</Text>
             )}
@@ -1125,6 +1173,7 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
     const metro = comp.metro || comp.nearestMetro || '—';
     const distance = comp.distance_to_metro ?? comp.distanceToMetro ?? comp.metro_distance ?? null;
     const terZone = comp.ter_zone || comp.territorialZone || '—';
+    const terZoneDescription = comp.zone_name || comp.territorialZoneDescription || comp.zoneDescription || '—';
     const env = formatEnvironmentCategories([
       comp.environment_category_1,
       comp.environment_category_2,
@@ -1145,6 +1194,7 @@ function prepareReportData(projectId, project, breakdown, result, objectPhoto = 
       distanceToMetro: distance,
       isHistoricalCenter: comp.environment_historical_center ?? comp.is_historical_center ?? comp.isHistoricalCenter ?? false,
       territorialZone: terZone === null || terZone === 'null' ? '—' : terZone,
+      territorialZoneDescription: terZoneDescription === null || terZoneDescription === 'null' ? '—' : terZoneDescription,
       nearbyEnvironment: env,
     };
   });
@@ -1639,14 +1689,18 @@ async function captureElementAsPng(element, options = {}) {
     await waitForAnimationFrames(1);
     restoreLeafletLayout = await stabilizeLeafletMapForCapture(element);
 
-    const leafletCanvasUrl = await captureLeafletMapAsCanvasPng(element);
-    if (leafletCanvasUrl) {
-      return leafletCanvasUrl;
+    if (!options.skipLeafletCanvas) {
+      const leafletCanvasUrl = await captureLeafletMapAsCanvasPng(element);
+      if (leafletCanvasUrl) {
+        return leafletCanvasUrl;
+      }
     }
 
     await waitForElementImages(element);
     await waitForLeafletMapReady(element);
-    hiddenLeafletLayers = setLeafletVectorLayersVisibility(element, false);
+    if (!options.skipLeafletCanvas) {
+      hiddenLeafletLayers = setLeafletVectorLayersVisibility(element, false);
+    }
 
     const canvas = await html2canvas(element, {
       backgroundColor: '#ffffff',
@@ -1698,6 +1752,7 @@ export default function ProjectResultDetailedPanel({
   const [objectPhoto, setObjectPhoto] = useState(null);
   const [objectPhotoLoading, setObjectPhotoLoading] = useState(false);
   const comparablesMapRef = useRef(null);
+  const environmentMapRef = useRef(null);
   const questionnaire = project?.questionnaire || {};
 
   const loadResult = useCallback(async ({ showError = true, silent = false } = {}) => {
@@ -1962,6 +2017,7 @@ export default function ProjectResultDetailedPanel({
     ? selectedComparableSubjectArea / selectedComparableAnalogArea
     : null;
   const selectedComparableCorrectedRate = selectedComparable?.corrected_rate || selectedComparable?.adjusted_rate;
+  const selectedComparableOfferRate = getComparableOfferRate(selectedComparable);
   const selectedComparableDateLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.date);
   const selectedComparableBargainLine = buildComparableFactorLine(selectedComparableAdjustmentByKey.bargain);
   const selectedComparableMetroDetails = selectedComparableRawAdjustmentByKey.metro?.details || {};
@@ -1992,13 +2048,17 @@ export default function ProjectResultDetailedPanel({
     selectedComparableRank > 0 ? `Место в выборке = ${selectedComparableRank}` : 'Место в выборке = —',
   ].join('\n');
   const selectedComparableFirstGroupFormula = [
-    `Цисх = ${formatComparableRate(selectedComparable?.raw_rate || selectedComparable?.price_per_sqm_cleaned)}`,
+    `Цена из объявления = ${formatComparableRate(selectedComparableOfferRate)}`,
+    hasMeaningfulValue(selectedComparable?.price_without_vat_per_sqm_month)
+      ? `Цена очищенная от НДС = ${formatComparableRate(selectedComparable.price_without_vat_per_sqm_month)}`
+      : null,
+    `Цисх = цена очищенная от коммунальных услуг и эксплуатационных расходов = ${formatComparableRate(selectedComparable?.raw_rate || selectedComparable?.price_per_sqm_cleaned)}`,
     selectedComparableDateLine || `Кдата = ${formatPlainFactor(selectedComparable?.first_group_factor)}`,
     `Цдата = Цисх × Кдата = ${formatComparableRate(selectedComparable?.after_date)}`,
     selectedComparableBargainLine || 'Кторг = —',
     `Ц1гр = Цдата × Кторг = ${formatComparableRate(selectedComparable?.after_bargain)}`,
     `К1гр = Кдата × Кторг = ${formatPlainFactor(selectedComparable?.first_group_factor)}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   const selectedComparableSecondGroupFormula = [
     `xо = ${formatDistanceKm(selectedComparableMetroDetails.subjectDistanceKm)}`,
     `xа = ${formatDistanceKm(selectedComparableMetroDetails.analogDistanceKm)}`,
@@ -2122,6 +2182,18 @@ export default function ProjectResultDetailedPanel({
               width: '10%',
               render: (_, record) => record.ter_zone || record.zone_code || '—',
             },
+            // {
+            //   title: 'Расшифровка тер. зоны',
+            //   dataIndex: 'zone_name',
+            //   key: 'zone_name',
+            //   width: '16%',
+            //   render: (_, record) => localizeResultText(
+            //     record.zone_name ||
+            //     record.territorialZoneDescription ||
+            //     record.zoneDescription ||
+            //     record.zone_description
+            //   ) || '—',
+            // },
             {
               title: 'Ист. центр',
               dataIndex: 'environment_historical_center',
@@ -2251,6 +2323,13 @@ export default function ProjectResultDetailedPanel({
       await waitForAnimationFrames(2);
 
       const reportData = prepareReportData(projectId, project, breakdown, result, objectPhoto);
+      const environmentMapImageUrl = await captureElementAsPng(environmentMapRef.current, {
+        skipLeafletCanvas: true,
+      })
+        .catch((error) => {
+          console.error('Не удалось сделать снимок карты окружения:', error);
+          return null;
+        });
       const comparablesMapImageUrl = await captureElementAsPng(comparablesMapRef.current, {
         leafletComparableFilter: (point) => point.included !== false,
         fitLeafletToCapturePoints: true,
@@ -2263,6 +2342,10 @@ export default function ProjectResultDetailedPanel({
 
       if (comparablesMapImageUrl) {
         reportData.comparablesMapImageUrl = comparablesMapImageUrl;
+      }
+
+      if (environmentMapImageUrl) {
+        reportData.environmentMapImageUrl = environmentMapImageUrl;
       }
 
       await exportZemaReportToPDF(projectId, reportData);
@@ -3095,9 +3178,9 @@ export default function ProjectResultDetailedPanel({
 
                   <ComparableMathStep
                     number={3}
-                    title="Корректировки 1-й группы: дата предложения и скидка на торг"
+                    title="Очистка ставки и корректировки 1-й группы"
                     result={formatComparableRate(selectedComparable?.after_bargain)}
-                    explanation="Сначала удельная цена аналога приводится к дате оценки, затем от полученной ставки применяется единая скидка на торг."
+                    explanation="Сначала показывается ставка из объявления, затем цена, очищенная от НДС, затем Цисх как ставка, очищенная от коммунальных услуг и эксплуатационных расходов. После этого Цисх приводится к дате оценки и применяется единая скидка на торг."
                     formula={selectedComparableFirstGroupFormula}
                     facts={[
                       selectedComparableAdjustmentByKey.date?.details || null,
@@ -3272,6 +3355,7 @@ export default function ProjectResultDetailedPanel({
                   </Title>
                   <Card className="project-result-section-card">
                     <EnvironmentAnalysisMap
+                      captureRef={environmentMapRef}
                       analysis={objectEnvironmentAnalysis}
                       objectPoint={objectMapPoint}
                     />

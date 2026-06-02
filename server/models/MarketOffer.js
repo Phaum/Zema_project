@@ -14,6 +14,11 @@ const MarketOffer = sequelize.define('MarketOffer', {
         unique: true,
     },
 
+    cian_id: {
+        type: DataTypes.STRING(120),
+        allowNull: true,
+    },
+
     parent_object_type: {
         type: DataTypes.STRING(255),
         allowNull: true,
