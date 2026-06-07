@@ -404,6 +404,80 @@ function extractComparablePoint(item) {
   return null;
 }
 
+function offsetComparableDisplayPoint(lat, lng, northMeters, eastMeters) {
+  const numericLat = Number(lat);
+  const numericLng = Number(lng);
+  const lngScale = 111320 * Math.cos((numericLat * Math.PI) / 180);
+
+  return {
+    lat: numericLat + northMeters / 111320,
+    lng: numericLng + eastMeters / (Number.isFinite(lngScale) && Math.abs(lngScale) > 1 ? lngScale : 111320),
+  };
+}
+
+function buildComparablePointGroupKey(lat, lng) {
+  return `${Number(lat).toFixed(6)}_${Number(lng).toFixed(6)}`;
+}
+
+function spreadOverlappingComparablePoints(points = [], objectPoint = null) {
+  if (!Array.isArray(points) || !points.length) {
+    return [];
+  }
+
+  const groups = new Map();
+
+  points.forEach((point, index) => {
+    const key = buildComparablePointGroupKey(point.lat, point.lng);
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push({ point, index });
+  });
+
+  if (objectPoint && hasValidMapCoords(objectPoint.lat, objectPoint.lng)) {
+    const objectKey = buildComparablePointGroupKey(objectPoint.lat, objectPoint.lng);
+    if (groups.has(objectKey)) {
+      groups.get(objectKey).push({ point: null, index: -1, isObjectPoint: true });
+    }
+  }
+
+  const nextPoints = [...points];
+
+  groups.forEach((group) => {
+    const comparableItems = group.filter((item) => !item.isObjectPoint);
+
+    if (group.length <= 1 || comparableItems.length === 0) {
+      return;
+    }
+
+    const basePoint = comparableItems[0].point;
+    const radiusMeters = Math.min(54, 18 + comparableItems.length * 3);
+
+    comparableItems.forEach((item, displayIndex) => {
+      const angle = (Math.PI * 2 * displayIndex) / comparableItems.length;
+      const northMeters = Math.cos(angle) * radiusMeters;
+      const eastMeters = Math.sin(angle) * radiusMeters;
+      const displayPoint = offsetComparableDisplayPoint(
+        basePoint.lat,
+        basePoint.lng,
+        northMeters,
+        eastMeters
+      );
+
+      nextPoints[item.index] = {
+        ...item.point,
+        lat: displayPoint.lat,
+        lng: displayPoint.lng,
+        display_offset_applied: true,
+        original_latitude: item.point.latitude ?? item.point.lat,
+        original_longitude: item.point.longitude ?? item.point.lng,
+      };
+    });
+  });
+
+  return nextPoints;
+}
+
 function ResultMapBounds({ points, highlightBounds }) {
   const map = useMap();
 
@@ -580,6 +654,9 @@ function ProjectComparablesMap({ objectPoint, comparables, captureRef = null }) 
                   <div>Скорр. ставка: {item.adjusted_rate ? `${formatNumber(item.adjusted_rate, 2)} ₽/м²` : '—'}</div>
                   <div>Вес: {item.normalized_weight ? `${formatNumber(Number(item.normalized_weight) * 100, 1)}%` : '—'}</div>
                   <div>Статус: {included ? 'В расчёте' : 'Исключён'}</div>
+                  {item.display_offset_applied && (
+                    <div>Точка слегка смещена на карте, чтобы не перекрывать соседние маркеры.</div>
+                  )}
                 </div>
               </Popup>
             </CircleMarker>
@@ -601,7 +678,7 @@ const ENVIRONMENT_ZONE_LAYERS = [
   {
     key: 'industrialWarehouse',
     label: 'Произв.-складская',
-    shortLabel: 'Склады',
+    shortLabel: 'Пром/склады',
     color: '#f97316',
     offset: [-180, 155],
   },
@@ -676,6 +753,46 @@ function sumEnvironmentDisplayCounts(counts = {}) {
     .reduce((sum, key) => sum + (Number(counts[key]) || 0), 0);
 }
 
+function normalizeEnvironmentDisplayCounts(counts = {}) {
+  const industrialWarehouse = Math.max(
+    Number(counts.industrialWarehouse) || 0,
+    Number(counts.industrialZone) || 0,
+    Number(counts.analogueIndustrialCount) || 0,
+    (Number(counts.industrialSites) || 0) + (Number(counts.warehouseSites) || 0),
+    Number(counts.negativeCount) || 0
+  );
+  const highriseResidential = Math.max(
+    Number(counts.highriseResidential) || 0,
+    Number(counts.residentialHighrise) || 0,
+    Number(counts.multiApartmentResidential) || 0
+  );
+  const midriseResidential = Math.max(
+    Number(counts.midriseResidential) || 0,
+    Number(counts.residentialMidrise) || 0
+  );
+  const residentialTotal = Math.max(
+    Number(counts.residentialTotal) || 0,
+    Number(counts.residentialBuildings) || 0,
+    highriseResidential + midriseResidential
+  );
+
+  return {
+    ...counts,
+    business: Math.max(
+      Number(counts.business) || 0,
+      Number(counts.businessActivityCenter) || 0,
+      Number(counts.analogueBusinessCount) || 0,
+      Number(counts.businessCount) || 0
+    ),
+    industrialWarehouse,
+    highriseResidential,
+    midriseResidential,
+    residentialTotal,
+    service: Math.max(Number(counts.service) || 0, Number(counts.serviceCount) || 0),
+    transport: Math.max(Number(counts.transport) || 0, Number(counts.transportPoints) || 0),
+  };
+}
+
 function inferEnvironmentDisplayCountsFromCategories(categories = []) {
   return categories.reduce((counts, category) => {
     const normalized = String(category || '').toLowerCase().replace(/ё/g, 'е');
@@ -714,9 +831,10 @@ function resolveEnvironmentDisplayCounts(analysis) {
   const counts = analysis?.counts && typeof analysis.counts === 'object'
     ? analysis.counts
     : {};
+  const normalizedCounts = normalizeEnvironmentDisplayCounts(counts);
 
-  if (sumEnvironmentDisplayCounts(counts) > 0) {
-    return counts;
+  if (sumEnvironmentDisplayCounts(normalizedCounts) > 0) {
+    return normalizedCounts;
   }
 
   return inferEnvironmentDisplayCountsFromCategories(analysis?.categories || []);
@@ -763,6 +881,96 @@ function buildEnvironmentExamplePoints(analysis) {
         lng: Number(item.longitude),
       }));
   });
+}
+
+function buildQuestionnaireEnvironmentCategories(questionnaire = {}) {
+  return [
+    questionnaire?.environmentCategory1,
+    questionnaire?.environmentCategory2,
+    questionnaire?.environmentCategory3,
+    questionnaire?.environment_category_1,
+    questionnaire?.environment_category_2,
+    questionnaire?.environment_category_3,
+  ].filter(Boolean);
+}
+
+function hydrateEnvironmentAnalysisForDisplay(analysis, questionnaire = {}, objectPoint = null) {
+  const questionnaireCategories = buildQuestionnaireEnvironmentCategories(questionnaire);
+  const categories = Array.from(new Set([
+    ...(Array.isArray(analysis?.categories) ? analysis.categories : []),
+    ...questionnaireCategories,
+  ].filter(Boolean)));
+  const lat = analysis?.latitude ?? objectPoint?.lat ?? questionnaire?.mapPointLat;
+  const lng = analysis?.longitude ?? objectPoint?.lng ?? questionnaire?.mapPointLng;
+
+  if (!analysis && !categories.length && !hasValidMapCoords(lat, lng)) {
+    return null;
+  }
+
+  const hydrated = {
+    ...(analysis || {}),
+    latitude: lat,
+    longitude: lng,
+    radiusMeters: Number(analysis?.radiusMeters) || 600,
+    categories,
+  };
+  const displayCounts = resolveEnvironmentDisplayCounts(hydrated);
+  const rawScore = Number(hydrated.totalScore);
+
+  return {
+    ...hydrated,
+    counts: displayCounts,
+    totalScore: Number.isFinite(rawScore) && rawScore > 0
+      ? rawScore
+      : resolveEnvironmentDisplayScore({
+        ...hydrated,
+        counts: displayCounts,
+      }),
+  };
+}
+
+function countEnvironmentExamples(analysis) {
+  const examples = analysis?.examples && typeof analysis.examples === 'object'
+    ? analysis.examples
+    : {};
+
+  return Object.values(examples).reduce(
+    (sum, items) => sum + (Array.isArray(items) ? items.length : 0),
+    0
+  );
+}
+
+function scoreEnvironmentAnalysisForDisplay(analysis, questionnaire = {}) {
+  if (!analysis || typeof analysis !== 'object') {
+    return 0;
+  }
+
+  const categories = Array.from(new Set([
+    ...(Array.isArray(analysis?.categories) ? analysis.categories : []),
+    ...buildQuestionnaireEnvironmentCategories(questionnaire),
+  ].filter(Boolean)));
+  const counts = resolveEnvironmentDisplayCounts({
+    ...analysis,
+    categories,
+  });
+  const countSum = sumEnvironmentDisplayCounts(counts);
+  const totalScore = Number(analysis?.totalScore);
+
+  return (
+    countSum * 10
+    + countEnvironmentExamples(analysis) * 5
+    + (Number.isFinite(totalScore) && totalScore > 0 ? totalScore : 0)
+    + categories.length
+  );
+}
+
+function pickBestEnvironmentAnalysisForDisplay(candidates = [], questionnaire = {}) {
+  return candidates
+    .filter((candidate) => candidate && typeof candidate === 'object')
+    .sort((left, right) => (
+      scoreEnvironmentAnalysisForDisplay(right, questionnaire)
+      - scoreEnvironmentAnalysisForDisplay(left, questionnaire)
+    ))[0] || null;
 }
 
 function EnvironmentAnalysisMap({ analysis, objectPoint, captureRef = null }) {
@@ -2031,11 +2239,22 @@ export default function ProjectResultDetailedPanel({
       cadastralNumber: questionnaire.buildingCadastralNumber,
     }
     : null;
-  const objectEnvironmentAnalysis = (
-    breakdown?.market?.objectEnvironmentAnalysis
-    || marketContext?.objectEnvironmentAnalysis
-    || result?.market_snapshot_json?.objectEnvironmentAnalysis
-    || null
+  const rawObjectEnvironmentAnalysis = useMemo(
+    () => pickBestEnvironmentAnalysisForDisplay([
+      breakdown?.market?.objectEnvironmentAnalysis,
+      marketContext?.objectEnvironmentAnalysis,
+      result?.market_snapshot_json?.objectEnvironmentAnalysis,
+    ], questionnaire),
+    [
+      breakdown?.market?.objectEnvironmentAnalysis,
+      marketContext?.objectEnvironmentAnalysis,
+      questionnaire,
+      result?.market_snapshot_json?.objectEnvironmentAnalysis,
+    ]
+  );
+  const objectEnvironmentAnalysis = useMemo(
+    () => hydrateEnvironmentAnalysisForDisplay(rawObjectEnvironmentAnalysis, questionnaire, objectMapPoint),
+    [objectMapPoint, questionnaire, rawObjectEnvironmentAnalysis]
   );
   const mapComparableSource = useMemo(() => {
     const resultComparables = Array.isArray(breakdown?.market?.topComparables)
@@ -2075,7 +2294,7 @@ export default function ProjectResultDetailedPanel({
       };
     });
   }, [breakdown?.market?.topComparables, marketContext?.topComparables]);
-  const comparableMapPoints = Array.isArray(mapComparableSource)
+  const rawComparableMapPoints = Array.isArray(mapComparableSource)
     ? mapComparableSource
       .map((item) => {
         const point = extractComparablePoint(item);
@@ -2094,6 +2313,10 @@ export default function ProjectResultDetailedPanel({
       })
       .filter(Boolean)
     : [];
+  const comparableMapPoints = useMemo(
+    () => spreadOverlappingComparablePoints(rawComparableMapPoints, objectMapPoint),
+    [objectMapPoint, rawComparableMapPoints]
+  );
   const comparableWithoutCoordsCount = Math.max(
     (mapComparableSource?.length || 0) - comparableMapPoints.length,
     0

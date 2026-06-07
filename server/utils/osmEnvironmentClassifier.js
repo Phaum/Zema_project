@@ -205,11 +205,13 @@ export async function fetchOsmEnvironment(lat, lon, options = {}) {
 
     const { data } = await axios.post(
         endpoint,
-        query,
+        new URLSearchParams({ data: query }).toString(),
         {
             timeout: timeoutMs,
             headers: {
-                'Content-Type': 'text/plain',
+                Accept: 'application/json,text/plain,*/*',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': 'ZemaProject/1.0 (environment-analysis)',
             },
         }
     );
