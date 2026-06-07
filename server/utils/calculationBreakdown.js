@@ -471,6 +471,7 @@ export function buildCalculationBreakdown(questionnaire, marketSnapshot, calcula
             },
             capRateBreakdown: calculation.capRateBreakdown || null,
             excludedComparables,
+            objectEnvironmentAnalysis: marketSnapshot?.objectEnvironmentAnalysis || null,
             topComparables: Array.isArray(marketSnapshot?.topComparables)
                 ? marketSnapshot.topComparables.slice(0, 10)
                 : [],

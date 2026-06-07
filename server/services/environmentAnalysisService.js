@@ -242,6 +242,8 @@ function buildExamplePayload(item) {
         name: normalizeText(item.name) || 'Без названия',
         kind: item.kind || 'unknown',
         distanceMeters: round(item.distanceMeters, 0),
+        latitude: toNumberOrNull(item.latitude),
+        longitude: toNumberOrNull(item.longitude),
     };
 }
 
@@ -379,6 +381,8 @@ function annotateElements(elements = [], objectLat, objectLon) {
                 id: `${element.type || 'unknown'}:${element.id || Math.random()}`,
                 name: normalizeText(tags.name),
                 kind: getKindLabel(tags),
+                latitude: coords.lat,
+                longitude: coords.lon,
                 distanceMeters: distanceKm * 1000,
                 tags,
                 flags: evaluateElementFlags(tags),
@@ -917,6 +921,50 @@ function hasAnalogueClassifierResult(analysis) {
     return Boolean(classifier && typeof classifier === 'object' && classifier.detailsCount);
 }
 
+function sumEnvironmentCounts(counts = {}) {
+    if (!counts || typeof counts !== 'object') {
+        return 0;
+    }
+
+    return [
+        'businessCount',
+        'serviceCount',
+        'transportPoints',
+        'residentialBuildings',
+        'industrialSites',
+        'warehouseSites',
+        'businessActivityCenter',
+        'multiApartmentResidential',
+        'midriseResidential',
+        'industrialZone',
+    ].reduce((sum, key) => sum + (Number(counts[key]) || 0), 0);
+}
+
+function hasEnvironmentExamples(details = {}) {
+    return Object.values(details.examples || {}).some((items) => Array.isArray(items) && items.length > 0);
+}
+
+function hasUsableEnvironmentDensity(analysis) {
+    const details = analysis?.environment_details_json || {};
+    const directCounts = sumEnvironmentCounts(details.counts);
+    const radiusCounts = Object.values(details.radii || {}).reduce(
+        (maxCount, summary) => Math.max(maxCount, sumEnvironmentCounts(summary?.counts)),
+        0
+    );
+    const rawElementsCount = Number(analysis?.source_meta_json?.overpass?.rawElementsCount);
+    const overpassStatus = String(analysis?.source_meta_json?.overpass?.status || '').toLowerCase();
+
+    if (directCounts > 0 || radiusCounts > 0 || hasEnvironmentExamples(details)) {
+        return true;
+    }
+
+    if (Number.isFinite(rawElementsCount) && rawElementsCount > 0 && overpassStatus !== 'failed') {
+        return true;
+    }
+
+    return false;
+}
+
 function normalizeAnalysisEnvironmentCategories(analysis) {
     if (!analysis) return analysis;
 
@@ -1257,6 +1305,10 @@ export async function getSavedEnvironmentAnalysis(cadastralNumber, { radiusMeter
         return null;
     }
 
+    if (!hasUsableEnvironmentDensity(normalized)) {
+        return null;
+    }
+
     return normalizeAnalysisEnvironmentCategories(normalized);
 }
 
@@ -1264,6 +1316,7 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
     valuationDate = null,
     radiusMeters = DEFAULT_RADIUS_METERS,
     forceRecalculation = false,
+    forceRefresh = false,
     latestQuestionnaire = {},
 } = {}) {
     const normalizedCad = normalizeCadastralNumber(cadastralNumber);
@@ -1273,7 +1326,7 @@ export async function analyzeEnvironmentByCadastralNumber(cadastralNumber, {
         throw new Error('Кадастровый номер не указан');
     }
 
-    if (!forceRecalculation) {
+    if (!forceRecalculation && !forceRefresh) {
         const cached = await getSavedEnvironmentAnalysis(normalizedCad, {
             radiusMeters: normalizedRadius,
         });

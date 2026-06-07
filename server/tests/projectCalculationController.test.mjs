@@ -12,9 +12,11 @@ import {
     deduplicateAnaloguesForSelection,
     deduplicateRankedAnalogsByObject,
     ensureSelectionSpatialContext,
+    mergePriorityAnaloguesIntoSelection,
     resolveComparableCoordinates,
     resolveManualRentalOverrideRate,
     resolveAnalogueQuarterKey,
+    selectSameObjectSameClassAnalogues,
 } from '../controllers/projectCalculationController.js';
 
 test('normalizeComparableClass accepts Cyrillic business center classes', () => {
@@ -363,6 +365,72 @@ test('deduplicateAnaloguesByObject keeps up to two distinct offers per object ad
         result.selectedAnalogs.map((row) => row.id).sort(),
         ['rzhovskaya-q1', 'rzhovskaya-q2', 'sinopskaya-main', 'unique']
     );
+});
+
+test('selectSameObjectSameClassAnalogues keeps Afonskaya-like same-object class C offers', () => {
+    const questionnaire = {
+        objectAddress: 'Санкт-Петербург, Афонская ул., д. 2',
+        businessCenterClass: 'C',
+        valuationDate: '2025-10-01',
+    };
+    const rows = [
+        {
+            id: 'afon-1',
+            address_offer: 'Санкт-Петербург, Афонская, 2',
+            class_offer: 'С',
+            area_total: 180,
+            price_per_sqm_cleaned: 1000,
+            offer_date: '2025-09-01',
+        },
+        {
+            id: 'afon-2',
+            address_offer: 'Санкт-Петербург, Афонская улица, дом 2',
+            class_offer: 'C',
+            area_total: 260,
+            price_per_sqm_cleaned: 1100,
+            offer_date: '2025-09-10',
+        },
+        {
+            id: 'afon-class-b',
+            address_offer: 'Санкт-Петербург, Афонская, 2',
+            class_offer: 'B',
+            area_total: 260,
+            price_per_sqm_cleaned: 1200,
+            offer_date: '2025-09-10',
+        },
+        {
+            id: 'other-class-c',
+            address_offer: 'Санкт-Петербург, Савушкина, 2',
+            class_offer: 'C',
+            area_total: 260,
+            price_per_sqm_cleaned: 1200,
+            offer_date: '2025-09-10',
+        },
+    ];
+
+    const selected = selectSameObjectSameClassAnalogues(rows, questionnaire);
+
+    assert.deepEqual(
+        selected.map((row) => row.id).sort(),
+        ['afon-1', 'afon-2']
+    );
+});
+
+test('mergePriorityAnaloguesIntoSelection forces same-object offers into top 10', () => {
+    const priority = [
+        { id: 'afon-1' },
+        { id: 'afon-2' },
+    ];
+    const ranked = Array.from({ length: 12 }, (_, index) => ({
+        id: `ranked-${index + 1}`,
+        mahalanobisDistance: index / 10,
+    }));
+
+    const selected = mergePriorityAnaloguesIntoSelection(priority, ranked, 10);
+
+    assert.equal(selected.length, 10);
+    assert.deepEqual(selected.slice(0, 2).map((row) => row.id), ['afon-1', 'afon-2']);
+    assert.equal(selected.some((row) => row.id === 'ranked-10'), false);
 });
 
 test('ensureSelectionSpatialContext restores missing zone fields from spatial zones before selection', async () => {

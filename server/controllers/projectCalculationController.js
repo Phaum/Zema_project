@@ -300,6 +300,53 @@ function normalizeAddressKey(value) {
         .trim();
 }
 
+const ADDRESS_TOKEN_STOP_WORDS = new Set([
+    'санкт',
+    'петербург',
+    'спб',
+    'г',
+    'город',
+    'ул',
+    'улица',
+    'пр',
+    'проспект',
+    'д',
+    'дом',
+    'лит',
+    'литера',
+    'корп',
+    'корпус',
+    'стр',
+    'строение',
+    'пом',
+    'помещение',
+]);
+
+function buildAddressTokenSignature(value) {
+    const tokens = normalizeAddressKey(value)
+        .split(' ')
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+    return {
+        words: new Set(tokens.filter((token) => token.length > 2 && !ADDRESS_TOKEN_STOP_WORDS.has(token) && !/^\d+[a-zа-я]?$/.test(token))),
+        numbers: new Set(tokens.filter((token) => /^\d+[a-zа-я]?$/.test(token))),
+    };
+}
+
+function addressSignaturesMatch(leftValue, rightValue) {
+    const left = buildAddressTokenSignature(leftValue);
+    const right = buildAddressTokenSignature(rightValue);
+    const hasSharedWord = [...left.words].some((token) => right.words.has(token));
+    const hasSharedNumber = [...left.numbers].some((token) => right.numbers.has(token));
+
+    return hasSharedWord && hasSharedNumber;
+}
+
+function escapeLikePattern(value) {
+    return String(value || '').replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
 function normalizeFloorKey(value) {
     const normalized = String(value || '').toLowerCase().trim();
 
@@ -405,6 +452,172 @@ function buildAnalogueObjectKey(rawRow) {
     }
 
     return `id__${row.id || row.external_id || 'unknown'}`;
+}
+
+function buildSubjectObjectKeys(questionnaire = {}) {
+    return {
+        cadastral: String(questionnaire?.buildingCadastralNumber || questionnaire?.building_cadastral_number || '').trim(),
+        address: questionnaire?.objectAddress || questionnaire?.address || null,
+        building: questionnaire?.buildingName || questionnaire?.building_name || questionnaire?.actualUse || null,
+    };
+}
+
+function buildAnalogueSameObjectWhere(questionnaire = {}) {
+    const subject = buildSubjectObjectKeys(questionnaire);
+    const orConditions = [];
+
+    if (subject.cadastral) {
+        orConditions.push({ cadastral: subject.cadastral });
+    }
+
+    if (subject.address) {
+        const signature = buildAddressTokenSignature(subject.address);
+        const wordConditions = [...signature.words].slice(0, 3).map((token) => ({
+            address: { [Op.iLike]: `%${escapeLikePattern(token)}%` },
+        }));
+        const numberConditions = [...signature.numbers].slice(0, 2).map((token) => ({
+            address: { [Op.iLike]: `%${escapeLikePattern(token)}%` },
+        }));
+
+        if (wordConditions.length && numberConditions.length) {
+            orConditions.push({
+                [Op.and]: [
+                    ...wordConditions,
+                    { [Op.or]: numberConditions },
+                ],
+            });
+        }
+    }
+
+    const buildingKey = normalizeAddressKey(subject.building);
+    if (buildingKey) {
+        const buildingTokens = buildingKey
+            .split(' ')
+            .filter((token) => token.length > 2 && !ADDRESS_TOKEN_STOP_WORDS.has(token))
+            .slice(0, 3);
+
+        if (buildingTokens.length) {
+            orConditions.push({
+                [Op.and]: buildingTokens.map((token) => ({
+                    building: { [Op.iLike]: `%${escapeLikePattern(token)}%` },
+                })),
+            });
+        }
+    }
+
+    return orConditions.length ? { [Op.or]: orConditions } : null;
+}
+
+function isSameObjectAsQuestionnaire(row, questionnaire = {}) {
+    const plain = toComparablePlain(row);
+    const subject = buildSubjectObjectKeys(questionnaire);
+    const subjectCadastral = subject.cadastral;
+    const rowCadastral = String(plain.building_cadastral_number || plain.cadastral || '').trim();
+
+    if (subjectCadastral && rowCadastral && subjectCadastral === rowCadastral) {
+        return true;
+    }
+
+    const rowAddress = plain.address_offer || plain.address || null;
+    if (subject.address && rowAddress) {
+        const subjectAddressKey = normalizeAddressKey(subject.address);
+        const rowAddressKey = normalizeAddressKey(rowAddress);
+
+        if (
+            subjectAddressKey &&
+            rowAddressKey &&
+            (
+                subjectAddressKey === rowAddressKey ||
+                subjectAddressKey.includes(rowAddressKey) ||
+                rowAddressKey.includes(subjectAddressKey) ||
+                addressSignaturesMatch(subject.address, rowAddress)
+            )
+        ) {
+            return true;
+        }
+    }
+
+    const rowBuilding = plain.building_name || plain.building || null;
+    const subjectBuildingKey = normalizeAddressKey(subject.building);
+    const rowBuildingKey = normalizeAddressKey(rowBuilding);
+
+    return Boolean(subjectBuildingKey && rowBuildingKey && subjectBuildingKey === rowBuildingKey);
+}
+
+export function selectSameObjectSameClassAnalogues(items = [], questionnaire = {}) {
+    const subjectClass = normalizeComparableClass(
+        questionnaire?.businessCenterClass ||
+        questionnaire?.objectClass
+    );
+
+    if (!subjectClass || !Array.isArray(items) || !items.length) {
+        return [];
+    }
+
+    const valuationTime = parseDateSafe(questionnaire?.valuationDate)?.getTime() ?? Date.now();
+    const grouped = new Map();
+
+    for (const rawRow of items) {
+        const row = toComparablePlain(rawRow);
+        const rowClass = normalizeComparableClass(row.class_offer);
+
+        if (rowClass !== subjectClass || !isSameObjectAsQuestionnaire(row, questionnaire)) {
+            continue;
+        }
+
+        const duplicateKey = buildAnalogueDuplicateKey(row);
+        if (!grouped.has(duplicateKey)) {
+            grouped.set(duplicateKey, []);
+        }
+
+        grouped.get(duplicateKey).push(row);
+    }
+
+    return Array.from(grouped.values())
+        .map((group) => group
+            .slice()
+            .sort((left, right) => compareDuplicatePriority(left, right, valuationTime))[0])
+        .sort((left, right) => compareDuplicatePriority(left, right, valuationTime));
+}
+
+export function mergePriorityAnaloguesIntoSelection(priorityAnalogues = [], rankedAnalogues = [], maxCount = 10) {
+    const rankedById = new Map(
+        (Array.isArray(rankedAnalogues) ? rankedAnalogues : [])
+            .map((row) => [getComparableStableId(row), row])
+            .filter(([id]) => Boolean(id))
+    );
+    const usedIds = new Set();
+    const selected = [];
+
+    for (const priority of (Array.isArray(priorityAnalogues) ? priorityAnalogues : [])) {
+        const priorityId = getComparableStableId(priority);
+        if (!priorityId || usedIds.has(priorityId)) {
+            continue;
+        }
+
+        selected.push(rankedById.get(priorityId) || priority);
+        usedIds.add(priorityId);
+
+        if (selected.length >= maxCount) {
+            return selected;
+        }
+    }
+
+    for (const candidate of (Array.isArray(rankedAnalogues) ? rankedAnalogues : [])) {
+        const candidateId = getComparableStableId(candidate);
+        if (!candidateId || usedIds.has(candidateId)) {
+            continue;
+        }
+
+        selected.push(candidate);
+        usedIds.add(candidateId);
+
+        if (selected.length >= maxCount) {
+            break;
+        }
+    }
+
+    return selected;
 }
 
 function calculateComparableCompleteness(row) {
@@ -773,11 +986,103 @@ function numberOrZero(value) {
     return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function sumEnvironmentCounts(counts = {}) {
+    if (!counts || typeof counts !== 'object') {
+        return 0;
+    }
+
+    return [
+        'businessActivityCenter',
+        'analogueBusinessCount',
+        'businessCount',
+        'businessBuildings',
+        'offices',
+        'serviceCount',
+        'transportPoints',
+        'industrialZone',
+        'analogueIndustrialCount',
+        'industrialSites',
+        'warehouseSites',
+        'residentialBuildings',
+        'residentialHighrise',
+        'multiApartmentResidential',
+        'residentialMidrise',
+        'midriseResidential',
+    ].reduce((sum, key) => sum + numberOrZero(counts[key]), 0);
+}
+
+function pickMostInformativeEnvironmentCounts(...candidates) {
+    return candidates
+        .filter((counts) => counts && typeof counts === 'object')
+        .sort((left, right) => sumEnvironmentCounts(right) - sumEnvironmentCounts(left))[0] || {};
+}
+
+function inferEnvironmentCountsFromCategories(categories = []) {
+    return categories.reduce((counts, category) => {
+        const normalized = String(category || '').toLowerCase().replace(/ё/g, 'е');
+
+        if (normalized.includes('делов') || normalized.includes('business') || normalized.includes('актив')) {
+            counts.businessActivityCenter += 1;
+            counts.businessCount += 1;
+        }
+
+        if (normalized.includes('пром') || normalized.includes('склад') || normalized.includes('industrial')) {
+            counts.industrialZone += 1;
+            counts.industrialSites += 1;
+        }
+
+        if (normalized.includes('много') || normalized.includes('multi')) {
+            counts.residentialHighrise += 1;
+            counts.residentialBuildings += 1;
+        }
+
+        if (normalized.includes('средне') || normalized.includes('midrise') || normalized.includes('до 8')) {
+            counts.residentialMidrise += 1;
+            counts.residentialBuildings += 1;
+        }
+
+        return counts;
+    }, {
+        businessActivityCenter: 0,
+        businessCount: 0,
+        industrialZone: 0,
+        industrialSites: 0,
+        residentialHighrise: 0,
+        residentialMidrise: 0,
+        residentialBuildings: 0,
+    });
+}
+
+function resolveEnvironmentTotalScore(analysis = {}, score = {}, counts = {}, categories = []) {
+    const detailScore = toNumber(score?.totalScore, null);
+    const storedScore = toNumber(analysis?.total_environment_score, null);
+
+    if (Number.isFinite(detailScore) && detailScore > 0) {
+        return detailScore;
+    }
+
+    if (Number.isFinite(storedScore) && storedScore > 0) {
+        return storedScore;
+    }
+
+    if (sumEnvironmentCounts(counts) > 0 && categories.length) {
+        return Math.min(100, 30 + categories.length * 8 + Math.min(sumEnvironmentCounts(counts), 10));
+    }
+
+    return Number.isFinite(storedScore)
+        ? storedScore
+        : Number.isFinite(detailScore)
+            ? detailScore
+            : null;
+}
+
 function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
     const details = analysis?.environment_details_json || {};
-    const counts = details.counts || {};
+    const radiusKey = String(numberOrZero(analysis?.radius_used) || 600);
+    const radiusSummary = details.radii?.[radiusKey] || details.radii?.['600'] || null;
     const score = details.score || {};
     const categories = details.categories || {};
+    const metrics = details.metrics || radiusSummary?.metrics || null;
     const lat = numberOrZero(analysis?.latitude || questionnaire?.mapPointLat);
     const lng = numberOrZero(analysis?.longitude || questionnaire?.mapPointLng);
 
@@ -793,6 +1098,16 @@ function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
         questionnaire?.environmentCategory2,
         questionnaire?.environmentCategory3,
     ].filter(Boolean)));
+    const radiusCounts = Object.values(details.radii || {}).map((summary) => summary?.counts);
+    const countsFromData = pickMostInformativeEnvironmentCounts(
+        details.counts,
+        radiusSummary?.counts,
+        ...radiusCounts
+    );
+    const inferredCounts = inferEnvironmentCountsFromCategories(categoryValues);
+    const counts = sumEnvironmentCounts(countsFromData) > 0
+        ? countsFromData
+        : inferredCounts;
     const categoryText = categoryValues.join(' ').toLowerCase();
     const businessCount = numberOrZero(counts.businessActivityCenter || counts.analogueBusinessCount || counts.businessCount);
     const industrialCount = numberOrZero(counts.industrialZone || counts.analogueIndustrialCount)
@@ -814,7 +1129,7 @@ function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
         latitude: lat,
         longitude: lng,
         radiusMeters: numberOrZero(analysis?.radius_used) || 600,
-        totalScore: analysis?.total_environment_score ?? score.totalScore ?? null,
+        totalScore: resolveEnvironmentTotalScore(analysis, score, counts, categoryValues),
         qualityFlag: analysis?.quality_flag || null,
         locationType: analysis?.location_type || null,
         historicalCenterStatus: analysis?.historical_center_status || null,
@@ -831,9 +1146,10 @@ function buildEnvironmentAnalysisSummaryPayload(analysis, questionnaire = {}) {
             service: numberOrZero(counts.serviceCount),
             transport: numberOrZero(counts.transportPoints),
         },
-        metrics: details.metrics || null,
+        metrics,
         subscores: score.subscores || null,
         rawFactors: score.rawFactors || details.rawFactors || null,
+        examples: details.examples || {},
         warnings: Array.isArray(details.warnings) ? details.warnings : [],
     };
 }
@@ -1045,19 +1361,70 @@ async function findComparableAnalogues(questionnaire) {
         where: strictWhere,
         order: [['date_offer', 'DESC'], ['id', 'ASC']],
     });
+    const sameObjectWhere = buildAnalogueSameObjectWhere(selectionQuestionnaire);
+    let sameObjectRows = [];
+
+    if (sameObjectWhere && strictClassWhere) {
+        sameObjectRows = await Analogue.findAll({
+            where: {
+                [Op.and]: [
+                    baseWhere,
+                    { class_offer: strictClassWhere },
+                    sameObjectWhere,
+                ],
+            },
+            order: [['date_offer', 'DESC'], ['id', 'ASC']],
+        });
+    }
+
+    if (sameObjectRows.length) {
+        const rowsById = new Map();
+        [...sameObjectRows, ...allRows].forEach((row) => {
+            const plain = toComparablePlain(row);
+            rowsById.set(String(plain.id), row);
+        });
+        allRows = [...rowsById.values()];
+    }
 
     console.log('[findComparableAnalogues] strict found before dedupe =', allRows.length);
+    console.log('[findComparableAnalogues] same object query found =', sameObjectRows.length);
     console.log('[findComparableAnalogues] filterMode = strict_exact_class');
 
     const normalized = await Promise.all(allRows.map(mapAnalogueToComparable));
-    const objectDedupe = deduplicateAnaloguesByObject(
+    const sameObjectSameClassAnalogs = selectSameObjectSameClassAnalogues(
         normalized,
+        selectionQuestionnaire
+    );
+    const subjectClass = normalizeComparableClass(objectClassRaw);
+    const sameObjectCandidateIds = new Set(
+        normalized
+            .filter((row) => normalizeComparableClass(row?.class_offer) === subjectClass && isSameObjectAsQuestionnaire(row, selectionQuestionnaire))
+            .map(getComparableStableId)
+            .filter(Boolean)
+    );
+    const rowsForGeneralDedupe = normalized.filter((row) => !sameObjectCandidateIds.has(getComparableStableId(row)));
+    const objectDedupe = deduplicateAnaloguesByObject(
+        rowsForGeneralDedupe,
         selectionQuestionnaire.valuationDate
     );
-    const uniqueAnalogs = objectDedupe.selectedAnalogs;
-    const { selected, ranked } = selectAnalogsByMahalanobis(selectionQuestionnaire, uniqueAnalogs);
+    const uniqueAnalogs = [
+        ...sameObjectSameClassAnalogs,
+        ...objectDedupe.selectedAnalogs,
+    ];
+    const rankedSelection = selectAnalogsByMahalanobis(selectionQuestionnaire, uniqueAnalogs);
+    const ranked = mergePriorityAnaloguesIntoSelection(
+        sameObjectSameClassAnalogs,
+        rankedSelection.ranked,
+        Math.max(rankedSelection.ranked.length, sameObjectSameClassAnalogs.length)
+    );
+    const selected = mergePriorityAnaloguesIntoSelection(
+        sameObjectSameClassAnalogs,
+        rankedSelection.ranked,
+        10
+    );
 
     console.log('[findComparableAnalogues] normalized count =', normalized.length);
+    console.log('[findComparableAnalogues] same object same class =', sameObjectSameClassAnalogs.length);
     console.log('[findComparableAnalogues] unique after object dedupe =', uniqueAnalogs.length);
     console.log('[findComparableAnalogues] excluded object duplicates =', objectDedupe.excludedDuplicates.length);
     console.log('[findComparableAnalogues] selected after mahalanobis =', selected.length);

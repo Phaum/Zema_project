@@ -621,6 +621,25 @@ const ENVIRONMENT_ZONE_LAYERS = [
   },
 ];
 
+const ENVIRONMENT_EXAMPLE_LAYERS = {
+  business: {
+    label: 'Деловое окружение',
+    color: '#2563eb',
+  },
+  service: {
+    label: 'Сервисная инфраструктура',
+    color: '#7c3aed',
+  },
+  transport: {
+    label: 'Транспорт',
+    color: '#0891b2',
+  },
+  negative: {
+    label: 'Производственно-складское окружение',
+    color: '#f97316',
+  },
+};
+
 function offsetLatLngByMeters(lat, lng, northMeters, eastMeters) {
   const numericLat = Number(lat);
   const numericLng = Number(lng);
@@ -633,7 +652,7 @@ function offsetLatLngByMeters(lat, lng, northMeters, eastMeters) {
 }
 
 function buildEnvironmentZoneSpots(analysis) {
-  const counts = analysis?.counts || {};
+  const counts = resolveEnvironmentDisplayCounts(analysis);
 
   return ENVIRONMENT_ZONE_LAYERS.map((layer) => {
     const count = Number(counts[layer.key]) || 0;
@@ -645,6 +664,104 @@ function buildEnvironmentZoneSpots(analysis) {
       radius,
       visible: count > 0,
     };
+  });
+}
+
+function sumEnvironmentDisplayCounts(counts = {}) {
+  if (!counts || typeof counts !== 'object') {
+    return 0;
+  }
+
+  return ['business', 'industrialWarehouse', 'highriseResidential', 'midriseResidential', 'residentialTotal', 'service', 'transport']
+    .reduce((sum, key) => sum + (Number(counts[key]) || 0), 0);
+}
+
+function inferEnvironmentDisplayCountsFromCategories(categories = []) {
+  return categories.reduce((counts, category) => {
+    const normalized = String(category || '').toLowerCase().replace(/ё/g, 'е');
+
+    if (normalized.includes('делов') || normalized.includes('business') || normalized.includes('актив')) {
+      counts.business += 1;
+    }
+
+    if (normalized.includes('пром') || normalized.includes('склад') || normalized.includes('industrial')) {
+      counts.industrialWarehouse += 1;
+    }
+
+    if (normalized.includes('много') || normalized.includes('multi')) {
+      counts.highriseResidential += 1;
+      counts.residentialTotal += 1;
+    }
+
+    if (normalized.includes('средне') || normalized.includes('midrise') || normalized.includes('до 8')) {
+      counts.midriseResidential += 1;
+      counts.residentialTotal += 1;
+    }
+
+    return counts;
+  }, {
+    business: 0,
+    industrialWarehouse: 0,
+    highriseResidential: 0,
+    midriseResidential: 0,
+    residentialTotal: 0,
+    service: 0,
+    transport: 0,
+  });
+}
+
+function resolveEnvironmentDisplayCounts(analysis) {
+  const counts = analysis?.counts && typeof analysis.counts === 'object'
+    ? analysis.counts
+    : {};
+
+  if (sumEnvironmentDisplayCounts(counts) > 0) {
+    return counts;
+  }
+
+  return inferEnvironmentDisplayCountsFromCategories(analysis?.categories || []);
+}
+
+function resolveEnvironmentDisplayScore(analysis) {
+  const rawScore = Number(analysis?.totalScore);
+
+  if (Number.isFinite(rawScore) && rawScore > 0) {
+    return rawScore;
+  }
+
+  const counts = resolveEnvironmentDisplayCounts(analysis);
+  const countSum = sumEnvironmentDisplayCounts(counts);
+  const categories = Array.isArray(analysis?.categories) ? analysis.categories.filter(Boolean) : [];
+
+  if (countSum > 0 && categories.length) {
+    return Math.min(100, 30 + categories.length * 8 + Math.min(countSum, 10));
+  }
+
+  return Number.isFinite(rawScore) ? rawScore : 0;
+}
+
+function buildEnvironmentExamplePoints(analysis) {
+  const examples = analysis?.examples && typeof analysis.examples === 'object'
+    ? analysis.examples
+    : {};
+
+  return Object.entries(examples).flatMap(([groupKey, items]) => {
+    const layer = ENVIRONMENT_EXAMPLE_LAYERS[groupKey];
+    if (!layer || !Array.isArray(items)) {
+      return [];
+    }
+
+    return items
+      .filter((item) => hasValidMapCoords(item?.latitude, item?.longitude))
+      .map((item, index) => ({
+        ...item,
+        id: `${groupKey}_${index}_${item.latitude}_${item.longitude}`,
+        groupKey,
+        groupLabel: layer.label,
+        color: layer.color,
+        lat: Number(item.latitude),
+        lng: Number(item.longitude),
+      }));
   });
 }
 
@@ -666,6 +783,7 @@ function EnvironmentAnalysisMap({ analysis, objectPoint, captureRef = null }) {
   const center = [lat, lng];
   const spots = buildEnvironmentZoneSpots(analysis);
   const visibleSpots = spots.filter((spot) => spot.visible);
+  const examplePoints = buildEnvironmentExamplePoints(analysis);
   const categories = Array.from(new Set((analysis?.categories || []).filter(Boolean)))
     .filter((category) => !isIgnoredEnvironmentCategory(category));
 
@@ -749,6 +867,29 @@ function EnvironmentAnalysisMap({ analysis, objectPoint, captureRef = null }) {
               );
             })}
 
+            {examplePoints.map((point) => (
+              <CircleMarker
+                key={point.id}
+                center={[point.lat, point.lng]}
+                radius={4}
+                pathOptions={{
+                  color: '#ffffff',
+                  weight: 1.5,
+                  fillColor: point.color,
+                  fillOpacity: 0.9,
+                }}
+              >
+                <Popup>
+                  <div className="project-result-map-popup">
+                    <strong>{point.name || point.groupLabel}</strong>
+                    <div>{point.groupLabel}</div>
+                    <div>Тип: {point.kind || '—'}</div>
+                    <div>До объекта: {formatNumber(point.distanceMeters, 0)} м</div>
+                  </div>
+                </Popup>
+              </CircleMarker>
+            ))}
+
             <CircleMarker
               center={center}
               radius={7}
@@ -785,7 +926,7 @@ function EnvironmentAnalysisMap({ analysis, objectPoint, captureRef = null }) {
           <div className="project-result-environment-stat-grid">
             <Statistic
               title="Индекс окружения"
-              value={hasMeaningfulValue(analysis?.totalScore) ? Number(analysis.totalScore) : 0}
+              value={resolveEnvironmentDisplayScore(analysis)}
               precision={1}
               valueStyle={{ fontSize: 22 }}
             />

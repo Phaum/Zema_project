@@ -298,8 +298,16 @@ function applyDerivedThirdPlusArea(floors = [], totalArea) {
 
     const firstFloor = floorRows.find((floor) => String(floor?.id) === 'above_1');
     const secondFloor = floorRows.find((floor) => String(floor?.id) === 'above_2');
+    const lowerFloorsArea = floorRows
+        .filter((floor) => {
+            const id = String(floor?.id || '');
+            const category = String(floor?.floorCategory || '').toLowerCase();
+
+            return id.startsWith('underground_') || id === 'basement' || category === 'underground' || category === 'basement';
+        })
+        .reduce((sum, floor) => sum + toAreaNumber(floor?.area), 0);
     const derivedArea = roundAreaValue(
-        Math.max(0, total - toAreaNumber(firstFloor?.area) - toAreaNumber(secondFloor?.area))
+        Math.max(0, total - lowerFloorsArea - toAreaNumber(firstFloor?.area) - toAreaNumber(secondFloor?.area))
     );
 
     return floorRows.map((floor) => {
@@ -324,7 +332,10 @@ function shouldRecalculateThirdPlusArea(floorId, fieldName) {
     }
 
     const normalizedFloorId = String(floorId || '');
-    return normalizedFloorId === 'above_1' || normalizedFloorId === 'above_2';
+    return normalizedFloorId === 'above_1' ||
+        normalizedFloorId === 'above_2' ||
+        normalizedFloorId === 'basement' ||
+        normalizedFloorId.startsWith('underground_');
 }
 
 function isDerivedThirdPlusFloor(floor = {}) {

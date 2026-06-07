@@ -79,7 +79,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                 setMarketContext(null);
             }
         } catch (error) {
-            message.error(error?.response?.data?.error || 'Не удалось загрузить проект');
+            // message.error(error?.response?.data?.error || 'Не удалось загрузить проект');
         } finally {
             setLoading(false);
         }
@@ -120,6 +120,30 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
     const handleQuestionnaireTransitionChange = useCallback((isActive) => {
         setWorkspaceTransition(isActive ? 'validation' : null);
     }, []);
+
+    const moveToStepWithStatus = useCallback(async (nextStep, nextStatus) => {
+        setActiveStep(nextStep);
+
+        try {
+            const { data } = await api.patch(`/projects/${projectId}`, { status: nextStatus });
+            setProject((currentProject) => {
+                if (!currentProject) {
+                    return currentProject;
+                }
+
+                return {
+                    ...currentProject,
+                    status: data?.status || nextStatus,
+                    payment_status: data?.payment_status ?? currentProject.payment_status,
+                    access: data?.access || currentProject.access,
+                };
+            });
+            onProjectChanged?.();
+        } catch (error) {
+            message.error(error?.response?.data?.error || 'Не удалось обновить статус проекта');
+            await loadProject();
+        }
+    }, [loadProject, onProjectChanged, projectId]);
 
     const handleQuestionnaireChanged = useCallback((questionnaire) => {
         if (!questionnaire) {
@@ -217,7 +241,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                             <ProjectValidationPanel
                                 projectId={projectId}
                                 project={project}
-                                onBack={() => setActiveStep(0)}
+                                onBack={() => moveToStepWithStatus(0, 'questionnaire')}
                                 onSaved={loadProject}
                                 onTransitionChange={handleResultTransitionChange}
                                 onNext={async () => {
@@ -246,7 +270,7 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                             <ProjectPaymentPanel
                                 projectId={projectId}
                                 project={project}
-                                onBack={() => setActiveStep(1)}
+                                onBack={() => moveToStepWithStatus(1, 'validation')}
                                 onCalculateRequest={runProjectCalculation}
                                 onPaymentChanged={async () => {
                                     await loadProject();
@@ -261,7 +285,10 @@ export default function ProjectWorkspace({ projectId, onProjectChanged }) {
                                 projectId={projectId}
                                 project={project}
                                 marketContext={marketContext}
-                                onBack={() => setActiveStep(paymentStepRequired ? 2 : 1)}
+                                onBack={() => moveToStepWithStatus(
+                                    paymentStepRequired ? 2 : 1,
+                                    paymentStepRequired ? 'calculation' : 'validation'
+                                )}
                             />
                         )}
                     </Space>

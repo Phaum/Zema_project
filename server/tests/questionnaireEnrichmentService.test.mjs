@@ -88,6 +88,19 @@ test('sanitizeAutoFilledLeasableArea preserves manual value', () => {
     assert.equal(result.questionnaire.fieldSourceHints.leasableArea, 'manual_input');
 });
 
+test('sanitizeAutoFilledLeasableArea preserves value derived from floor sum', () => {
+    const result = sanitizeAutoFilledLeasableArea({
+        leasableArea: 600,
+        fieldSourceHints: {
+            leasableArea: 'derived_from_floor_sum',
+        },
+    });
+
+    assert.equal(result.removed, false);
+    assert.equal(result.questionnaire.leasableArea, 600);
+    assert.equal(result.questionnaire.fieldSourceHints.leasableArea, 'derived_from_floor_sum');
+});
+
 test('sanitizeAutoFilledOccupiedArea clears auto-filled value', () => {
     const result = sanitizeAutoFilledOccupiedArea({
         occupiedArea: 9697.3,

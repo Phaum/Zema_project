@@ -80,7 +80,7 @@ export default function ProjectsPage() {
                 }
             }
         } catch (error) {
-            message.error(error?.response?.data?.error || 'Не удалось загрузить проекты');
+            // message.error(error?.response?.data?.error || 'Не удалось загрузить проекты');
         } finally {
             setLoading(false);
         }

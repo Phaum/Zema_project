@@ -58,7 +58,7 @@ export default function AdminProjectsTable() {
             setPageState({ current: data.page || page, pageSize: data.pageSize || pageSize });
         } catch (e) {
             console.error(e);
-            setError(e?.response?.data?.error || 'Не удалось загрузить проекты');
+            // setError(e?.response?.data?.error || 'Не удалось загрузить проекты');
         } finally {
             setLoading(false);
         }
@@ -79,7 +79,7 @@ export default function AdminProjectsTable() {
             setPreviewProject(data);
         } catch (e) {
             console.error(e);
-            setPreviewError(e?.response?.data?.error || 'Не удалось загрузить проект');
+            // setPreviewError(e?.response?.data?.error || 'Не удалось загрузить проект');
         } finally {
             setPreviewLoading(false);
         }

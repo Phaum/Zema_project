@@ -646,8 +646,14 @@ export function sanitizeAutoFilledLeasableArea(questionnaire = {}, { sourceHints
         fieldSourceHints: normalizeFieldSourceHints(questionnaire?.fieldSourceHints),
     };
     const source = resolveEffectiveFieldSource(nextQuestionnaire, 'leasableArea', sourceHints);
+    const normalizedSource = normalizeText(source).toLowerCase();
 
-    if (!hasMeaningfulValue(nextQuestionnaire.leasableArea) || !source || isManualFieldSource(source)) {
+    if (
+        !hasMeaningfulValue(nextQuestionnaire.leasableArea) ||
+        !source ||
+        isManualFieldSource(source) ||
+        normalizedSource === 'derived_from_floor_sum'
+    ) {
         return {
             questionnaire: nextQuestionnaire,
             removed: false,
